@@ -17,9 +17,9 @@ pub fn label(pitch: u8) -> String {
 }
 impl Viewport {
     pub fn x(&self, tick: u64) -> f32 { ((tick as f64 - self.start_tick as f64) / PPQ as f64 * self.pixels_per_beat as f64) as f32 }
-    pub fn scene(&self, project: &Project, track: u64, selected: Option<u64>, preview: Option<&Note>) -> (Vec<NoteRect>, bool) {
-        let mut scene = Vec::new(); let Some(track) = project.track(track) else { return (scene, false); };
-        for source in &track.notes {
+    pub fn scene(&self, project: &Project, track: u64, clip: u64, selected: Option<u64>, preview: Option<&Note>) -> (Vec<NoteRect>, bool) {
+        let mut scene = Vec::new(); let Some(clip) = project.clip(track, clip) else { return (scene, false); };
+        for source in &clip.notes {
             let note = preview.filter(|n| n.id == source.id).unwrap_or(source);
             let x = self.x(note.start); let width = note.duration as f32 / PPQ as f32 * self.pixels_per_beat;
             let y = (self.top_note as i32 - note.pitch as i32) as f32 * ROW_HEIGHT;
@@ -30,11 +30,11 @@ impl Viewport {
         }
         (scene, false)
     }
-    pub fn hit(&self, p: &Project, track: u64, x: f32, y: f32) -> Option<(Note, bool)> {
+    pub fn hit(&self, p: &Project, track: u64, clip: u64, x: f32, y: f32) -> Option<(Note, bool)> {
         if !x.is_finite() || !y.is_finite() { return None; }
-        let (scene, _) = self.scene(p, track, None, None);
+        let (scene, _) = self.scene(p, track, clip, None, None);
         let rect = scene.iter().rev().find(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)?;
-        let note = p.track(track)?.notes.iter().find(|n| n.id == rect.id)?.clone();
+        let note = p.clip(track, clip)?.notes.iter().find(|n| n.id == rect.id)?.clone();
         Some((note, x >= rect.x + rect.width - 7.0))
     }
     pub fn insertion(&self, length: u64, x: f32, y: f32) -> Option<(u64, u8)> {
@@ -60,15 +60,15 @@ impl Viewport {
 #[cfg(test)] mod tests {
     use super::*;
     #[test] fn hit_cull_snap_drag() {
-        let p = Project::demo(); let v = Viewport::default(); let (scene, capped) = v.scene(&p, 1, None, None);
+        let p = Project::demo(); let v = Viewport::default(); let (scene, capped) = v.scene(&p, 1, 4, None, None);
         assert!(!capped); assert_eq!(scene.len(), 8);
-        let rect = &scene[0]; let (note, resize) = v.hit(&p, 1, rect.x + 4.0, rect.y + 4.0).unwrap(); assert!(!resize);
+        let rect = &scene[0]; let (note, resize) = v.hit(&p, 1, 4, rect.x + 4.0, rect.y + 4.0).unwrap(); assert!(!resize);
         let g = Gesture { original: note.clone(), preview: note, x: 4.0, y: 4.0, resize: false };
         let moved = v.drag(&g, 68.0, -12.0, p.length_ticks); assert_eq!(moved.start, PPQ); assert_eq!(moved.pitch, 61);
         assert_eq!(v.insertion(p.length_ticks, 21.0, 16.0).unwrap(), (SNAP, 83));
     }
     #[test] fn offscreen_notes_do_not_create_rectangles() {
         let p = Project::demo(); let v = Viewport { start_tick: 12 * PPQ, ..Viewport::default() };
-        assert!(v.scene(&p, 1, None, None).0.is_empty());
+        assert!(v.scene(&p, 1, 4, None, None).0.is_empty());
     }
 }

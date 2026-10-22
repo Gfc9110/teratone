@@ -1,0 +1,95 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.51s
+     Running unittests src/lib.rs (target/debug/deps/opendaw_app-2895e3b0512c5857)
+
+running 18 tests
+test bridge::tests::abi_layout_on_64_bit_targets ... ok
+test project::tests::mix_gestures_and_metadata_impacts ... ok
+test editor::tests::offscreen_notes_do_not_create_rectangles ... ok
+test editor::tests::hit_cull_snap_drag ... ok
+test project::tests::clip_bounds_and_instance_identity_are_validated ... ok
+test project::tests::sample_rate_independent_score ... ok
+test project::tests::duplicate_track_is_deep_and_restores_ids_on_redo ... ok
+test bridge::tests::native_bridge_roundtrip ... ok
+test project::tests::undo_redo_and_invalid_edit ... ok
+test project::tests::track_limits_and_invalid_commands_are_atomic ... ok
+test project::tests::legacy_migration_preserves_score_and_rejects_bad_ids ... ok
+test storage::tests::reject_escape_path ... ok
+test bridge::tests::clip_offsets_and_track_order_match_flat_score ... ok
+test storage::tests::reject_escape_recovery_symlink ... ok
+test project::tests::track_history_sequences_keep_identity_and_order ... ok
+test storage::tests::duplicated_sampler_assets_survive_portable_save ... ok
+test storage::tests::roundtrip_backup_and_version_rejection ... ok
+test storage::tests::migration_keeps_original_v1_across_repeated_saves ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running unittests src/project_cli.rs (target/debug/deps/opendaw_project-c2e44aa43a968e81)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests opendaw_app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.11s
+     Running unittests src/lib.rs (target/debug/deps/opendaw_app-0c076527f811ca7d)
+
+running 21 tests
+test bridge::tests::abi_layout_on_64_bit_targets ... ok
+test editor::tests::offscreen_notes_do_not_create_rectangles ... ok
+test editor::tests::hit_cull_snap_drag ... ok
+test project::tests::mix_gestures_and_metadata_impacts ... ok
+test project::tests::duplicate_track_is_deep_and_restores_ids_on_redo ... ok
+test project::tests::clip_bounds_and_instance_identity_are_validated ... ok
+test controller::tests::delayed_mix_targets_original_track_and_history_repairs_selection ... ok
+test controller::tests::identity_selection_survives_duplicate_reorder_delete_and_history ... ok
+test project::tests::sample_rate_independent_score ... ok
+test bridge::tests::native_bridge_roundtrip ... ok
+test controller::tests::metadata_and_undo_preserve_running_engine ... ok
+test project::tests::undo_redo_and_invalid_edit ... ok
+test project::tests::track_limits_and_invalid_commands_are_atomic ... ok
+test project::tests::legacy_migration_preserves_score_and_rejects_bad_ids ... ok
+test storage::tests::reject_escape_path ... ok
+test storage::tests::reject_escape_recovery_symlink ... ok
+test bridge::tests::clip_offsets_and_track_order_match_flat_score ... ok
+test project::tests::track_history_sequences_keep_identity_and_order ... ok
+test storage::tests::duplicated_sampler_assets_survive_portable_save ... ok
+test storage::tests::roundtrip_backup_and_version_rejection ... ok
+test storage::tests::migration_keeps_original_v1_across_repeated_saves ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running unittests src/main.rs (target/debug/deps/opendaw-1dcf6febe68408f7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/project_cli.rs (target/debug/deps/opendaw_project-227ced6228409b59)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests opendaw_app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `release` profile [optimized] target(s) in 22.18s
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running `target/debug/opendaw-project validate ../examples/First-session.opendaw`
+Valid project: 2 tracks, 10 notes
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running `target/debug/opendaw-project render ../examples/First-session.opendaw target/project-demo.wav`
+Rendered target/project-demo.wav
+
+Validate the UI and native audio on hardware; preserve Cargo.lock after successful validation.

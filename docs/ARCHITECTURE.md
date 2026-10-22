@@ -135,3 +135,20 @@ not complete or validated.
 - app/src/editor.rs: interaction and render-neutral note scene.
 - app/src/bridge.rs: checked Rust ABI wrapper.
 - app/src/main.rs, app/ui/main.slint: presentation adapter.
+
+## M3.1 track and clip foundation — 22 October 2026
+
+The Rust document is now schema v2: stable track/instance/clip/note IDs,
+track colors and clip-local note times. Separate strict DTOs migrate v1 in memory.
+The controller identifies tracks by ID; numeric slots are derived only at the
+bridge. Structural edits retain stop/prepare behavior. Metadata changes and their
+undo preserve playback. Gain/pan changes can continue live; slider release ends
+an undo gesture. Selection releases live audition notes instead of resetting all
+scheduled voices. Export and native preparation flatten clips to absolute frames.
+The C++ graph, DSP and C ABI v1 are unchanged in this increment.
+
+The sidebar exposes track CRUD/order/properties and the editor can select existing
+MIDI clips. Arrangement editing, mute/solo, the vertical keyboard, expanded synth
+and multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
+for exact scope, evidence and remaining limitations; PROJECT_FORMAT.md documents
+the implemented v2 fields rather than the broader proposed handoff model.

@@ -1,16 +1,25 @@
-use crate::{bridge::{Engine, Telemetry}, editor::{Gesture, NoteRect, Viewport}, project::{Edit, History, Instrument, Note, Project, PPQ}, storage};
-use std::{path::PathBuf, sync::{Arc, atomic::{AtomicU32, Ordering}, mpsc::{self, Receiver, SyncSender, TrySendError}}, thread::{self, JoinHandle}, time::{Duration, Instant}};
+use crate::{bridge::{Engine, Telemetry}, editor::{Gesture, NoteRect, Viewport}, project::{Edit, History, Impact, Instrument, Note, Project, PPQ, MAX_TRACKS}, storage};
+use std::{collections::HashMap, path::PathBuf, sync::{Arc, atomic::{AtomicU32, Ordering}, mpsc::{self, Receiver, SyncSender, TrySendError}}, thread::{self, JoinHandle}, time::{Duration, Instant}};
 pub const PANIC: u32 = 1; pub const STOP: u32 = 2; pub const QUIT: u32 = 4;
 #[derive(Debug)]
 pub enum Request {
-    Play, Pause, ToggleLoop, Seek(f64), SelectTrack(i32), Tempo(f64), Mix(f32, f32), Undo, Redo, Delete,
+    Play, Pause, ToggleLoop, Seek(f64), SelectTrack(u64), SelectClip { track: u64, clip: u64 },
+    AddTrack { after: u64 }, DuplicateTrack(u64), RemoveTrack(u64), MoveTrack { track: u64, direction: i32 },
+    RenameTrack { track: u64, name: String }, ColorTrack { track: u64, color: String },
+    Tempo(f64), Mix { track: u64, gain: f32, pan: f32 }, FinishMix, Undo, Redo, Delete,
     Viewport(f32, f32), Zoom(f32), Pan(i32), Pitch(i32),
     Down(f32, f32, bool), Move(f32, f32), Up(f32, f32),
-    Audition(u8, bool), Save(PathBuf), Open(PathBuf), Export(PathBuf), Import(PathBuf, u8, bool), UseSine,
+    Audition { track: u64, pitch: u8, on: bool }, Save(PathBuf), Open(PathBuf), Export(PathBuf),
+    Import { track: u64, path: PathBuf, root_note: u8, one_shot: bool }, UseSine(u64),
 }
 #[derive(Clone)]
+pub struct TrackView { pub id: u64, pub name: String, pub color: String, pub instrument: String, pub selected: bool }
+#[derive(Clone)]
+pub struct ClipView { pub id: u64, pub name: String }
+#[derive(Clone)]
 pub struct ViewState {
-    pub name: String, pub status: String, pub tracks: Vec<String>, pub track_index: i32,
+    pub name: String, pub status: String, pub tracks: Vec<TrackView>, pub track_id: u64, pub track_index: usize,
+    pub clips: Vec<ClipView>, pub clip_index: Option<usize>, pub clip_start: u64, pub track_name: String, pub track_color: String,
     pub bpm: f64, pub gain: f32, pub pan: f32, pub dirty: bool, pub can_undo: bool, pub can_redo: bool,
     pub notes: Vec<NoteRect>, pub viewport: Viewport, pub export_busy: bool, pub selected_label: String,
 }
@@ -19,41 +28,95 @@ pub struct Connection {
     pub sender: SyncSender<Request>, pub receiver: Receiver<Response>, pub flags: Arc<AtomicU32>, pub worker: JoinHandle<()>,
 }
 struct State {
-    project: Project, history: History, engine: Engine, viewport: Viewport, track_index: usize,
+    project: Project, history: History, engine: Engine, viewport: Viewport, track_id: u64, clip_id: Option<u64>,
     selected: Option<u64>, gesture: Option<Gesture>, insertion: Option<(u64, u8)>,
+    live: HashMap<(u64, u8), u64>, next_live: u64,
     dirty: bool, needs_compile: bool, looping: bool, silent: bool, status: String,
     export_job: Option<JoinHandle<Result<(), String>>>,
 }
 impl State {
-    fn track_id(&self) -> u64 { self.project.tracks[self.track_index].id }
+    fn new(silent: bool) -> Result<Self, String> {
+        Ok(Self { project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?, viewport: Viewport { top_note: 80, ..Viewport::default() },
+            track_id: 1, clip_id: Some(4), selected: None, gesture: None, insertion: None,
+            live: HashMap::new(), next_live: 1, dirty: false, needs_compile: true, looping: false, silent,
+            status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Select a track or add an oscillator." }.into(), export_job: None })
+    }
+    fn track_index(&self, id: u64) -> Result<usize, String> {
+        self.project.tracks.iter().position(|t| t.id == id).ok_or_else(|| "Track no longer exists".into())
+    }
+    fn clip(&self) -> Option<&crate::project::MidiClip> { self.project.clip(self.track_id, self.clip_id?) }
+    fn release_audition(&mut self) -> Result<(), String> {
+        let active = std::mem::take(&mut self.live);
+        for ((track, pitch), id) in active {
+            let index = self.track_index(track)?;
+            if let Err(error) = self.engine.live_note(index as u32, id, pitch, false) { self.engine.panic()?; return Err(error); }
+        }
+        Ok(())
+    }
+    fn repair_selection(&mut self, fallback: usize) {
+        if self.project.track(self.track_id).is_none() {
+            self.track_id = self.project.tracks[fallback.min(self.project.tracks.len() - 1)].id;
+        }
+        if self.clip().is_none() { self.clip_id = self.project.track(self.track_id).and_then(|t| t.clips.first()).map(|c| c.id); }
+        if !self.selected.is_some_and(|id| self.clip().is_some_and(|c| c.notes.iter().any(|n| n.id == id))) { self.selected = None; }
+    }
     fn quiesce(&mut self) -> Result<(), String> {
         self.engine.stop()?; self.engine.close_device()?;
-        let _ = self.engine.render(1)?; // apply the priority stop while there is no device consumer
-        self.gesture = None; self.insertion = None; Ok(())
+        let _ = self.engine.render(1)?; // Only consumer after the device has joined.
+        self.live.clear(); self.history.finish_gesture(); self.gesture = None; self.insertion = None; Ok(())
+    }
+    fn sync_mix(&mut self) -> Result<(), String> {
+        if !self.needs_compile {
+            for (index, track) in self.project.tracks.iter().enumerate() {
+                if let Err(error) = self.engine.mix(index as u32, track.gain, track.pan) {
+                    self.needs_compile = true; return Err(format!("Document saved in memory; audio needs recompilation: {error}"));
+                }
+            }
+        }
+        Ok(())
     }
     fn edit(&mut self, edit: Edit) -> Result<(), String> {
-        self.quiesce()?;
-        self.history.execute(&mut self.project, edit)?; self.dirty = true; self.needs_compile = true;
-        self.status = "Edited. Playback stopped; press Play to compile and resume.".into(); Ok(())
+        let fallback = self.track_index(self.track_id)?;
+        let impact = edit.impact();
+        if impact == Impact::Structural { self.quiesce()?; }
+        self.history.execute(&mut self.project, edit)?;
+        self.dirty = true; self.repair_selection(fallback);
+        match impact {
+            Impact::Structural => { self.needs_compile = true; self.status = "Edited. Playback stopped; press Play to resume.".into(); }
+            Impact::Metadata => self.status = "Track properties updated. Playback continues.".into(),
+            Impact::Realtime => { self.sync_mix()?; self.status = "Mixer updated.".into(); }
+        }
+        Ok(())
     }
     fn compile(&mut self) -> Result<(), String> {
         if self.needs_compile { self.engine.load(&self.project)?; self.needs_compile = false; }
         Ok(())
     }
     fn view(&self) -> ViewState {
-        let t = &self.project.tracks[self.track_index];
+        let t = self.project.track(self.track_id).expect("selected track invariant");
         let preview = self.gesture.as_ref().map(|g| &g.preview);
-        let (notes, capped) = self.viewport.scene(&self.project, t.id, self.selected, preview);
-        let selected_label = self.selected.and_then(|id| t.notes.iter().find(|n| n.id == id))
+        let (notes, capped) = self.viewport.scene(&self.project, t.id, self.clip_id.unwrap_or(0), self.selected, preview);
+        let selected_label = self.selected.and_then(|id| self.clip()?.notes.iter().find(|n| n.id == id))
             .map(|n| format!("{} · {:.2} beats · velocity {}", crate::editor::label(n.pitch), n.duration as f64 / PPQ as f64, n.velocity))
-            .unwrap_or_else(|| "Click empty space to insert · drag to move · drag right edge to resize".into());
-        ViewState { name: self.project.name.clone(), status: if capped { format!("{}  |  View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
-            tracks: self.project.tracks.iter().map(|t| t.name.clone()).collect(), track_index: self.track_index as i32,
+            .unwrap_or_else(|| if self.clip().is_none() { "This track has no MIDI clips.".into() }
+                else { "Click empty space to insert · drag to move · drag right edge to resize".into() });
+        ViewState { name: self.project.name.clone(), status: if capped { format!("{} | View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
+            tracks: self.project.tracks.iter().map(|t| TrackView { id: t.id, name: t.name.clone(), color: t.color.clone(), instrument: t.instrument.config.label().into(), selected: t.id == self.track_id }).collect(),
+            track_id: t.id, track_index: self.track_index(t.id).unwrap(), track_name: t.name.clone(), track_color: t.color.clone(),
+            clips: t.clips.iter().map(|c| ClipView { id: c.id, name: c.name.clone() }).collect(),
+            clip_index: t.clips.iter().position(|c| Some(c.id) == self.clip_id), clip_start: self.clip().map_or(0, |c| c.start_tick),
             bpm: self.project.bpm, gain: t.gain, pan: t.pan, dirty: self.dirty, can_undo: self.history.can_undo(), can_redo: self.history.can_redo(),
             notes, viewport: self.viewport, export_busy: self.export_job.is_some(), selected_label }
     }
+    fn select_track(&mut self, id: u64) -> Result<(), String> {
+        self.track_index(id)?; self.release_audition()?; self.history.finish_gesture();
+        self.track_id = id; self.clip_id = self.project.track(id).and_then(|t| t.clips.first()).map(|c| c.id);
+        self.selected = None; self.gesture = None; self.insertion = None; self.viewport.start_tick = 0;
+        let highest = self.clip().and_then(|c| c.notes.iter().map(|n| n.pitch).max()).unwrap_or(72);
+        self.viewport.top_note = highest.saturating_add(8).clamp(24, 127); Ok(())
+    }
     fn request(&mut self, r: Request, flags: &AtomicU32) -> Result<(), String> {
-        let track_id = self.track_id();
+        let track_id = self.track_id;
         match r {
             Request::Play => {
                 self.compile()?;
@@ -62,7 +125,7 @@ impl State {
                 self.engine.start_device(self.silent)?; self.engine.play()?;
                 self.status = if self.silent { "SILENT CLOCK — transport simulation; no audio output" } else { "Playing through native output" }.into();
             }
-            Request::Pause => self.engine.pause()?,
+            Request::Pause => { self.engine.pause()?; self.live.clear(); self.gesture = None; self.insertion = None; }
             Request::ToggleLoop => {
                 self.looping = !self.looping;
                 if !self.needs_compile { self.engine.set_loop(self.looping, 0, self.project.frame_at(self.project.length_ticks, 48000))?; }
@@ -71,92 +134,137 @@ impl State {
             Request::Seek(beat) => {
                 if !beat.is_finite() || beat < 0.0 { return Err("Invalid seek position".into()); }
                 self.compile()?;
-                let tick = ((beat * PPQ as f64) as u64).min(self.project.length_ticks);
-                self.engine.seek(self.project.frame_at(tick, 48000))?;
-                self.status = "Seek resets voices; notes starting before the position are not chased.".into();
+                let begin = self.clip().map_or(0, |c| c.start_tick);
+                let relative = (beat * PPQ as f64).min(self.project.length_ticks as f64) as u64;
+                let tick = begin.saturating_add(relative).min(self.project.length_ticks);
+                self.engine.seek(self.project.frame_at(tick, 48000))?; self.live.clear();
+                self.status = "Seek resets voices; earlier notes are not chased.".into();
             }
-            Request::SelectTrack(i) => {
-                if i < 0 || i as usize >= self.project.tracks.len() { return Err("Invalid track".into()); }
-                self.engine.panic()?; self.track_index = i as usize; self.selected = None; self.gesture = None;
-                let highest = self.project.tracks[self.track_index].notes.iter().map(|n| n.pitch).max().unwrap_or(72);
+            Request::SelectTrack(id) => self.select_track(id)?,
+            Request::SelectClip { track, clip } => {
+                if self.project.clip(track, clip).is_none() { return Err("Clip no longer exists".into()); }
+                self.select_track(track)?; self.clip_id = Some(clip); self.viewport.start_tick = 0;
+                let highest = self.clip().and_then(|c| c.notes.iter().map(|n| n.pitch).max()).unwrap_or(72);
                 self.viewport.top_note = highest.saturating_add(8).clamp(24, 127);
             }
+            Request::AddTrack { after } => {
+                self.track_index(after)?; if self.project.tracks.len() >= MAX_TRACKS { return Err("This increment supports up to 16 tracks.".into()); }
+                let new_id = self.project.next_id; self.edit(Edit::AddTrack { after })?; self.select_track(new_id)?;
+            }
+            Request::DuplicateTrack(id) => {
+                self.track_index(id)?; if self.project.tracks.len() >= MAX_TRACKS { return Err("This increment supports up to 16 tracks.".into()); }
+                let new_id = self.project.next_id; self.edit(Edit::DuplicateTrack { track: id })?; self.select_track(new_id)?;
+            }
+            Request::RemoveTrack(id) => {
+                self.track_index(id)?; if self.project.tracks.len() <= 1 { return Err("Keep at least one track.".into()); }
+                self.edit(Edit::RemoveTrack { track: id })?;
+            }
+            Request::MoveTrack { track, direction } => {
+                let from = self.track_index(track)?;
+                let index = (from as i64 + direction.signum() as i64).clamp(0, self.project.tracks.len() as i64 - 1) as usize;
+                if index != from { self.edit(Edit::MoveTrack { track, index })?; }
+            }
+            Request::RenameTrack { track, name } => {
+                let t = self.project.track(track).ok_or("Track no longer exists")?;
+                if t.name != name { self.edit(Edit::TrackInfo { track, name, color: t.color.clone() })?; }
+            }
+            Request::ColorTrack { track, color } => {
+                let t = self.project.track(track).ok_or("Track no longer exists")?;
+                if t.color != color { self.edit(Edit::TrackInfo { track, name: t.name.clone(), color })?; }
+            }
             Request::Tempo(bpm) => self.edit(Edit::Tempo(bpm))?,
-            Request::Mix(gain, pan) => {
-                self.history.execute(&mut self.project, Edit::Mix { track: track_id, gain, pan })?;
-                self.dirty = true;
-                if !self.needs_compile { self.engine.mix(self.track_index as u32, gain, pan)?; }
-                self.status = if self.needs_compile {
-                    "Mixer edit stored for the next playback compile; changes share one undo step."
-                } else { "Mixer change applied; consecutive changes share one undo step." }.into();
-            }
+            Request::Mix { track, gain, pan } => self.edit(Edit::Mix { track, gain, pan })?,
+            Request::FinishMix => self.history.finish_gesture(),
             Request::Undo | Request::Redo => {
-                self.quiesce()?;
-                let changed = if matches!(r, Request::Undo) { self.history.undo(&mut self.project)? } else { self.history.redo(&mut self.project)? };
-                if changed { self.dirty = true; self.needs_compile = true; self.status = "History applied; playback stopped.".into(); }
+                let redo = matches!(r, Request::Redo);
+                let impact = if redo { self.history.redo_impact() } else { self.history.undo_impact() };
+                let fallback = self.track_index(self.track_id)?;
+                if impact == Some(Impact::Structural) { self.quiesce()?; }
+                let changed = if redo { self.history.redo(&mut self.project)? } else { self.history.undo(&mut self.project)? };
+                if changed {
+                    self.dirty = true; self.repair_selection(fallback); self.gesture = None; self.insertion = None;
+                    if impact == Some(Impact::Structural) { self.needs_compile = true; self.status = "History applied. Press Play to resume.".into(); }
+                    else { self.sync_mix()?; self.status = "History applied; playback continues.".into(); }
+                }
             }
-            Request::Delete => { if let Some(id) = self.selected.take() { self.edit(Edit::Delete { track: track_id, id })?; } }
+            Request::Delete => { if let (Some(id), Some(clip)) = (self.selected, self.clip_id) { self.edit(Edit::Delete { track: track_id, clip, id })?; self.selected = None; } }
             Request::Viewport(w, h) => {
                 if w.is_finite() && h.is_finite() { self.viewport.width = w.clamp(1.0, 4096.0); self.viewport.height = h.clamp(1.0, 2160.0); }
             }
             Request::Zoom(f) => { if f.is_finite() && f > 0.0 { self.viewport.pixels_per_beat = (self.viewport.pixels_per_beat * f).clamp(24.0, 256.0); } }
             Request::Pan(beats) => {
-                self.viewport.start_tick = (self.viewport.start_tick as i64 + beats as i64 * PPQ as i64).clamp(0, self.project.length_ticks.saturating_sub(PPQ) as i64) as u64;
+                let length = self.clip().map_or(0, |c| c.length_ticks);
+                self.viewport.start_tick = (self.viewport.start_tick as i64 + beats as i64 * PPQ as i64).clamp(0, length.saturating_sub(PPQ) as i64) as u64;
             }
             Request::Pitch(semitones) => self.viewport.top_note = (self.viewport.top_note as i32 + semitones).clamp(12, 127) as u8,
             Request::Down(x, y, right) => {
+                let clip = self.clip_id.ok_or("Select a MIDI clip before editing")?;
+                let length = self.clip().ok_or("Clip no longer exists")?.length_ticks;
                 self.gesture = None; self.insertion = None;
-                if let Some((note, resize)) = self.viewport.hit(&self.project, track_id, x, y) {
+                if let Some((note, resize)) = self.viewport.hit(&self.project, track_id, clip, x, y) {
                     self.selected = Some(note.id);
-                    if right { self.edit(Edit::Delete { track: track_id, id: note.id })?; self.selected = None; }
+                    if right { self.edit(Edit::Delete { track: track_id, clip, id: note.id })?; self.selected = None; }
                     else { self.gesture = Some(Gesture { original: note.clone(), preview: note, x, y, resize }); }
                 } else if !right {
-                    self.selected = None; self.insertion = self.viewport.insertion(self.project.length_ticks, x, y);
+                    self.selected = None; self.insertion = self.viewport.insertion(length, x, y);
                 }
             }
             Request::Move(x, y) => {
-                if let Some(g) = &mut self.gesture { g.preview = self.viewport.drag(g, x, y, self.project.length_ticks); }
+                let length = self.clip().map_or(0, |c| c.length_ticks);
+                if let Some(g) = &mut self.gesture { g.preview = self.viewport.drag(g, x, y, length); }
             }
             Request::Up(x, y) => {
+                let Some(clip) = self.clip_id else { return Ok(()); };
+                let length = self.clip().ok_or("Clip no longer exists")?.length_ticks;
                 if let Some(g) = self.gesture.take() {
-                    let note = self.viewport.drag(&g, x, y, self.project.length_ticks);
-                    if note != g.original { self.edit(Edit::Replace { track: track_id, note })?; }
+                    let note = self.viewport.drag(&g, x, y, length);
+                    if note != g.original { self.edit(Edit::Replace { track: track_id, clip, note })?; }
                 } else if let Some((start, pitch)) = self.insertion.take() {
-                    let id = self.project.allocate_id()?;
-                    let note = Note { id, start, duration: (PPQ / 2).min(self.project.length_ticks - start).max(1), pitch, velocity: 100 };
-                    self.edit(Edit::Insert { track: track_id, note })?; self.selected = Some(id);
+                    let index = self.clip().unwrap().notes.len(); let id = self.project.allocate_id()?;
+                    let note = Note { id, start, duration: (PPQ / 2).min(length - start).max(1), pitch, velocity: 100 };
+                    self.edit(Edit::Insert { track: track_id, clip, index, note })?; self.selected = Some(id);
                 }
             }
-            Request::Audition(pitch, on) => {
-                if on { self.compile()?; self.engine.start_device(self.silent)?; }
-                self.engine.live_note(self.track_index as u32, u64::from(pitch) + 1, pitch, on)?;
+            Request::Audition { track, pitch, on } => {
+                let index = self.track_index(track)?;
+                if on {
+                    self.compile()?; self.engine.start_device(self.silent)?;
+                    if let Some(previous) = self.live.remove(&(track, pitch)) { self.engine.live_note(index as u32, previous, pitch, false)?; }
+                    if self.live.len() >= 128 || self.next_live >= (1u64 << 63) - 1 { return Err("Live audition limit reached".into()); }
+                    let token = self.next_live; self.next_live += 1;
+                    self.engine.live_note(index as u32, token, pitch, true)?; self.live.insert((track, pitch), token);
+                } else if let Some(token) = self.live.remove(&(track, pitch)) { self.engine.live_note(index as u32, token, pitch, false)?; }
             }
             Request::Save(path) => {
-                self.project = storage::save(&path, &self.project)?; self.dirty = false;
-                self.status = format!("Saved {} (previous checkpoint retained)", path.display());
+                self.project = storage::save(&path, &self.project)?; self.dirty = false; self.history.finish_gesture();
+                self.status = format!("Saved {} (format v2)", path.display());
             }
             Request::Open(path) => {
                 if self.dirty { return Err("Save current edits before opening another project.".into()); }
-                let candidate = storage::load(&path)?; self.engine.load(&candidate)?;
-                self.project = candidate; self.history = History::default(); self.needs_compile = false;
-                self.track_index = 0; self.selected = None; self.gesture = None; self.insertion = None;
-                self.status = format!("Opened {}", path.display());
+                let (candidate, source_version) = storage::load_versioned(&path)?; self.engine.load(&candidate)?;
+                self.live.clear(); self.project = candidate; self.history = History::default(); self.needs_compile = false;
+                self.track_id = self.project.tracks[0].id; self.clip_id = None; self.selected = None; self.gesture = None; self.insertion = None;
+                self.repair_selection(0); self.viewport.start_tick = 0;
+                let highest = self.clip().and_then(|c| c.notes.iter().map(|n| n.pitch).max()).unwrap_or(72);
+                self.viewport.top_note = highest.saturating_add(8).clamp(24, 127);
+                self.status = if source_version == 1 { "Opened v1 project. Save upgrades to v2 and retains recovery/pre-m3-v1.json.".into() }
+                    else { format!("Opened {}", path.display()) };
             }
             Request::Export(path) => {
                 if self.export_job.is_some() { return Err("An export is already running.".into()); }
                 let project = self.project.clone(); self.status = format!("Exporting {} using an independent engine", path.display());
                 self.export_job = Some(thread::spawn(move || storage::export_atomic(&path, &project)));
             }
-            Request::Import(path, root_note, one_shot) => {
-                self.quiesce()?;
+            Request::Import { track, path, root_note, one_shot } => {
+                let index = self.track_index(track)?; self.quiesce()?;
                 let full = path.canonicalize().map_err(|e| e.to_string())?;
                 let instrument = Instrument::Sampler { sample_path: full.to_str().ok_or("Sample path must be UTF-8")?.into(), root_note, one_shot };
-                let mut candidate = self.project.clone(); candidate.tracks[self.track_index].instrument = instrument.clone();
-                self.engine.load(&candidate)?; // native importer validates the file before committing the document
-                self.history.execute(&mut self.project, Edit::Instrument { track: track_id, instrument })?;
-                self.dirty = true; self.needs_compile = false; self.status = "Short WAV sample loaded. Sample files are copied into assets/ on Save.".into();
+                let mut candidate = self.project.clone(); candidate.tracks[index].instrument.config = instrument.clone();
+                self.engine.load(&candidate)?;
+                self.history.execute(&mut self.project, Edit::Instrument { track, instrument })?;
+                self.dirty = true; self.needs_compile = false; self.status = "WAV loaded into this instance. Save copies samples into assets/.".into();
             }
-            Request::UseSine => self.edit(Edit::Instrument { track: track_id, instrument: Instrument::Sine })?,
+            Request::UseSine(track) => { self.track_index(track)?; self.edit(Edit::Instrument { track, instrument: Instrument::Sine })?; }
         }
         Ok(())
     }
@@ -166,16 +274,12 @@ pub fn spawn(silent: bool) -> Connection {
     let (responses, receiver) = mpsc::sync_channel(8);
     let flags = Arc::new(AtomicU32::new(0)); let worker_flags = flags.clone();
     let worker = thread::spawn(move || {
-        let engine = match Engine::new(48000, 256) { Ok(e) => e, Err(e) => { let _ = responses.send(Response::Fatal(e)); return; } };
-        let mut state = State { project: Project::demo(), history: History::default(), engine, viewport: Viewport::default(),
-            track_index: 0, selected: None, gesture: None, insertion: None, dirty: false, needs_compile: true,
-            looping: false, silent, status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Play the example or edit a note." }.into(), export_job: None };
+        let mut state = match State::new(silent) { Ok(s) => s, Err(e) => { let _ = responses.send(Response::Fatal(e)); return; } };
         let mut pending = Some(Box::new(state.view())); let mut last_meter = Instant::now();
         loop {
             let emergency = worker_flags.swap(0, Ordering::AcqRel);
             if emergency & QUIT != 0 { break; }
             if emergency & (PANIC | STOP) != 0 {
-                // Bounded cancellation of UI backlog, so an old queued Play cannot override Stop.
                 for _ in 0..64 { if requests.try_recv().is_err() { break; } }
                 if let Err(e) = state.quiesce() { state.status = e; }
                 else { state.status = "Stopped. Pending UI actions canceled.".into(); }
@@ -203,8 +307,37 @@ pub fn spawn(silent: bool) -> Connection {
             }
         }
         let _ = state.quiesce();
-        // No detached export: closing the app waits for this explicit job to finish.
         if let Some(job) = state.export_job.take() { let _ = job.join(); }
     });
     Connection { sender, receiver, flags, worker }
+}
+
+#[cfg(test)] mod tests {
+    use super::*;
+    fn request(state: &mut State, r: Request) { state.request(r, &AtomicU32::new(0)).unwrap(); state.project.validate().unwrap(); }
+    #[test] fn identity_selection_survives_duplicate_reorder_delete_and_history() {
+        let mut state = State::new(true).unwrap();
+        request(&mut state, Request::DuplicateTrack(1)); let id = state.track_id; let instance = state.project.track(id).unwrap().instrument.id;
+        request(&mut state, Request::MoveTrack { track: id, direction: 1 });
+        assert_eq!(state.track_id, id); assert_eq!(state.project.track(id).unwrap().instrument.id, instance);
+        request(&mut state, Request::RemoveTrack(id)); assert_ne!(state.track_id, id); assert!(!state.view().tracks.is_empty());
+        request(&mut state, Request::Undo); assert!(state.project.track(id).is_some());
+        request(&mut state, Request::Redo); assert!(state.project.track(id).is_none()); assert!(state.clip().is_some());
+        assert!(state.request(Request::RenameTrack { track: id, name: "Stale callback".into() }, &AtomicU32::new(0)).is_err());
+    }
+    #[test] fn metadata_and_undo_preserve_running_engine() {
+        let mut state = State::new(true).unwrap(); state.compile().unwrap(); state.engine.play().unwrap(); state.engine.render(256).unwrap();
+        request(&mut state, Request::RenameTrack { track: 1, name: "Lead renamed".into() });
+        request(&mut state, Request::ColorTrack { track: 1, color: "#ABCDEF".into() });
+        assert!(!state.needs_compile); state.engine.render(256).unwrap(); let t = state.engine.telemetry().unwrap(); assert_eq!(t.position, 512); assert_eq!(t.playing, 1);
+        request(&mut state, Request::Undo); assert!(!state.needs_compile); state.engine.render(256).unwrap(); assert_eq!(state.engine.telemetry().unwrap().position, 768);
+    }
+    #[test] fn delayed_mix_targets_original_track_and_history_repairs_selection() {
+        let mut state = State::new(true).unwrap(); request(&mut state, Request::SelectTrack(2));
+        request(&mut state, Request::Mix { track: 1, gain: 0.123, pan: -0.6 });
+        assert_eq!(state.project.track(1).unwrap().gain, 0.123); assert_eq!(state.project.track(2).unwrap().gain, 0.55);
+        request(&mut state, Request::AddTrack { after: 2 }); let added = state.track_id;
+        request(&mut state, Request::Undo); assert!(state.project.track(added).is_none()); assert!(state.project.track(state.track_id).is_some());
+        request(&mut state, Request::Redo); assert!(state.project.track(added).is_some());
+    }
 }

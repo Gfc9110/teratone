@@ -1,56 +1,101 @@
-# Project format v1 (candidate Rust implementation)
+# Project format v2 — M3.1
+
+The application reads v1 and v2 and writes v2. Opening a v1 project migrates it
+in memory without rewriting its source file. The example under
+`examples/First-session.opendaw/project.json` intentionally remains v1 as a
+compatibility fixture. Native playback still uses the existing C ABI v1.
 
 ```text
 Song.opendaw/
   project.json
-  assets/                 # immutable copied short samples
-  recovery/previous.json  # prior validated document checkpoint
+  assets/                 # copied short WAV files
+  recovery/previous.json  # previous validated manifest
+  recovery/pre-m3-v1.json # original v1 manifest when first saved as v2
 ```
 
-The example is examples/First-session.opendaw/project.json. This file was generated
-and JSON-parsed in the delivery environment. Its Rust load/save/round-trip paths
-have not been executed here.
+## Current v2 model
 
-Top-level fields: version=1, name, bpm, length_ticks, next_id, tracks. Time uses
-960 ticks per quarter note, independent of device sample rate. Tempo is constant,
-30–300 BPM; a tempo map is not implemented. Tracks have stable id, name, gain, pan,
-instrument, and notes. Notes contain id, start, duration, pitch, velocity. All
-persisted identities are nonzero, below 2^63 and below next_id; identities are not
-reused after undo. Track and note identities are globally distinct.
-
-Instrument variants:
+Project fields: `version=2`, `name`, `bpm`, `length_ticks`, `next_id`, `tracks`.
+Time uses 960 ticks per quarter note and constant tempo (30–300 BPM). Tracks now
+own an independent instrument instance and MIDI clips; there is no duplicate
+mutable `Track.notes` array.
 
 ```json
-{"kind":"sine"}
+{
+  "version": 2,
+  "name": "Example",
+  "bpm": 120.0,
+  "length_ticks": 15360,
+  "next_id": 100,
+  "tracks": [{
+    "id": 1,
+    "name": "Lead",
+    "color": "#62BFA6",
+    "gain": 0.7,
+    "pan": 0.0,
+    "instrument": {"id": 2, "config": {"kind": "sine"}},
+    "clips": [{
+      "id": 3,
+      "name": "Main",
+      "start_tick": 0,
+      "length_ticks": 15360,
+      "notes": [{"id": 4, "start": 0, "duration": 720, "pitch": 60, "velocity": 100}]
+    }]
+  }]
+}
 ```
+
+The other currently supported configuration is:
 
 ```json
-{"kind":"sampler","sample_path":"assets/sample-example.wav","root_note":60,"one_shot":false}
+{"id": 2, "config": {"kind": "sampler", "sample_path": "assets/sample-example.wav", "root_note": 60, "one_shot": false}}
 ```
 
-The saved sample path must be relative to assets/ with no traversal or absolute
-components. Load resolves it to an absolute runtime path and checks canonical
-containment. Save copies external media first, flushes files, retains the prior
-validated manifest, then replaces project.json. A failed save can leave orphan
-assets; it must not intentionally delete the previous checkpoint. Sample contents
-must remain unchanged while copying: a size change is detected, but a concurrent
-same-size content rewrite is not. There is no filesystem lock or sandbox against
-another local process racing symlink/path changes.
+A preset/synth-parameter model, mute/solo, drum pads and hashed asset references
+are subsequent M3 increments, not supported fields in this increment. Unknown
+fields and unsupported versions are rejected. The decoder uses separate strict
+DTOs for v1 and v2 and rejects duplicate fields in the original JSON bytes.
 
-Limits: 16 tracks, 100,000 notes, 24 hours, 32 MiB manifest, 128 MiB new-asset-copy
-budget per save. The separate native loader caps decoded media at 128 MiB per
-session; these are not interchangeable file/decoded-size limits. Temporary
-prepared old/new sessions and independent exports can increase process memory
-above those individual limits. No aggregate process RSS ceiling is implemented.
+All track, instance, clip and note IDs are globally unique, nonzero, below 2^63
+and below `next_id`. Track array order is visual/playback slot order, not identity.
+Duplicating a track allocates fresh IDs for its instance, clips and notes, while
+copying their values. Undo/redo restores object identities and original positions;
+`next_id` never goes backwards. Undo history is session-local, up to 512 steps.
+Note deletion also restores its original array position on undo.
 
-Undo stores inverse edits, not sample buffers, and is capped at 512 steps.
-Consecutive changes to the same track's mixer coalesce until another edit; the
-first implementation does not create time-based slider-gesture boundaries.
-Drag previews commit one persistent note edit on release. Undo history is not
-saved. Recovery is a previous saved manifest, not autosave or an operation journal.
-To restore manually, close the app, keep copies of both manifests, then replace
-project.json with recovery/previous.json; retain assets/.
+Clip starts are absolute project ticks. Note starts are local to their clip.
+Clips must fit inside the project, and notes inside their clip; checked addition
+rejects integer overflow. Overlapping clips sum their events with distinct note
+IDs. The bridge compiles absolute start/end frames using the actual engine rate.
+A note duration that rounds below one frame is rejected before native loading.
+The current editor selects one existing clip at a time. New tracks and migrated
+v1 tracks receive one full-length `Main` clip. Arrangement/clip creation controls
+will follow in M3.3.
 
-Unknown schema versions and unknown fields are rejected. Migration functions,
-plugin states, arrangement/audio clips, automation, routing documents and project
-bundling are reserved for later schema versions; do not silently add them to v1.
+Limits remain 16 tracks (matching native capacity), 100,000 notes total, 4,096
+clips, 24 hours, 32 MiB manifest and a 128 MiB new-asset-copy budget per save.
+The native loader separately caps decoded sample storage at 128 MiB. Memory for
+history, old/new prepared sessions and simultaneous export is additional.
+
+## Migration and persistence
+
+Migration preserves track/note IDs, pitch, velocity, tick values and mix. It
+assigns deterministic colors and allocates new instance/clip IDs from `next_id`.
+Legacy blank track names receive a displayable name. All content is validated
+before loading; unsupported versions do not replace the current project.
+
+On the first save over a valid v1 manifest, storage retains its original bytes
+in both `recovery/previous.json` and `recovery/pre-m3-v1.json`. Later v2 saves can
+replace `previous.json`, but preserve `pre-m3-v1.json`. The CLI also provides an
+explicit `opendaw-project migrate PROJECT_DIR` command. The old application cannot
+read v2: use the retained v1 manifest to recover the original checkpoint.
+
+Samples retain the existing path contract: saved relative paths under `assets/`,
+no traversal, and canonical containment checks on load/save. Runtime paths are
+resolved to absolute paths. Save copies media first, flushes files, preserves the
+validated prior manifest and atomically replaces `project.json`. Copies of one
+canonical sample source are deduplicated during that save; instrument state stays
+independent. A failed save may leave orphan asset files, but does not intentionally
+remove the previous checkpoint. There is no lock against another local process
+racing path/symlink changes, or proof against same-size rewrites of source media.
+No asset garbage collection is introduced in this increment.

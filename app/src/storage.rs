@@ -48,7 +48,7 @@ fn read_manifest(path: &Path) -> Result<Vec<u8>, String> {
 fn resolve_samples(root: &Path, p: &mut Project) -> Result<(), String> {
     let root = root.canonicalize().map_err(err)?;
     for t in &mut p.tracks {
-        if let Instrument::Sampler { sample_path, .. } = &mut t.instrument {
+        if let Instrument::Sampler { sample_path, .. } = &mut t.instrument.config {
             let relative = Path::new(sample_path);
             if relative.is_absolute() || relative.components().any(|c| !matches!(c, Component::Normal(_))) || !relative.starts_with("assets") {
                 return Err("Saved samples must use relative assets/ paths without traversal".into());
@@ -60,10 +60,11 @@ fn resolve_samples(root: &Path, p: &mut Project) -> Result<(), String> {
     }
     Ok(())
 }
-pub fn load(root: &Path) -> Result<Project, String> {
+pub fn load(root: &Path) -> Result<Project, String> { load_versioned(root).map(|(project, _)| project) }
+pub fn load_versioned(root: &Path) -> Result<(Project, u32), String> {
     let bytes = read_manifest(&root.join("project.json"))?;
-    let mut p: Project = serde_json::from_slice(&bytes).map_err(err)?; p.validate()?;
-    resolve_samples(root, &mut p)?; Ok(p)
+    let (mut p, version) = Project::decode_versioned(&bytes)?;
+    resolve_samples(root, &mut p)?; Ok((p, version))
 }
 /// Save immutable asset copies first, backup the prior manifest, then atomically replace project.json.
 /// A failed save may leave orphan assets; it does not delete the prior checkpoint.
@@ -84,7 +85,7 @@ pub fn save(root: &Path, project: &Project) -> Result<Project, String> {
     let mut imported = std::collections::HashMap::<PathBuf, String>::new();
     let mut copied = 0u64;
     for track in &mut stored.tracks {
-        if let Instrument::Sampler { sample_path, .. } = &mut track.instrument {
+        if let Instrument::Sampler { sample_path, .. } = &mut track.instrument.config {
             let source = Path::new(sample_path).canonicalize().map_err(err)?;
             if let Some(relative) = imported.get(&source) { *sample_path = relative.clone(); continue; }
             let relative = if source.starts_with(&assets) {
@@ -111,9 +112,19 @@ pub fn save(root: &Path, project: &Project) -> Result<Project, String> {
     sync_directory(&assets)?;
     if manifest.exists() {
         let previous = read_manifest(&manifest)?;
-        let previous_project: Project = serde_json::from_slice(&previous)
+        let (_, version) = Project::decode_versioned(&previous)
             .map_err(|e| format!("Existing manifest is invalid; save to a new folder: {e}"))?;
-        previous_project.validate()?;
+        let legacy_backup = recovery.join("pre-m3-v1.json");
+        if version == 1 {
+            if let Ok(metadata) = legacy_backup.symlink_metadata() {
+                if metadata.file_type().is_symlink() { return Err("The v1 migration backup must not be a symlink".into()); }
+                let (_, backup_version) = Project::decode_versioned(&read_manifest(&legacy_backup)?)?;
+                if backup_version != 1 { return Err("Existing v1 migration backup is not version 1; save to a new folder".into()); }
+            } else {
+                // Keep the original v1 even after subsequent v2 saves replace previous.json.
+                atomic_write(&legacy_backup, &previous)?;
+            }
+        }
         atomic_write(&recovery.join("previous.json"), &previous)?;
     }
     atomic_write(&manifest, &bytes)?;
@@ -144,6 +155,33 @@ pub fn export_atomic(path: &Path, project: &Project) -> Result<(), String> {
         let mut wrong = second.clone(); wrong.version = 999; assert!(save(&path, &wrong).is_err()); assert_eq!(load(&path).unwrap(), second);
         fs::remove_dir_all(path).unwrap();
     }
+    #[test] fn migration_keeps_original_v1_across_repeated_saves() {
+        let path = directory();
+        let bytes = include_bytes!("../../examples/First-session.opendaw/project.json");
+        fs::write(path.join("project.json"), bytes).unwrap();
+        let (p, version) = load_versioned(&path).unwrap(); assert_eq!(version, 1); assert_eq!(p.version, 2);
+        assert_eq!(fs::read(path.join("project.json")).unwrap(), bytes);
+        save(&path, &p).unwrap();
+        assert_eq!(fs::read(path.join("recovery/previous.json")).unwrap(), bytes);
+        assert_eq!(fs::read(path.join("recovery/pre-m3-v1.json")).unwrap(), bytes);
+        let mut second = p.clone(); second.name = "Second v2 save".into(); save(&path, &second).unwrap();
+        assert_eq!(fs::read(path.join("recovery/pre-m3-v1.json")).unwrap(), bytes);
+        assert_eq!(load_versioned(&path).unwrap(), (second, 2));
+        fs::remove_dir_all(path).unwrap();
+    }
+    #[test] fn duplicated_sampler_assets_survive_portable_save() {
+        let path = directory(); let source = directory(); let wav = source.join("tone.wav");
+        let mut e = crate::bridge::Engine::new(48000, 256).unwrap(); e.load(&Project::demo()).unwrap(); e.export(&wav, 1024).unwrap();
+        let mut p = Project::demo(); p.tracks[0].instrument.config = Instrument::Sampler { sample_path: wav.to_str().unwrap().into(), root_note: 60, one_shot: false };
+        let mut h = crate::project::History::default(); h.execute(&mut p, crate::project::Edit::DuplicateTrack { track: 1 }).unwrap();
+        let saved = save(&path, &p).unwrap(); fs::remove_dir_all(&source).unwrap();
+        let loaded = load(&path).unwrap(); assert_eq!(loaded, saved);
+        assert_ne!(loaded.tracks[0].instrument.id, loaded.tracks[1].instrument.id);
+        assert_eq!(loaded.tracks[0].instrument.config, loaded.tracks[1].instrument.config);
+        assert_eq!(fs::read_dir(path.join("assets")).unwrap().count(), 1);
+        e.load(&loaded).unwrap(); e.play().unwrap(); assert!(e.render(512).unwrap().iter().any(|v| v.abs() > 0.001));
+        fs::remove_dir_all(path).unwrap();
+    }
     #[cfg(unix)]
     #[test] fn reject_escape_recovery_symlink() {
         let path = directory(); let outside = directory();
@@ -154,7 +192,7 @@ pub fn export_atomic(path: &Path, project: &Project) -> Result<(), String> {
     }
     #[test] fn reject_escape_path() {
         let path = directory(); let mut p = Project::demo();
-        p.tracks[0].instrument = Instrument::Sampler { sample_path: "../outside.wav".into(), root_note: 60, one_shot: false };
+        p.tracks[0].instrument.config = Instrument::Sampler { sample_path: "../outside.wav".into(), root_note: 60, one_shot: false };
         assert!(resolve_samples(&path, &mut p).is_err()); fs::remove_dir_all(path).unwrap();
     }
 }

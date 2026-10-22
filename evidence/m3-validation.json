@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-22",
+  "scope": "M3.1 first implementation increment; M3 remains in progress",
+  "baseline_commit": "add95d9cfb7f9ffc38e43a6754365fac8a880a53",
+  "host": "macOS 15.6.1 arm64",
+  "validation": {
+    "app_script_exit": 0,
+    "headless_rust_tests": 18,
+    "ui_feature_rust_tests": 21,
+    "release_binaries_built": true,
+    "native_script_exit": 0,
+    "native_ctest_suites": 4,
+    "layout_probe_exit": 0,
+    "layout_sizes": [
+      [
+        1280,
+        820
+      ],
+      [
+        1000,
+        760
+      ]
+    ],
+    "source_render_byte_identical": true,
+    "render_sha256": "c5e43d8f56299da06bdc6e2c167ba0690cb858f48cf70c2df676a86f4d501426"
+  },
+  "unchanged_native_build_dependency_files": [
+    "CMakeLists.txt",
+    "app/Cargo.toml",
+    "app/Cargo.lock",
+    "app/build.rs",
+    "include/open_daw/engine.hpp",
+    "include/open_daw/service.hpp",
+    "include/open_daw/media.hpp",
+    "include/open_daw/api.h",
+    "include/open_daw/spsc.hpp",
+    "src/engine.cpp",
+    "src/service.cpp",
+    "src/api.cpp",
+    "src/media.cpp",
+    "src/device.cpp",
+    "tests/tests.cpp",
+    "tests/service_tests.cpp",
+    "tests/allocation_probe.cpp",
+    "tests/api_smoke.c",
+    "scripts/validate_app.sh",
+    "scripts/validate_native.sh",
+    "scripts/validate_native.ps1",
+    "scripts/verify_shared_api.py"
+  ],
+  "not_tested": [
+    "physical audio",
+    "native GUI interactions",
+    "Windows",
+    "macOS Intel",
+    "M3 performance targets"
+  ],
+  "modified_tracked_file_sha256": {
+    "README.md": "79dcbb82185dd219a03c189f8c5f6aa18cc31ab031a26d560b5888eaa823db9c",
+    "app/examples/layout_probe.rs": "71498f1a92ac155487051147858a8c3d735cf0ace30445b3289a8759b2ede58a",
+    "app/src/bridge.rs": "ef53d570aca40c58d6ce5364ca46c2f7b034a09fc04ccf5b54e1ee9fbdb22773",
+    "app/src/controller.rs": "eeaabc4dfb96fee8cb10c458dde7d86b74fc280a517b963ecb2d056d4e77ef73",
+    "app/src/editor.rs": "504d855ac8dd04cef3c654cd9da5ff5cbb4fa4f0e7b2b4a969e2e8e01f90b023",
+    "app/src/main.rs": "9a94f2fc901a8c08ed3c774318eb421cd93ad0276c0c94948b30a0d6dbd5d1dd",
+    "app/src/project.rs": "e836f6ce7813f97aa79c106156900a4c7baf45467b183fe30050398f938a31bd",
+    "app/src/project_cli.rs": "37a5acbea8900e84ffe57324256b88a726d2a9471526ed22c9ba0dcb887d6936",
+    "app/src/storage.rs": "6ac3ffc4dfffc66f1dfa519391db197e760130f29228d8d0ac71574b3c6f1e8a",
+    "app/ui/main.slint": "069e53d75dee5d00e05679b97c1e39485d012e14d34a2f0eb0920bc143c2b07b",
+    "docs/ARCHITECTURE.md": "a38f76de927e85970aaa14585f868f3b10083d881a64b0202780d16d89b0f37e",
+    "docs/BUILD.md": "2adaaf6c75b737acaf4576dbeee113c4ee4b823536ff947a1ca6be0a9aa830cb",
+    "docs/PROJECT_FORMAT.md": "f223c2292aa84787b979fdd6d46fe62d113c3984687f176dbef07515360892fc"
+  }
+}

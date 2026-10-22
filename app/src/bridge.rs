@@ -55,22 +55,30 @@ impl Engine {
     }
     pub fn load(&mut self, project: &Project) -> Result<(), String> {
         project.validate()?;
-        let paths: Vec<Option<CString>> = project.tracks.iter().map(|track| match &track.instrument {
+        let paths: Vec<Option<CString>> = project.tracks.iter().map(|track| match &track.instrument.config {
             Instrument::Sine => Ok(None),
             Instrument::Sampler { sample_path, .. } => CString::new(sample_path.as_bytes()).map(Some).map_err(|e| e.to_string()),
         }).collect::<Result<_, String>>()?;
         let tracks: Vec<_> = project.tracks.iter().zip(paths.iter()).map(|(track, path)| {
-            let (root_note, one_shot) = match &track.instrument {
+            let (root_note, one_shot) = match &track.instrument.config {
                 Instrument::Sine => (60, 0), Instrument::Sampler { root_note, one_shot, .. } => (*root_note as u32, u32::from(*one_shot)),
             };
             RawTrack { gain: track.gain, pan: track.pan, sample_path_utf8: path.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()), root_note, one_shot }
         }).collect();
         let rate = self.rate;
-        let notes: Vec<_> = project.tracks.iter().enumerate().flat_map(|(index, track)| track.notes.iter().map(move |note| RawNote {
-            id: note.id, start_frame: project.frame_at(note.start, rate),
-            end_frame: project.frame_at(note.start + note.duration, rate),
-            track: index as u32, pitch: note.pitch as u32, velocity: note.velocity as u32,
-        })).collect();
+        let mut notes = Vec::with_capacity(project.note_count());
+        for (index, track) in project.tracks.iter().enumerate() {
+            for clip in &track.clips {
+                for note in &clip.notes {
+                    // Project validation checks both additions for overflow and clip bounds.
+                    let start_frame = project.frame_at(clip.start_tick + note.start, rate);
+                    let end_frame = project.frame_at(clip.start_tick + note.start + note.duration, rate);
+                    if start_frame >= end_frame { return Err("Note duration rounds below one audio frame".into()); }
+                    notes.push(RawNote { id: note.id, start_frame, end_frame,
+                        track: index as u32, pitch: note.pitch as u32, velocity: note.velocity as u32 });
+                }
+            }
+        }
         // All arrays/C strings remain alive for this synchronous, copying call.
         check(unsafe { od_load(self.raw.as_ptr(), tracks.as_ptr(), tracks.len(), notes.as_ptr(), notes.len(), project.frame_at(project.length_ticks, self.rate)) })
     }
@@ -115,6 +123,25 @@ impl Drop for Engine { fn drop(&mut self) { unsafe { od_destroy(self.raw.as_ptr(
         assert!(e.render(512).unwrap().iter().any(|x| x.abs() > 0.001));
         assert_eq!(e.telemetry().unwrap().position, 512); e.stop().unwrap(); e.render(256).unwrap();
         assert_eq!(e.telemetry().unwrap().position, 0);
+    }
+    #[test] fn clip_offsets_and_track_order_match_flat_score() {
+        let mut p = Project::demo();
+        p.tracks[0].clips[0].start_tick = crate::project::PPQ;
+        p.tracks[0].clips[0].length_ticks = 10 * crate::project::PPQ;
+        let mut extra = p.tracks[0].clips[0].clone(); extra.id = p.allocate_id().unwrap();
+        extra.start_tick = 0; extra.length_ticks = crate::project::PPQ; extra.notes.truncate(1);
+        extra.notes[0].id = p.allocate_id().unwrap(); extra.notes[0].pitch = 75;
+        p.tracks[0].clips.push(extra); p.validate().unwrap();
+        let mut flat = p.clone();
+        let mut notes = Vec::new();
+        for c in &p.tracks[0].clips { for n in &c.notes { let mut n = n.clone(); n.start += c.start_tick; notes.push(n); } }
+        flat.tracks[0].clips.truncate(1); flat.tracks[0].clips[0].start_tick = 0;
+        flat.tracks[0].clips[0].length_ticks = flat.length_ticks; flat.tracks[0].clips[0].notes = notes;
+        let mut a = Engine::new(48000, 256).unwrap(); let mut b = Engine::new(48000, 256).unwrap();
+        a.load(&p).unwrap(); b.load(&flat).unwrap(); a.play().unwrap(); b.play().unwrap();
+        assert_eq!(a.render(96000).unwrap(), b.render(96000).unwrap());
+        flat.tracks.swap(0, 1); b.load(&flat).unwrap(); b.play().unwrap();
+        a.load(&p).unwrap(); a.play().unwrap(); assert_eq!(a.render(48000).unwrap(), b.render(48000).unwrap());
     }
     #[test] fn abi_layout_on_64_bit_targets() { assert_eq!(std::mem::size_of::<RawNote>(), 40); assert_eq!(std::mem::size_of::<RawTrack>(), 24); assert_eq!(std::mem::size_of::<Telemetry>(), 72); }
 }

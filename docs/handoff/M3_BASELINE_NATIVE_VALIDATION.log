@@ -1,0 +1,33 @@
+-- Configuring done (0.1s)
+-- Generating done (0.3s)
+-- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+[ 13%] Built target open_daw_core
+[ 30%] Built target open_daw_tests
+[ 30%] Built target daw_demo
+[ 47%] Built target open_daw_engine
+[ 78%] Built target daw_session
+[ 82%] Built target allocation_probe
+[ 82%] Built target open_daw_api
+[ 82%] Built target open_daw_api_static
+[ 91%] Built target api_smoke
+[100%] Built target service_tests
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+    Start 1: original_audio_core
+1/4 Test #1: original_audio_core ..............   Passed    0.02 sec
+    Start 2: interactive_service
+2/4 Test #2: interactive_service ..............   Passed    0.10 sec
+    Start 3: pure_c_abi
+3/4 Test #3: pure_c_abi .......................   Passed    0.01 sec
+    Start 4: callback_cpp_allocations
+4/4 Test #4: callback_cpp_allocations .........   Passed    0.24 sec
+
+100% tests passed out of 4
+
+Total Test time (real) =   0.37 sec
+Exported 384000 stereo frames to build/macos-validation/native-demo.wav
+PASS: 8 WAV variants through the shared C ABI
+PASS: non-finite media rejected without replacing the active session
+PASS: 25 randomized callback partitions are bit-identical
+PASS: Unicode export path, WAV metadata, and independent export state
+PASS: explicit silent device excludes a second render consumer
+Shared-library integration checks passed (not a Rust/UI or hardware test).

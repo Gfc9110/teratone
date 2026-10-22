@@ -1,5 +1,8 @@
-import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, AboutSlint, Palette } from "std-widgets.slint";
+import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, ListView, ScrollView, AboutSlint, Palette } from "std-widgets.slint";
 
+export struct TrackVisual {
+    id: string, name: string, tint: color, instrument: string, selected: bool,
+}
 export struct NoteVisual {
     x: float, y: float, w: float, h: float, selected: bool, label: string,
 }
@@ -26,7 +29,18 @@ export component AppWindow inherits Window {
     in property <string> status: "Starting application controller…";
     in property <string> selected-label;
     in property <string> transport-text: "001 : 01";
-    in property <[string]> track-names;
+    in property <[TrackVisual]> track-items;
+    in property <string> track-id: "1";
+    in property <string> track-name: "Sine lead";
+    in property <int> color-index: 0;
+    in property <[string]> clip-names;
+    in property <[string]> clip-ids;
+    in property <int> clip-index: 0;
+    in property <float> clip-start-beat: 0;
+    out property <float> add-track-x: add-track-button.absolute-position.x / 1px + add-track-button.width / 2px;
+    out property <float> add-track-y: add-track-button.absolute-position.y / 1px + add-track-button.height / 2px;
+    out property <float> duplicate-track-x: duplicate-button.absolute-position.x / 1px + duplicate-button.width / 2px;
+    out property <float> duplicate-track-y: duplicate-button.absolute-position.y / 1px + duplicate-button.height / 2px;
     in property <int> track-index: 0;
     in property <int> bpm: 120;
     in property <float> gain: 0.7;
@@ -51,12 +65,15 @@ export component AppWindow inherits Window {
     out property <float> canvas-width: grid.width / 1px;
     out property <float> canvas-height: grid.height / 1px;
     callback play(); callback pause(); callback stop(); callback toggle-loop();
-    callback select-track(int); callback tempo(int); callback mix(float, float);
+    callback select-track(string); callback select-clip(string, string);
+    callback add-track(string); callback duplicate-track(string); callback remove-track(string);
+    callback move-track(string, int); callback rename-track(string, string); callback color-track(string, int);
+    callback tempo(int); callback mix(string, float, float); callback finish-mix();
     callback undo(); callback redo(); callback remove-note();
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float);
     callback down(float, float, bool); callback moved(float, float); callback up(float, float);
-    callback audition(int, bool); callback save-project(string); callback open-project(string);
-    callback export-audio(string); callback import-sample(string, int, bool); callback use-sine();
+    callback audition(string, int, bool); callback save-project(string); callback open-project(string);
+    callback export-audio(string); callback import-sample(string, string, int, bool); callback use-sine(string);
     callback exit-confirmed();
 
     MenuBar {
@@ -82,42 +99,81 @@ export component AppWindow inherits Window {
     }
     Rectangle {
         x: 0; y: 72px; width: 226px; height: root.height - 120px; background: #131b25;
-        VerticalLayout {
-            x: 16px; y: 14px; width: 194px; height: parent.height - 28px; spacing: 7px;
-            Text { text: "TRACK / INSTRUMENT"; color: #8295ad; font-size: 11px; }
-            ComboBox { model: root.track-names; current-index: root.track-index;
-                selected(value) => { root.select-track(self.current-index); } }
-            HorizontalLayout {
-                Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
-                SpinBox { value: root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
+        ScrollView {
+            x: 10px; y: 10px; width: parent.width - 20px; height: parent.height - 20px;
+            content-width: self.visible-width; content-height: 1060px;
+            horizontal-scrollbar-policy: always-off;
+            VerticalLayout {
+                width: parent.width - 10px; height: 1060px; spacing: 7px;
+                Text { height: 18px; text: "TRACKS  ·  " + root.track-items.length + " / 16"; color: #8295ad; font-size: 11px; }
+                ListView {
+                    height: 190px; horizontal-scrollbar-policy: always-off;
+                    for track in root.track-items : Rectangle {
+                        height: 54px; background: track.selected ? #263c50 : #151e29;
+                        Rectangle { x: 0; y: 0; width: 4px; height: parent.height; background: track.tint; }
+                        Button {
+                            x: 10px; y: 3px; width: parent.width - 18px; height: 28px;
+                            text: (track.selected ? "› " : "") + track.name;
+                            clicked => { root.select-track(track.id); }
+                        }
+                        Text { x: 12px; y: 33px; width: parent.width - 20px; height: 16px;
+                            text: track.instrument; color: #9bafc6; font-size: 10px; overflow: elide; }
+                    }
+                }
+                HorizontalLayout {
+                    height: 30px; spacing: 4px;
+                    add-track-button := Button { text: "+ Oscillator"; enabled: root.track-items.length < 16; clicked => { root.add-track(root.track-id); } }
+                    duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < 16; clicked => { root.duplicate-track(root.track-id); } }
+                }
+                HorizontalLayout {
+                    height: 30px; spacing: 4px;
+                    Button { text: "↑"; enabled: root.track-index > 0; clicked => { root.move-track(root.track-id, -1); } }
+                    Button { text: "↓"; enabled: root.track-index < root.track-items.length - 1; clicked => { root.move-track(root.track-id, 1); } }
+                    Button { text: "Remove"; enabled: root.track-items.length > 1; clicked => { root.remove-track(root.track-id); } }
+                }
+                Text { height: 18px; text: "SELECTED TRACK"; color: #8295ad; font-size: 11px; }
+                name-edit := LineEdit { height: 30px; text: root.track-name;
+                    accepted => { root.rename-track(root.track-id, self.text); } }
+                Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.track-id, name-edit.text); } }
+                ComboBox { height: 30px; model: ["Mint", "Blue", "Amber", "Violet", "Rose", "Cyan"]; current-index: root.color-index;
+                    selected(value) => { root.color-track(root.track-id, self.current-index); } }
+                Rectangle { height: 1px; background: #293747; }
+                HorizontalLayout {
+                    height: 30px;
+                    Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
+                    SpinBox { value: root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
+                }
+                Text { height: 18px; text: "Gain"; color: #c7d4e5; }
+                Slider { height: 26px; value: root.gain; minimum: 0; maximum: 2;
+                    changed(value) => { root.mix(root.track-id, value, root.pan); } released(value) => { root.finish-mix(); } }
+                Text { height: 18px; text: "Pan"; color: #c7d4e5; }
+                Slider { height: 26px; value: root.pan; minimum: -1; maximum: 1;
+                    changed(value) => { root.mix(root.track-id, root.gain, value); } released(value) => { root.finish-mix(); } }
+                Rectangle { height: 1px; background: #293747; }
+                Button { height: 30px; text: "Use sine instrument"; clicked => { root.use-sine(root.track-id); } }
+                sample-file := LineEdit { height: 30px; placeholder-text: "Path to short WAV sample"; }
+                HorizontalLayout {
+                    height: 30px;
+                    Text { text: "Root"; color: #c7d4e5; vertical-alignment: center; }
+                    root-note := SpinBox { minimum: 0; maximum: 127; value: 60; }
+                }
+                one-shot := CheckBox { height: 26px; text: "One-shot"; }
+                Button { height: 30px; text: "Load WAV into this track";
+                    clicked => { root.import-sample(root.track-id, sample-file.text, root-note.value, one-shot.checked); } }
+                Rectangle { height: 1px; background: #293747; }
+                Text { height: 18px; text: "PROJECT FOLDER"; color: #8295ad; font-size: 11px; }
+                LineEdit { height: 30px; text <=> root.project-path; }
+                HorizontalLayout {
+                    height: 30px;
+                    Button { text: "Save"; clicked => { root.save-project(root.project-path); } }
+                    Button { text: "Open"; clicked => { root.open-project(root.project-path); } }
+                }
+                Text { height: 18px; text: "WAV EXPORT"; color: #8295ad; font-size: 11px; }
+                LineEdit { height: 30px; text <=> root.export-path; }
+                Button { height: 30px; text: root.export-busy ? "Exporting…" : "Export PCM16 WAV"; enabled: !root.export-busy;
+                    clicked => { root.export-audio(root.export-path); } }
+                Text { height: 40px; text: "Track / note edits stop playback.\nNames and colors update live."; color: #8b9bb0; font-size: 11px; }
             }
-            Text { text: "Gain"; color: #c7d4e5; }
-            Slider { value: root.gain; minimum: 0; maximum: 2; changed(value) => { root.mix(value, root.pan); } }
-            Text { text: "Pan"; color: #c7d4e5; }
-            Slider { value: root.pan; minimum: -1; maximum: 1; changed(value) => { root.mix(root.gain, value); } }
-            Rectangle { height: 1px; background: #293747; }
-            Button { text: "Use sine instrument"; clicked => { root.use-sine(); } }
-            sample-file := LineEdit { placeholder-text: "Path to short WAV sample"; }
-            HorizontalLayout {
-                Text { text: "Root"; color: #c7d4e5; vertical-alignment: center; }
-                root-note := SpinBox { minimum: 0; maximum: 127; value: 60; }
-            }
-            one-shot := CheckBox { text: "One-shot / drum"; }
-            Button { text: "Load WAV sample";
-                clicked => { root.import-sample(sample-file.text, root-note.value, one-shot.checked); } }
-            Rectangle { height: 1px; background: #293747; }
-            Text { text: "PROJECT FOLDER"; color: #8295ad; font-size: 11px; }
-            LineEdit { text <=> root.project-path; }
-            HorizontalLayout {
-                Button { text: "Save"; clicked => { root.save-project(root.project-path); } }
-                Button { text: "Open"; clicked => { root.open-project(root.project-path); } }
-            }
-            Text { text: "WAV EXPORT"; color: #8295ad; font-size: 11px; }
-            LineEdit { text <=> root.export-path; }
-            Button { text: root.export-busy ? "Exporting…" : "Export PCM16 WAV"; enabled: !root.export-busy;
-                clicked => { root.export-audio(root.export-path); } }
-            Rectangle { vertical-stretch: 1; }
-            Text { text: "C++20 engine · Rust application\nStructural edits stop playback."; color: #8b9bb0; font-size: 11px; }
         }
     }
     main := Rectangle {
@@ -135,8 +191,17 @@ export component AppWindow inherits Window {
             Button { text: "Oct −"; clicked => { root.pitch-view(-12); } }
             Button { text: "Oct +"; clicked => { root.pitch-view(12); } }
         }
+        HorizontalLayout {
+            y: 40px; height: 30px; width: parent.width; spacing: 8px;
+            Text { text: "MIDI CLIP"; color: #8295ad; vertical-alignment: center; }
+            ComboBox { model: root.clip-names; current-index: root.clip-index; enabled: root.clip-ids.length > 0;
+                selected(value) => { if self.current-index >= 0 && self.current-index < root.clip-ids.length {
+                    root.select-clip(root.track-id, root.clip-ids[self.current-index]); } } }
+            Text { text: "Local time · project start " + (root.clip-start-beat + 1) + " beat"; color: #93a7bd; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; }
+        }
         Rectangle {
-            y: 44px; height: 27px; width: parent.width; background: #1a2532; clip: true;
+            y: 78px; height: 27px; width: parent.width; background: #1a2532; clip: true;
             for beat in 64 : Text {
                 x: beat * root.pixels-per-beat * 1px + 4px;
                 text: root.scroll-beat + beat + 1; color: #a2b5cc; font-size: 10px;
@@ -144,7 +209,7 @@ export component AppWindow inherits Window {
             TouchArea { clicked => { root.seek(root.scroll-beat + self.mouse-x / 1px / root.pixels-per-beat); } }
         }
         grid := Rectangle {
-            y: 72px; width: parent.width; height: parent.height - 150px;
+            y: 106px; width: parent.width; height: parent.height - 184px;
             background: #101923; clip: true;
             for row in 128 : Rectangle {
                 y: row * 16px; width: parent.width; height: 16px;
@@ -180,7 +245,7 @@ export component AppWindow inherits Window {
             y: parent.height - 42px; width: parent.width; height: 32px; spacing: 6px;
             Text { text: "AUDITION"; color: #7e92a9; vertical-alignment: center; }
             for pitch in [60, 62, 64, 65, 67, 69, 71, 72] : Pad {
-                label: pitch; gate(on) => { root.audition(pitch, on); }
+                label: pitch; gate(on) => { root.audition(root.track-id, pitch, on); }
             }
         }
     }

@@ -1,0 +1,177 @@
+{
+  "accessed_on": "2026-10-22",
+  "repository_path": "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive",
+  "git_commit": "add95d9cfb7f9ffc38e43a6754365fac8a880a53",
+  "git_branch": "main",
+  "initial_worktree_status": "clean",
+  "host": {
+    "os": "macOS 15.6.1",
+    "arch": "arm64"
+  },
+  "validation": {
+    "app_script_exit": 0,
+    "rust_tests_no_default_features": 11,
+    "rust_tests_ui_enabled": 11,
+    "native_script_exit": 0,
+    "ctest_suites": 4,
+    "shared_api_checks": "passed"
+  },
+  "not_tested_in_this_audit": [
+    "physical audio",
+    "native GUI interaction",
+    "Windows",
+    "macOS Intel",
+    "Linux",
+    "new M3 features"
+  ],
+  "sources": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "fa330fc44118ad45182e85dfe51ee461c64958c509242f11f80d3616ef4373eb"
+    },
+    {
+      "path": "app/Cargo.toml",
+      "sha256": "5a6209b37e7943c8c4d6bfc6f37c811b26dad6b4cd0bdf8a5e4455d3bf31c618"
+    },
+    {
+      "path": "app/Cargo.lock",
+      "sha256": "94575d61ad95bde98c244f4af4e261c5560597bb4409480aa2936ea499c272d9"
+    },
+    {
+      "path": "app/build.rs",
+      "sha256": "b166336472f6617dcdbe790e0c5aac461b0a2a7c82c465a15f1b516109027962"
+    },
+    {
+      "path": "app/src/lib.rs",
+      "sha256": "9a69d1d3694df0a7d55ece7243121e84824f9ed8002b802fed453cbfbcb3639b"
+    },
+    {
+      "path": "app/src/project.rs",
+      "sha256": "b23d8d93b884c42c466ce70133b45b0e88d4a761d7f77a9997ba1acdcd58898f"
+    },
+    {
+      "path": "app/src/controller.rs",
+      "sha256": "9aa25b5446352d9f6b1ca744b8d72074c882197c263f6a03951c8cf003ea43be"
+    },
+    {
+      "path": "app/src/editor.rs",
+      "sha256": "bf72f6d3ab8100eb4e66b533871840b546410909e658fc6d01b301375d46b751"
+    },
+    {
+      "path": "app/src/storage.rs",
+      "sha256": "c96e2e95affb82de6e4dccc40879c5323cf628eb7e11f3284f36818f903709a3"
+    },
+    {
+      "path": "app/src/bridge.rs",
+      "sha256": "6f36f83da2c0f913db25b533a119293a802e40f677a17c993d20773c016e9815"
+    },
+    {
+      "path": "app/src/main.rs",
+      "sha256": "caac92f1a6906f28ac596a7359c8151f0d65df1a4539615fd6a70b7c4a7ccf0b"
+    },
+    {
+      "path": "app/src/project_cli.rs",
+      "sha256": "dd64b84fd96a59db9fa3ea02e3dcc753c478c97fc791a89cbe08bafbc08f820d"
+    },
+    {
+      "path": "app/ui/main.slint",
+      "sha256": "83468b6363d283290b58132454d7b99d740b3e7e49a003d122cb9e9373bd79e0"
+    },
+    {
+      "path": "app/examples/layout_probe.rs",
+      "sha256": "aeb8302c479b6c00f64b432766744cd35c0d4a0485d6bd06c7a01dc46b2f3ff0"
+    },
+    {
+      "path": "include/open_daw/engine.hpp",
+      "sha256": "d6c1cd09fda13d3a5805f54e0883e675e77ee5e3c5e0075fded5f638518fbdfe"
+    },
+    {
+      "path": "include/open_daw/service.hpp",
+      "sha256": "e2bb1afa7d82ae83437e02276499f5a0e26e0f5539ae217736eab36980f5a5bd"
+    },
+    {
+      "path": "include/open_daw/media.hpp",
+      "sha256": "070ba54524849f5679a7e8c941158ceb755a091ac43dfb533b000079bcac23fb"
+    },
+    {
+      "path": "include/open_daw/api.h",
+      "sha256": "e4be6dbb13876e3af2b10def8ebacb9a1bcfd076ff04b025de1389d53e0448a8"
+    },
+    {
+      "path": "include/open_daw/spsc.hpp",
+      "sha256": "fcfe67a2657f8a85529dff8c43669f17d181da7dfef09c789a2de883ca9b5ca0"
+    },
+    {
+      "path": "src/engine.cpp",
+      "sha256": "223e5e31fe139874df0d0c86f6ac2eca9051ad9c5b9fe69e4d274aee2d59288f"
+    },
+    {
+      "path": "src/service.cpp",
+      "sha256": "0e591d66e5592ea3a184830c6b0c481d4291d05a4461e55e7246c5bdc6ed1a06"
+    },
+    {
+      "path": "src/api.cpp",
+      "sha256": "4a7719615914e881c496fbe3c0d43e8bc968707cf8f6bb6b12e694c419325861"
+    },
+    {
+      "path": "src/media.cpp",
+      "sha256": "fd86ce734171be5dd3f20e25ae3d145c58148185d6820bbeadbca06c7f98f689"
+    },
+    {
+      "path": "src/device.cpp",
+      "sha256": "8ff7283bdb78b5d483ba74ba3b9b9784d83388a4a0f00e9a2819b26fd787d6b0"
+    },
+    {
+      "path": "tests/tests.cpp",
+      "sha256": "4f1688059fa261e53b2bb5846130717ba239fcf81fcd5b84abf1c15f6fbaf8d2"
+    },
+    {
+      "path": "tests/service_tests.cpp",
+      "sha256": "db5956a88390117ffbf185a71e9e31de4ad21efc6d47b8f7c0002e80c29847b2"
+    },
+    {
+      "path": "tests/allocation_probe.cpp",
+      "sha256": "951ed697ac584e1b52901d636b6dcce4a2f07221cf85e7260b99dc1213f13e5b"
+    },
+    {
+      "path": "tests/api_smoke.c",
+      "sha256": "6ec549ada6a1dc043f2de027466163cea7b99fed020060363aedc0b08bbc320f"
+    },
+    {
+      "path": "scripts/validate_app.sh",
+      "sha256": "481b2ad607378737dbac504194a699add653fe22d2ec2d6ee84ba0719d269917"
+    },
+    {
+      "path": "scripts/validate_native.sh",
+      "sha256": "f5f8dd5999c02f0544f58576dedac56ac846ed5263640c6e437d6cc9015292c6"
+    },
+    {
+      "path": "scripts/validate_native.ps1",
+      "sha256": "5e683f721f251e411f7df11647a5ba13e676ad4b076e4864d4b171540376388c"
+    },
+    {
+      "path": "scripts/verify_shared_api.py",
+      "sha256": "5bff68293f8f6e6933529d7ffff847c3f2d490b43cc94c7a15a715f5d857d304"
+    },
+    {
+      "path": ".github/workflows/validate.yml",
+      "sha256": "4d34fa35810c4c69468a9ce3467551b14530b04bee65492e8d1d109d5eb32893"
+    },
+    {
+      "path": "examples/First-session.opendaw/project.json",
+      "sha256": "efaad403c3e657c8eba9953b8685b5ade6609efc6b0e4836c368545d754aba28"
+    },
+    {
+      "path": "docs/BUILD.md",
+      "sha256": "2cabb4ca2a095e337be4bee632eb134b7d947ef1552108efc4800543392eeed8"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "f815c4670bbf26a527285b0efa7e46c735eff44f0ab9a20011dc08ac929132b4"
+    },
+    {
+      "path": "docs/PROJECT_FORMAT.md",
+      "sha256": "39bfece9cae4b182e4137f6be67acec11fcedf3808c1ded60efd7a39013822a6"
+    }
+  ]
+}

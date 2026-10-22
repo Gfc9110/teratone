@@ -1,5 +1,15 @@
 # Build, run, and validation
 
+## M3.1 increment — 22 October 2026
+
+The current code passes 18 headless and 21 UI-enabled Rust tests, release builds,
+example v1 migration/render, all four native suites and shared-library checks.
+The layout probe covers Play/Undo/Add/Duplicate at 1280×820 and 1000×760, plus
+Help/About. Logs and snapshots use the `evidence/m3-` prefix. See
+[M3 progress](M3_IMPLEMENTATION_PROGRESS.md) for scope and limitations. Native
+audio hardware and Windows were not tested in this increment. Historical records
+below describe earlier code and keep their original test counts.
+
 ## Local macOS validation — 22 October 2026
 
 Validated in `/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive` on macOS

@@ -42,11 +42,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     slint::platform::set_platform(Box::new(ProbePlatform(window.clone())))?;
     let ui = AppWindow::new()?;
     let project = opendaw_app::project::Project::demo();
-    ui.set_track_names(ModelRc::new(VecModel::from(vec![
-        "Sine lead".into(),
-        "Bass".into(),
-    ])));
-    let (notes, _) = opendaw_app::editor::Viewport::default().scene(&project, 1, None, None);
+    ui.set_track_items(ModelRc::new(VecModel::from(project.tracks.iter().map(|t| TrackVisual {
+        id: t.id.to_string().into(), name: t.name.clone().into(), instrument: t.instrument.config.label().into(),
+        selected: t.id == 1, tint: slint::Color::from_argb_encoded(0xff000000 | u32::from_str_radix(&t.color[1..], 16).unwrap()),
+    }).collect::<Vec<_>>())));
+    ui.set_clip_names(ModelRc::new(VecModel::from(vec!["Main".into()])));
+    ui.set_clip_ids(ModelRc::new(VecModel::from(vec!["4".into()])));
+    let viewport = opendaw_app::editor::Viewport { top_note: 80, ..Default::default() };
+    ui.set_top_note(viewport.top_note as i32);
+    let (notes, _) = viewport.scene(&project, 1, 4, None, None);
     ui.set_note_items(ModelRc::new(VecModel::from(
         notes
             .into_iter()
@@ -68,12 +72,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let undos = Rc::new(Cell::new(0));
     let counter = undos.clone();
     ui.on_undo(move || counter.set(counter.get() + 1));
+    let additions = Rc::new(Cell::new(0)); let counter = additions.clone();
+    ui.on_add_track(move |id| { assert_eq!(id.as_str(), "1"); counter.set(counter.get() + 1); });
+    let duplicates = Rc::new(Cell::new(0)); let counter = duplicates.clone();
+    ui.on_duplicate_track(move |id| { assert_eq!(id.as_str(), "1"); counter.set(counter.get() + 1); });
     ui.show()?;
     for (width, height) in [(1280, 820), (1000, 760)] {
         window.set_size(slint::PhysicalSize::new(width, height));
         snapshot(
             &window,
-            Path::new(&format!("../evidence/macos-toolbar-{width}.ppm")),
+            Path::new(&format!("../evidence/m3-tracks-{width}.ppm")),
             width,
             height,
         )?;
@@ -91,19 +99,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             previous_undos + 1,
             "Undo must receive the pointer click"
         );
-        println!("PASS: visible Play and Undo controls receive clicks at {width} x {height}");
+        let previous_adds = additions.get(); let previous_duplicates = duplicates.get();
+        assert!(ui.get_add_track_x() > 0.0 && ui.get_add_track_y() < height as f32 - 48.0);
+        assert!(ui.get_duplicate_track_x() < width as f32 && ui.get_duplicate_track_y() < height as f32 - 48.0);
+        click(&window, ui.get_add_track_x(), ui.get_add_track_y());
+        click(&window, ui.get_duplicate_track_x(), ui.get_duplicate_track_y());
+        assert_eq!(additions.get(), previous_adds + 1, "Add track must be visible and receive clicks");
+        assert_eq!(duplicates.get(), previous_duplicates + 1, "Duplicate must be visible and preserve the track ID");
+        println!("PASS: Play, Undo, Add and Duplicate receive clicks at {width} x {height}");
     }
     click(&window, 24.0, 20.0);
     snapshot(
         &window,
-        Path::new("../evidence/macos-help-menu.ppm"),
+        Path::new("../evidence/m3-help-menu.ppm"),
         1000,
         760,
     )?;
     click(&window, 80.0, 60.0);
     assert!(ui.get_about_visible(), "Help menu must open About OpenDAW");
     println!("PASS: Help menu opens About OpenDAW");
-    snapshot(&window, Path::new("../evidence/macos-about.ppm"), 1000, 760)?;
+    snapshot(&window, Path::new("../evidence/m3-about.ppm"), 1000, 760)?;
     let previous_plays = plays.get();
     click(&window, 277.0, 77.0);
     assert_eq!(

@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running `target/debug/examples/layout_probe`
+PASS: Play, Undo, Add and Duplicate receive clicks at 1280 x 820
+PASS: Play, Undo, Add and Duplicate receive clicks at 1000 x 760
+PASS: Help menu opens About OpenDAW
+PASS: About dialog blocks underlying controls and closes

@@ -5,13 +5,17 @@ fn main() {
 }
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.len() < 2 { return Err("Usage: opendaw-project demo|validate|render|play PROJECT_DIR [OUTPUT.wav|--silent]".into()); }
+    if args.len() < 2 { return Err("Usage: opendaw-project demo|validate|migrate|render|play PROJECT_DIR [OUTPUT.wav|--silent]".into()); }
     let root = PathBuf::from(&args[1]);
     match args[0].as_str() {
         "demo" => { storage::save(&root, &Project::demo())?; println!("Created {}", root.display()); }
         "validate" => {
             let p = storage::load(&root)?; let mut engine = Engine::new(48000, 256)?; engine.load(&p)?;
-            println!("Valid project: {} tracks, {} notes", p.tracks.len(), p.tracks.iter().map(|t| t.notes.len()).sum::<usize>());
+            println!("Valid project: {} tracks, {} notes", p.tracks.len(), p.note_count());
+        }
+        "migrate" => {
+            let p = storage::load(&root)?; storage::save(&root, &p)?;
+            println!("Saved project format v{}; original v1 retained in recovery/pre-m3-v1.json when upgrading", p.version);
         }
         "render" => {
             let p = storage::load(&root)?; let output = PathBuf::from(args.get(2).ok_or("Specify an output WAV")?);
