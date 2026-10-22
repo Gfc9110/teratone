@@ -1,0 +1,70 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.70s
+     Running unittests src/lib.rs (target/debug/deps/opendaw_app-2895e3b0512c5857)
+
+running 11 tests
+test bridge::tests::abi_layout_on_64_bit_targets ... ok
+test editor::tests::offscreen_notes_do_not_create_rectangles ... ok
+test project::tests::undo_redo_and_invalid_edit ... ok
+test project::tests::sample_rate_independent_score ... ok
+test project::tests::coalesced_mix ... ok
+test project::tests::duplicate_and_unknown_schema ... ok
+test editor::tests::hit_cull_snap_drag ... ok
+test bridge::tests::native_bridge_roundtrip ... ok
+test storage::tests::reject_escape_path ... ok
+test storage::tests::reject_escape_recovery_symlink ... ok
+test storage::tests::roundtrip_backup_and_version_rejection ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/project_cli.rs (target/debug/deps/opendaw_project-c2e44aa43a968e81)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests opendaw_app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+error: failed to run custom build command for `opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)`
+
+Caused by:
+  process didn't exit successfully: `/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/target/debug/build/opendaw-app-b65815371e057515/build-script-build` (exit status: 101)
+  --- stdout
+  -- Configuring done (0.1s)
+  -- Generating done (0.1s)
+  -- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/target/debug/build/opendaw-app-48e7628fbc56ff85/out/native
+  [ 33%] Built target open_daw_core
+  [ 77%] Built target open_daw_engine
+  [100%] Built target open_daw_api_static
+  cargo:rustc-link-search=native=/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/target/debug/build/opendaw-app-48e7628fbc56ff85/out/native/lib
+  cargo:rustc-link-lib=static=open_daw_api_static
+  cargo:rustc-link-lib=static=open_daw_engine
+  cargo:rustc-link-lib=static=open_daw_core
+  cargo:rustc-link-lib=c++
+  cargo:rustc-link-lib=framework=AudioUnit
+  cargo:rustc-link-lib=framework=AudioToolbox
+  cargo:rustc-link-lib=framework=CoreAudio
+  cargo:rerun-if-changed=../CMakeLists.txt
+  cargo:rerun-if-changed=../include
+  cargo:rerun-if-changed=../src
+
+  --- stderr
+  error: Cannot specify both 'height' and 'min-height'
+    --> /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/ui/main.slint:21:28
+     |
+  21 |     width: 1280px; height: 820px; min-width: 1000px; min-height: 760px;
+     |                            ^^^^^^
+     |
+  error: Cannot specify both 'width' and 'min-width'
+    --> /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/ui/main.slint:21:12
+     |
+  21 |     width: 1280px; height: 820px; min-width: 1000px; min-height: 760px;
+     |            ^^^^^^^
+
+  thread 'main' (12652658) panicked at build.rs:42:43:
+  Compile OpenDAW interface: CompileError(["/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/ui/main.slint:21: Cannot specify both 'height' and 'min-height'", "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app/ui/main.slint:21: Cannot specify both 'width' and 'min-width'"])
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

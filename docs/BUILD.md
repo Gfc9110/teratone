@@ -1,5 +1,58 @@
 # Build, run, and validation
 
+## Local macOS validation — 22 October 2026
+
+Validated in `/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive` on macOS
+15.6.1, arm64, with Rust/Cargo 1.99.1, CMake 4.4.4, AppleClang 17 and Xcode
+Command Line Tools. The package under `app/` is the Cargo workspace root and
+contains the `opendaw-app` package, `opendaw` UI and `opendaw-project` CLI.
+Slint and slint-build are both locked to 1.18.1; their versions and the existing
+lockfile did not need changing.
+
+The original `scripts/validate_app.sh` exited with status 101 in `cargo test
+--locked`, when the Slint build step reported:
+
+```text
+error: Cannot specify both 'height' and 'min-height'
+error: Cannot specify both 'width' and 'min-width'
+```
+
+`app/ui/main.slint` specified fixed `width`/`height` together with minimum sizes.
+It now uses `preferred-width: 1280px` and `preferred-height: 820px`, preserving
+the minimum sizes and allowing resizing, as described in the
+[Slint Window documentation](https://docs.slint.dev/latest/docs/slint/reference/window/window/).
+No changes to the validation script, Cargo dependencies, build script or C++
+backend were necessary. Backend file hashes were checked after validation.
+
+Executed checks:
+
+- `bash scripts/validate_app.sh`: exit 0; all 11 Rust tests passed with UI disabled
+  and again with UI enabled; both release binaries built; the example project
+  validated (2 tracks, 10 notes) and rendered to `app/target/project-demo.wav`.
+- `bash scripts/validate_native.sh build/macos-validation`: exit 0; all four CTest
+  suites, WAV render and Python shared-library checks passed.
+- `app/target/release/opendaw --silent`: the process remained running for five
+  seconds and was then deliberately terminated. This was a startup probe only.
+
+Logs are in `evidence/macos-app-validation-before.log`,
+`evidence/macos-app-validation-after.log`, `evidence/macos-native-validation.log`
+and `evidence/macos-ui-startup.log`. The `.gitignore` excludes build directories,
+generated test audio and local backups; the validated Cargo.lock is tracked.
+`MANIFEST.sha256`, `provenance.json` and older evidence describe the original
+delivery and have been retained as historical records.
+
+To validate and launch from the project root:
+
+```sh
+./scripts/validate_app.sh
+cargo run --manifest-path app/Cargo.toml --locked --release --bin opendaw
+```
+
+Use `-- --silent` at the end of the launch command for a no-audio clock.
+GUI interaction, physical audio playback, device changes, Intel macOS,
+Windows/Linux builds and hosted CI were not tested in this local run.
+The remaining sections retain the original delivery instructions and limits.
+
 ## Native C++ — independently executable
 
 CMake >=3.20 and a C++20 compiler. Tested here: Linux x86_64, GCC 14.2, Clang 17,

@@ -1,0 +1,19 @@
+{
+  "CMakeLists.txt": "fa330fc44118ad45182e85dfe51ee461c64958c509242f11f80d3616ef4373eb",
+  "include/open_daw/api.h": "e4be6dbb13876e3af2b10def8ebacb9a1bcfd076ff04b025de1389d53e0448a8",
+  "include/open_daw/device.hpp": "5fae37dd2e38595b8e16bc360967758a888fb336d47e0508e522cade4e289ceb",
+  "include/open_daw/engine.hpp": "d6c1cd09fda13d3a5805f54e0883e675e77ee5e3c5e0075fded5f638518fbdfe",
+  "include/open_daw/media.hpp": "070ba54524849f5679a7e8c941158ceb755a091ac43dfb533b000079bcac23fb",
+  "include/open_daw/path.hpp": "adfb3ef08f74ba405cfaad6a27cfc98612179af47d42431acc57a5f7ae7867e2",
+  "include/open_daw/service.hpp": "e2bb1afa7d82ae83437e02276499f5a0e26e0f5539ae217736eab36980f5a5bd",
+  "include/open_daw/spsc.hpp": "fcfe67a2657f8a85529dff8c43669f17d181da7dfef09c789a2de883ca9b5ca0",
+  "src/api.cpp": "4a7719615914e881c496fbe3c0d43e8bc968707cf8f6bb6b12e694c419325861",
+  "src/device.cpp": "8ff7283bdb78b5d483ba74ba3b9b9784d83388a4a0f00e9a2819b26fd787d6b0",
+  "src/engine.cpp": "223e5e31fe139874df0d0c86f6ac2eca9051ad9c5b9fe69e4d274aee2d59288f",
+  "src/main.cpp": "50aca52b5694f88d3a93b7de9e83da3d99c6a2c61b39234f2d414ea823970ac9",
+  "src/media.cpp": "fd86ce734171be5dd3f20e25ae3d145c58148185d6820bbeadbca06c7f98f689",
+  "src/service.cpp": "0e591d66e5592ea3a184830c6b0c481d4291d05a4461e55e7246c5bdc6ed1a06",
+  "src/session_main.cpp": "db6dea34b4e6e0ccc085672a365a54159fd8494b052c846e9f7dc72257304f98",
+  "src/wasapi.cpp": "6ec42a6d6a978fa9e32649e1b411dd22ceda02fab52042f4f259d9a997824113",
+  "src/wav.cpp": "5cbb8cc2f5e09100a8b9d03afbe52a3a720f37b3d68d71058d185fceb82eef72"
+}

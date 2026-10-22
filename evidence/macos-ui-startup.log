@@ -1,0 +1,3 @@
+Command: app/target/release/opendaw --silent
+Probe: process survival for 5 seconds; no UI interaction or audio test.
+PASS: process remained running for 5 seconds, then was deliberately terminated.

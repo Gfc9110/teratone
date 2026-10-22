@@ -4,6 +4,14 @@ This increment retains the uploaded C++20 audio graph/DSP and adds a native engi
 service, bounded transport/live-note control, sampling, streaming WAV export,
 a C ABI, and a Rust/Slint application implementation.
 
+**macOS update — 22 October 2026:** the Slint window sizing declaration is fixed,
+and both `scripts/validate_app.sh` and `scripts/validate_native.sh` now pass on
+macOS 15.6.1 / Apple Silicon. `app/Cargo.lock` is included in local Git history.
+The release UI also survived a five-second startup probe with `--silent`.
+Physical audio and GUI interactions remain untested. See the
+[local macOS validation record](docs/BUILD.md#local-macos-validation--22-october-2026).
+The delivery-environment statements below describe the original package.
+
 **Validation status matters:** the C++ implementation was built and tested on
 Linux x86_64 with GCC and Clang, ASan/UBSan, and a focused ThreadSanitizer run.
 **The Rust/Slint application was not compiled or run** because Rust and package

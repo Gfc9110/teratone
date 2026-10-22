@@ -10,3 +10,11 @@
 /First-session.wav
 /First-session.opendaw/
 # Cargo.lock should be committed after the first validated dependency resolution.
+
+# Generated test audio and local build-input backups.
+/bad.wav
+/ffi_export.wav
+/fuzz.wav
+/service_test.wav
+/short_write.wav
+/evidence/macos-build-fix-originals/
