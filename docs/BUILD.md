@@ -53,6 +53,38 @@ GUI interaction, physical audio playback, device changes, Intel macOS,
 Windows/Linux builds and hosted CI were not tested in this local run.
 The remaining sections retain the original delivery instructions and limits.
 
+### Toolbar visibility and About attribution follow-up
+
+A screenshot of the running app exposed a layout error that the startup probe
+could not detect: the transport header and editing toolbar had no vertical
+position binding, so Slint centered them behind the piano roll. Both now have
+explicit top-left positions. Play, Pause, Stop and Loop appear beside the OpenDAW
+logo, with Undo/Redo and view controls in the row above the ruler.
+
+The sidebar's AboutSlint widget has moved into Help → About OpenDAW. This retains
+the widget in a dialog accessible from the top-level menu, an attribution option
+in [Slint's royalty-free license](https://slint.dev/agreements/slint-royalty-free-license.pdf).
+On macOS, Help is in the system menu bar while the app is active. The dialog uses
+the standard widget palette so its attribution remains readable in light or dark
+mode.
+
+The full application validation script passed again. A separate software-rendered
+probe also checked that Play and Undo receive pointer clicks at 1280×820 and
+1000×760, Help opens the About dialog, the modal blocks the transport, and Close
+dismisses it. This does not test the native macOS menu or physical audio output.
+The probe is guarded by the UI feature so headless tests still work:
+
+```sh
+cd app
+cargo run --locked --example layout_probe
+```
+
+It writes PPM images under `evidence/`. PNG snapshots, the probe's output and the
+full validation log are saved there as `macos-toolbar-1280.png`,
+`macos-toolbar-1000.png`, `macos-about.png`, `macos-layout-probe.log` and
+`macos-toolbar-validation.log`. Save unsaved edits, close the running app and
+relaunch the rebuilt binary to load the new interface.
+
 ## Native C++ — independently executable
 
 CMake >=3.20 and a C++20 compiler. Tested here: Linux x86_64, GCC 14.2, Clang 17,

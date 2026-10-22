@@ -1,0 +1,7 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.80s
+     Running `target/debug/examples/layout_probe`
+PASS: visible Play and Undo controls receive clicks at 1280 x 820
+PASS: visible Play and Undo controls receive clicks at 1000 x 760
+PASS: Help menu opens About OpenDAW
+PASS: About dialog blocks underlying controls and closes

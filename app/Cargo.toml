@@ -27,6 +27,11 @@ required-features = ["ui"]
 name = "opendaw-project"
 path = "src/project_cli.rs"
 
+[[example]]
+name = "layout_probe"
+path = "examples/layout_probe.rs"
+required-features = ["ui"]
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

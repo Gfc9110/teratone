@@ -15,7 +15,8 @@ The Rust candidate declares these direct versions (not a resolved dependency tre
 - slint-build 1.18.1
 
 Consult each downloaded package's license and notice files. Slint offers multiple
-license options; the application includes the AboutSlint widget but that alone is
+license options; the application includes the AboutSlint widget under
+Help → About OpenDAW, accessible from its top-level menu, but that alone is
 not a legal/compliance determination. Select and document the appropriate option,
 audit transitive dependency notices and produce a resolved dependency inventory
 before distribution. No redistribution approval or store eligibility is claimed.

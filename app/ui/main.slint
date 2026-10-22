@@ -1,4 +1,4 @@
-import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, AboutSlint } from "std-widgets.slint";
+import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, AboutSlint, Palette } from "std-widgets.slint";
 
 export struct NoteVisual {
     x: float, y: float, w: float, h: float, selected: bool, label: string,
@@ -45,6 +45,7 @@ export component AppWindow inherits Window {
     in property <int> top-note: 84;
     in property <[NoteVisual]> note-items;
     in-out property <bool> confirm-close: false;
+    in-out property <bool> about-visible: false;
     in-out property <string> project-path: "First-session.opendaw";
     in-out property <string> export-path: "First-session.wav";
     out property <float> canvas-width: grid.width / 1px;
@@ -58,8 +59,14 @@ export component AppWindow inherits Window {
     callback export-audio(string); callback import-sample(string, int, bool); callback use-sine();
     callback exit-confirmed();
 
+    MenuBar {
+        Menu {
+            title: "Help";
+            MenuItem { title: "About OpenDAW"; activated => { root.about-visible = true; } }
+        }
+    }
     Rectangle {
-        height: 72px; width: parent.width; background: #151d28;
+        x: 0; y: 0; height: 72px; width: parent.width; background: #151d28;
         Text { x: 22px; y: 12px; text: "OPENDAW"; color: #79e3bf; font-size: 24px; font-weight: 700; }
         Text { x: 24px; y: 43px; text: "NATIVE AUDIO / INTERACTIVE PROTOTYPE"; color: #8394aa; font-size: 9px; }
         HorizontalLayout {
@@ -111,13 +118,12 @@ export component AppWindow inherits Window {
                 clicked => { root.export-audio(root.export-path); } }
             Rectangle { vertical-stretch: 1; }
             Text { text: "C++20 engine · Rust application\nStructural edits stop playback."; color: #8b9bb0; font-size: 11px; }
-            AboutSlint { }
         }
     }
     main := Rectangle {
         x: 242px; y: 88px; width: root.width - 258px; height: root.height - 152px;
         HorizontalLayout {
-            height: 32px; width: parent.width; spacing: 6px;
+            x: 0; y: 0; height: 32px; width: parent.width; spacing: 6px;
             Button { text: "Undo"; enabled: root.can-undo; clicked => { root.undo(); } }
             Button { text: "Redo"; enabled: root.can-redo; clicked => { root.redo(); } }
             Button { text: "Delete note"; clicked => { root.remove-note(); } }
@@ -186,6 +192,21 @@ export component AppWindow inherits Window {
             Rectangle { width: parent.width * root.peak-left; height: parent.height; background: #70dcb5; } }
         Rectangle { x: parent.width - 190px; y: 26px; width: 170px; height: 7px; background: #29384a;
             Rectangle { width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
+    }
+    if root.about-visible : Rectangle {
+        width: parent.width; height: parent.height; background: #000000b0;
+        TouchArea { }
+        Rectangle {
+            width: 420px; height: 320px; background: Palette.background; border-radius: 8px;
+            VerticalLayout {
+                padding: 24px; spacing: 16px;
+                Text { text: "OpenDAW 0.2.0"; color: Palette.foreground; font-size: 23px; }
+                Text { text: "Music creation with a C++ audio engine and Slint interface.";
+                    color: Palette.foreground; wrap: word-wrap; }
+                AboutSlint { }
+                Button { text: "Close"; clicked => { root.about-visible = false; } }
+            }
+        }
     }
     if root.confirm-close : Rectangle {
         width: parent.width; height: parent.height; background: #000000b0;
