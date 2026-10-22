@@ -1,9 +1,9 @@
-# Project format v2 — M3.1
+# Project format v2 — M3.2
 
 The application reads v1 and v2 and writes v2. Opening a v1 project migrates it
 in memory without rewriting its source file. The example under
 `examples/First-session.opendaw/project.json` intentionally remains v1 as a
-compatibility fixture. Native playback still uses the existing C ABI v1.
+compatibility fixture. The original ABI v1 remains compatible; the app uses additive versioned mixer descriptors.
 
 ```text
 Song.opendaw/
@@ -33,6 +33,8 @@ mutable `Track.notes` array.
     "color": "#62BFA6",
     "gain": 0.7,
     "pan": 0.0,
+    "mute": false,
+    "solo": false,
     "instrument": {"id": 2, "config": {"kind": "sine"}},
     "clips": [{
       "id": 3,
@@ -51,8 +53,12 @@ The other currently supported configuration is:
 {"id": 2, "config": {"kind": "sampler", "sample_path": "assets/sample-example.wav", "root_note": 60, "one_shot": false}}
 ```
 
-A preset/synth-parameter model, mute/solo, drum pads and hashed asset references
-are subsequent M3 increments, not supported fields in this increment. Unknown
+Track `mute` and `solo` are optional booleans with default false when absent,
+including migrated v1 files and earlier v2 manifests. New saves write both.
+Audibility is `!mute && (!any_solo || solo)`; gain/pan retain their nominal values.
+Flags are undoable and duplicated with the independent instance. Playback and
+export derive the same gate state. A preset/synth-parameter model, drum pads and
+hashed asset references remain subsequent M3 increments. Unknown
 fields and unsupported versions are rejected. The decoder uses separate strict
 DTOs for v1 and v2 and rejects duplicate fields in the original JSON bytes.
 
@@ -69,8 +75,9 @@ rejects integer overflow. Overlapping clips sum their events with distinct note
 IDs. The bridge compiles absolute start/end frames using the actual engine rate.
 A note duration that rounds below one frame is rejected before native loading.
 The current editor selects one existing clip at a time. New tracks and migrated
-v1 tracks receive one full-length `Main` clip. Arrangement/clip creation controls
-will follow in M3.3.
+v1 tracks receive one full-length `Main` clip. M3.2 shows existing clips in aligned
+arrangement lanes and selects them for editing. Clip creation/movement/resizing
+controls follow in M3.3.
 
 Limits remain 16 tracks (matching native capacity), 100,000 notes total, 4,096
 clips, 24 hours, 32 MiB manifest and a 128 MiB new-asset-copy budget per save.

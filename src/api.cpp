@@ -11,6 +11,7 @@
 
 struct od_engine {
     daw::SessionSpec spec;
+    uint64_t generation = 1;
     std::unique_ptr<daw::EngineService> service;
     daw::OutputDevice device; // destroyed first, before service
 };
@@ -34,24 +35,11 @@ od_result command(od_engine* e, daw::Command c) {
     return OD_OK;
 }
 }
-extern "C" {
-uint32_t od_abi_version() noexcept { return OD_ABI_VERSION; }
-const char* od_error_message() noexcept { return error.data(); }
-od_engine* od_create(uint32_t rate, uint32_t block) noexcept {
-    od_engine* result = nullptr;
-    protect([&] {
-        auto e = std::make_unique<od_engine>();
-        e->spec.sampleRate = rate; e->spec.maxFrames = block;
-        e->service = std::make_unique<daw::EngineService>(e->spec);
-        result = e.release(); return OD_OK;
-    });
-    return result;
-}
-void od_destroy(od_engine* e) noexcept { delete e; }
-od_result od_load(od_engine* e, const od_track* tracks, size_t trackCount, const od_note* notes,
-                  size_t noteCount, uint64_t length) noexcept {
-    return protect([&] {
-        if (!e || !tracks || !trackCount || trackCount > daw::MaxTracks || (noteCount && !notes) || noteCount > 100000)
+namespace {
+od_result loadSession(od_engine* e, const od_track* tracks, const od_track_v2* tracksV2,
+                      size_t trackCount, const od_note* notes, size_t noteCount, uint64_t length) {
+
+        if (!e || (!tracks && !tracksV2) || !trackCount || trackCount > daw::MaxTracks || (noteCount && !notes) || noteCount > 100000)
             return invalid("Invalid project arrays/limits");
         daw::SessionSpec candidate;
         candidate.sampleRate = e->spec.sampleRate; candidate.maxFrames = e->spec.maxFrames;
@@ -59,11 +47,14 @@ od_result od_load(od_engine* e, const od_track* tracks, size_t trackCount, const
         std::unordered_map<std::string, std::shared_ptr<const daw::SampleData>> samples;
         uint64_t residentBytes = 0;
         for (size_t i = 0; i < trackCount; ++i) {
-            const auto& t = tracks[i];
+            if (tracksV2 && (tracksV2[i].struct_size != sizeof(od_track_v2) || tracksV2[i].version != OD_TRACK_V2_VERSION ||
+                tracksV2[i].mute > 1 || tracksV2[i].solo > 1)) return invalid("Invalid v2 track descriptor");
+            const auto& t = tracksV2 ? tracksV2[i].base : tracks[i];
             if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.root_note > 127 || t.one_shot > 1)
                 return invalid("Invalid track parameters");
             daw::TrackSettings settings;
             settings.gain = std::clamp(t.gain, 0.0f, 2.0f); settings.pan = std::clamp(t.pan, -1.0f, 1.0f);
+            settings.mute = tracksV2 && tracksV2[i].mute; settings.solo = tracksV2 && tracksV2[i].solo;
             settings.rootNote = static_cast<uint8_t>(t.root_note); settings.oneShot = t.one_shot != 0;
             if (t.sample_path_utf8 && t.sample_path_utf8[0]) {
                 std::string key(t.sample_path_utf8);
@@ -86,12 +77,58 @@ od_result od_load(od_engine* e, const od_track* tracks, size_t trackCount, const
             candidate.notes.push_back({n.id, n.start_frame, n.end_frame, n.track,
                 static_cast<uint8_t>(n.pitch), static_cast<uint8_t>(n.velocity)});
         }
+        if (e->generation == UINT64_MAX) return invalid("Session generation exhausted");
         auto prepared = std::make_unique<daw::EngineService>(candidate);
         e->device.stop(); // callback quiescence before old graph/resource destruction
         e->service = std::move(prepared);
-        e->spec = std::move(candidate);
+        e->spec = std::move(candidate); ++e->generation;
         return OD_OK;
+
+}
+od_result setMix(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, size_t count, uint64_t* outSerial) {
+    if (!e || !mix || !outSerial || count != e->spec.tracks.size() || generation != e->generation)
+        return invalid("Invalid mixer count, generation or output");
+    daw::MixSnapshot snapshot;
+    for (size_t i = 0; i < count; ++i) {
+        const auto& t = mix[i];
+        if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.gain < 0 || t.gain > 2 || t.pan < -1 || t.pan > 1 || t.mute > 1 || t.solo > 1)
+            return invalid("Invalid mixer values");
+        snapshot.tracks[i] = {t.gain, t.pan, t.mute != 0, t.solo != 0};
+    }
+    uint64_t serial = 0;
+    if (!e->service->submitMix(snapshot, serial)) { setError("Mixer queue full; retain and retry the latest snapshot"); return OD_QUEUE_FULL; }
+    for (size_t i = 0; i < count; ++i) {
+        auto& t = e->spec.tracks[i]; t.gain = mix[i].gain; t.pan = mix[i].pan; t.mute = mix[i].mute != 0; t.solo = mix[i].solo != 0;
+    }
+    *outSerial = serial; return OD_OK;
+}
+}
+extern "C" {
+uint32_t od_abi_version() noexcept { return OD_ABI_VERSION; }
+const char* od_error_message() noexcept { return error.data(); }
+od_engine* od_create(uint32_t rate, uint32_t block) noexcept {
+    od_engine* result = nullptr;
+    protect([&] {
+        auto e = std::make_unique<od_engine>();
+        e->spec.sampleRate = rate; e->spec.maxFrames = block;
+        e->service = std::make_unique<daw::EngineService>(e->spec);
+        result = e.release(); return OD_OK;
     });
+    return result;
+}
+void od_destroy(od_engine* e) noexcept { delete e; }
+od_result od_load(od_engine* e, const od_track* tracks, size_t count, const od_note* notes, size_t noteCount, uint64_t length) noexcept {
+    return protect([&] { return loadSession(e, tracks, nullptr, count, notes, noteCount, length); });
+}
+od_result od_load_v2(od_engine* e, const od_track_v2* tracks, size_t count, const od_note* notes, size_t noteCount, uint64_t length) noexcept {
+    return protect([&] { return loadSession(e, nullptr, tracks, count, notes, noteCount, length); });
+}
+od_result od_set_mix_v1(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, size_t count, uint64_t* serial) noexcept {
+    return protect([&] { return setMix(e, generation, mix, count, serial); });
+}
+od_result od_read_mix_status_v1(const od_engine* e, od_mix_status_v1* out) noexcept {
+    error[0] = '\0'; if (!e || !out) return invalid("Null mixer status output");
+    *out = {e->generation, e->service->mixSubmitted(), e->service->mixApplied()}; return OD_OK;
 }
 od_result od_play(od_engine* e) noexcept { return protect([&] { return command(e, {daw::CommandType::Play}); }); }
 od_result od_pause(od_engine* e) noexcept { return protect([&] { return command(e, {daw::CommandType::Pause}); }); }
@@ -122,10 +159,12 @@ od_result od_panic(od_engine* e) noexcept { return protect([&] { if (!e) return 
 od_result od_gain_pan(od_engine* e, uint32_t track, float gain, float pan) noexcept {
     return protect([&] {
         if (!e || track >= e->spec.tracks.size() || !std::isfinite(gain) || !std::isfinite(pan)) return invalid("Invalid gain/pan");
-        e->service->setGain(track, gain); e->service->setPan(track, pan);
-        e->spec.tracks[track].gain = std::clamp(gain, 0.0f, 2.0f);
-        e->spec.tracks[track].pan = std::clamp(pan, -1.0f, 1.0f);
-        return OD_OK;
+        std::array<od_track_mix_v1, daw::MaxTracks> mix{};
+        for (size_t i = 0; i < e->spec.tracks.size(); ++i) {
+            const auto& t = e->spec.tracks[i]; mix[i] = {t.gain, t.pan, uint32_t(t.mute), uint32_t(t.solo)};
+        }
+        mix[track].gain = std::clamp(gain, 0.0f, 2.0f); mix[track].pan = std::clamp(pan, -1.0f, 1.0f);
+        uint64_t serial = 0; return setMix(e, e->generation, mix.data(), e->spec.tracks.size(), &serial);
     });
 }
 od_result od_read_telemetry(const od_engine* e, od_telemetry* out) noexcept {

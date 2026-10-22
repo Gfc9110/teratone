@@ -221,6 +221,24 @@ void GainPanNode::process(const ProcessContext& ctx, std::span<const AudioBlock*
     }
 }
 
+void AudibilityNode::prepare(double rate, uint32_t) {
+    rampFrames_ = std::max(1u, static_cast<uint32_t>(std::round(rate * 0.005)));
+    reset();
+}
+void AudibilityNode::reset() noexcept { current_ = target_; remaining_ = 0; step_ = 0; }
+void AudibilityNode::setAudible(bool audible) noexcept {
+    const float next = audible ? 1.0f : 0.0f;
+    if (next != target_) { target_ = next; remaining_ = rampFrames_; step_ = (target_ - current_) / remaining_; }
+}
+void AudibilityNode::process(const ProcessContext& ctx, std::span<const AudioBlock* const> inputs, AudioBlock& output) noexcept {
+    if (inputs.empty()) return;
+    for (uint32_t i = 0; i < ctx.frames; ++i) {
+        if (remaining_) { current_ += step_; if (--remaining_ == 0) current_ = target_; }
+        output.left[i] = inputs[0]->left[i] * current_;
+        output.right[i] = inputs[0]->right[i] * current_;
+    }
+}
+
 void MixerNode::prepare(double, uint32_t) {}
 void MixerNode::reset() noexcept {}
 void MixerNode::process(const ProcessContext& ctx,

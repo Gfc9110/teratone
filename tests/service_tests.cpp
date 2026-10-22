@@ -187,12 +187,82 @@ void concurrentControl() {
     for (int i = 0; i < 10000; ++i) {
         engine.setGain(0, static_cast<float>(i % 100) / 100);
         engine.setPan(0, static_cast<float>(i % 200 - 100) / 100);
+        daw::MixSnapshot mix;
+        for (uint32_t track = 0; track < s.tracks.size(); ++track) {
+            mix.tracks[track].gain = 0.5f; mix.tracks[track].mute = i % 3 == 0;
+            mix.tracks[track].solo = (i + track) % 5 == 0;
+        }
+        uint64_t mixSerial = 0; engine.submitMix(mix, mixSerial);
         const auto t = engine.telemetry(); CHECK(std::isfinite(t.peakLeft));
         if (i % 100 == 0) { daw::Command c{daw::CommandType::Seek}; c.a = i; engine.submit(c); }
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    daw::MixSnapshot finalMix; uint64_t finalSerial = 0;
+    for (auto& t : finalMix.tracks) t.mute = true;
+    while (!engine.submitMix(finalMix, finalSerial)) std::this_thread::yield();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (engine.mixApplied() < finalSerial && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    CHECK(engine.mixApplied() == finalSerial);
     device.stop(); CHECK(engine.telemetry().blocks > 0);
 }
+void audibilityRamp() {
+    daw::AudibilityNode gate(true); gate.prepare(48000, 256);
+    daw::AudioBlock in, out; in.allocate(256); out.allocate(256);
+    std::fill(in.left.begin(), in.left.end(), 0.25f); std::fill(in.right.begin(), in.right.end(), 0.25f);
+    const daw::AudioBlock* input = &in; gate.setAudible(false);
+    gate.process({0, 256, 48000}, {&input, 1}, out);
+    float previous = 0.25f;
+    for (size_t i = 0; i < 256; ++i) { CHECK(std::abs(out.left[i] - previous) <= 0.002f); previous = out.left[i]; }
+    for (size_t i = 239; i < 256; ++i) CHECK(out.left[i] == 0);
+    gate.setAudible(true); gate.process({256, 240, 48000}, {&input, 1}, out); CHECK(out.left[239] == 0.25f);
+}
+void allMuteSoloCombinations() {
+    auto sample = std::make_shared<daw::SampleData>(); sample->stereo.assign(8192, 0.1f);
+    for (uint32_t mask = 0; mask < 64; ++mask) {
+        daw::SessionSpec spec; spec.lengthFrames = 4096; spec.tracks.resize(3);
+        bool anySolo = false;
+        for (uint32_t i = 0; i < 3; ++i) {
+            auto& t = spec.tracks[i]; t.sample = sample; t.gain = 0.3f + i * 0.1f;
+            t.mute = (mask & (1u << i)) != 0; t.solo = (mask & (1u << (i + 3))) != 0; anySolo |= t.solo;
+            spec.notes.push_back({i + 1, 0, 3000, i, 60, 127});
+        }
+        float sum = 0; for (const auto& t : spec.tracks) if (!t.mute && (!anySolo || t.solo)) sum += t.gain;
+        auto engine = std::make_unique<daw::EngineService>(spec); engine->submit({daw::CommandType::Play});
+        const auto out = render(*engine, 64); const float expected = 0.08f * std::sqrt(0.5f) * sum;
+        for (float value : out) CHECK(std::abs(value - expected) < 1e-6f);
+    }
+}
+void mixerQueueAndVoiceContinuity() {
+    auto s = score(); auto a = std::make_unique<daw::EngineService>(s); auto b = std::make_unique<daw::EngineService>(s);
+    a->submit({daw::CommandType::Play}); b->submit({daw::CommandType::Play}); CHECK(render(*a, 256) == render(*b, 256));
+    daw::MixSnapshot mix; mix.tracks[0].gain = s.tracks[0].gain; mix.tracks[0].mute = true; uint64_t serial = 0;
+    CHECK(a->submitMix(mix, serial)); const auto muted = render(*a, 512); render(*b, 512);
+    CHECK(energy(muted, 480) == 0); mix.tracks[0].mute = false;
+    CHECK(a->submitMix(mix, serial)); render(*a, 240); render(*b, 240); CHECK(render(*a, 128) == render(*b, 128));
+    for (uint32_t i = 0; i < 8; ++i) { mix.tracks[0].mute = true; CHECK(a->submitMix(mix, serial)); }
+    const auto accepted = serial; CHECK(!a->submitMix(mix, serial)); CHECK(serial == accepted);
+    a->stop(); render(*a, 1); CHECK(a->mixApplied() == accepted); CHECK(!a->telemetry().playing);
+}
+void mixerAbiGenerations() {
+    od_engine* e = od_create(48000, 256); CHECK(e);
+    od_track_v2 track{sizeof(od_track_v2), OD_TRACK_V2_VERSION, {0.7f, 0, nullptr, 60, 0}, 1, 0};
+    const od_note note{1, 0, 3000, 0, 60, 100};
+    CHECK(od_load_v2(e, &track, 1, &note, 1, 4096) == OD_OK);
+    od_mix_status_v1 status{}; CHECK(od_read_mix_status_v1(e, &status) == OD_OK); const auto generation = status.generation;
+    CHECK(od_play(e) == OD_OK); std::vector<float> buffer(1024); CHECK(od_render(e, buffer.data(), 512) == OD_OK); CHECK(energy(buffer) == 0);
+    od_track_mix_v1 mix{0.7f, 0, 0, 0}; uint64_t serial = 77;
+    CHECK(od_set_mix_v1(e, generation + 1, &mix, 1, &serial) == OD_INVALID); CHECK(serial == 77);
+    CHECK(od_set_mix_v1(e, generation, &mix, 1, &serial) == OD_OK); CHECK(serial == 1);
+    CHECK(od_render(e, buffer.data(), 512) == OD_OK); CHECK(energy(buffer) > 1);
+    CHECK(od_read_mix_status_v1(e, &status) == OD_OK); CHECK(status.submitted == 1 && status.applied == 1);
+    mix.mute = 1; CHECK(od_set_mix_v1(e, generation, &mix, 1, &serial) == OD_OK);
+    CHECK(od_export(e, "m32-mixer-test.wav", 4096) == OD_OK);
+    const auto sample = daw::loadWav("m32-mixer-test.wav"); CHECK(energy(sample->stereo) == 0); std::filesystem::remove("m32-mixer-test.wav");
+    track.struct_size = 1; CHECK(od_load_v2(e, &track, 1, &note, 1, 4096) == OD_INVALID);
+    CHECK(od_read_mix_status_v1(e, &status) == OD_OK && status.generation == generation);
+    CHECK(od_load(e, &track.base, 1, &note, 1, 4096) == OD_OK);
+    CHECK(od_set_mix_v1(e, generation, &mix, 1, &serial) == OD_INVALID); od_destroy(e);
+}
+
 }
 int main() {
     try {
@@ -211,6 +281,10 @@ int main() {
         run("sampler pitch/release and engine integration", samplerPitchAndRelease);
         run("C ABI transactional load/export/lifecycle", ffiLifecycle);
         run("concurrent controls, telemetry, device stop", concurrentControl);
-        std::cout << "14 interactive checks passed\n"; return 0;
+        run("mute gate reaches silence with a 5 ms ramp", audibilityRamp);
+        run("all 64 mute/solo states and initial silence", allMuteSoloCombinations);
+        run("mixer backpressure, Stop and voice continuity", mixerQueueAndVoiceContinuity);
+        run("versioned mixer ABI, generation and export", mixerAbiGenerations);
+        std::cout << "18 interactive checks passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

@@ -1,0 +1,14 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling memchr v2.8.3
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+   Compiling serde_json v1.0.145
+   Compiling syn v2.0.119
+   Compiling serde_derive v1.0.228
+   Compiling serde v1.0.228
+    Finished `release` profile [optimized] target(s) in 8.68s
+     Running `app/target/release/examples/mixer_probe`
+16 tracks / 100000 notes: arrangement scene p95 0.602 ms; max 400 thumbnail rectangles
+Control-thread prepare: 15.411 ms
+5000 headless 256-frame calls, 48 kHz, periodic mixer snapshots: p95 0.110 ms, max 0.392 ms (Rust buffer allocation included)
+Not the M3.6 hardware gate: no physical device, 32/64 tracks, or fixed 8 voices/track claim.

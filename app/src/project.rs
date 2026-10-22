@@ -32,6 +32,8 @@ pub struct MidiClip {
 #[serde(deny_unknown_fields)]
 pub struct Track {
     pub id: u64, pub name: String, pub color: String, pub gain: f32, pub pan: f32,
+    #[serde(default)] pub mute: bool,
+    #[serde(default)] pub solo: bool,
     pub instrument: InstrumentInstance, pub clips: Vec<MidiClip>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -103,10 +105,10 @@ impl Project {
         }).collect();
         Self { version: SCHEMA_VERSION, name: "First session".into(), bpm: 120.0,
             length_ticks: 16 * PPQ, next_id: 100,
-            tracks: vec![Track { id: 1, name: "Sine lead".into(), color: TRACK_COLORS[0].into(), gain: 0.7, pan: -0.15,
+            tracks: vec![Track { id: 1, name: "Sine lead".into(), color: TRACK_COLORS[0].into(), gain: 0.7, pan: -0.15, mute: false, solo: false,
                 instrument: InstrumentInstance { id: 3, config: Instrument::Sine },
                 clips: vec![MidiClip { id: 4, name: "Main".into(), start_tick: 0, length_ticks: 16 * PPQ, notes }] },
-                Track { id: 2, name: "Bass".into(), color: TRACK_COLORS[1].into(), gain: 0.55, pan: 0.15,
+                Track { id: 2, name: "Bass".into(), color: TRACK_COLORS[1].into(), gain: 0.55, pan: 0.15, mute: false, solo: false,
                     instrument: InstrumentInstance { id: 5, config: Instrument::Sine },
                     clips: vec![MidiClip { id: 6, name: "Main".into(), start_tick: 0, length_ticks: 16 * PPQ,
                         notes: vec![Note { id: 20, start: 0, duration: 3 * PPQ, pitch: 48, velocity: 90 },
@@ -135,6 +137,9 @@ impl Project {
     }
     pub fn note_count(&self) -> usize { self.tracks.iter().flat_map(|t| &t.clips).map(|c| c.notes.len()).sum() }
     pub fn clip_count(&self) -> usize { self.tracks.iter().map(|t| t.clips.len()).sum() }
+    pub fn audible(&self, track: u64) -> bool {
+        self.track(track).is_some_and(|t| !t.mute && (!self.tracks.iter().any(|t| t.solo) || t.solo))
+    }
     pub fn frame_at(&self, tick: u64, sample_rate: u32) -> u64 {
         (tick as f64 * 60.0 * sample_rate as f64 / (self.bpm * PPQ as f64)).round() as u64
     }
@@ -188,7 +193,7 @@ impl LegacyProject {
         let mut next = self.next_id; let mut tracks = Vec::with_capacity(self.tracks.len());
         for (i, t) in self.tracks.into_iter().enumerate() {
             let name = if t.name.trim().is_empty() { format!("Track {}", i + 1) } else { t.name };
-            tracks.push(Track { id: t.id, name, color: TRACK_COLORS[i % TRACK_COLORS.len()].into(), gain: t.gain, pan: t.pan,
+            tracks.push(Track { id: t.id, name, color: TRACK_COLORS[i % TRACK_COLORS.len()].into(), gain: t.gain, pan: t.pan, mute: false, solo: false,
                 instrument: InstrumentInstance { id: take_id(&mut next)?, config: t.instrument },
                 clips: vec![MidiClip { id: take_id(&mut next)?, name: "Main".into(), start_tick: 0, length_ticks: self.length_ticks, notes: t.notes }] });
         }
@@ -203,11 +208,12 @@ pub enum Edit {
     Insert { track: u64, clip: u64, index: usize, note: Note }, Delete { track: u64, clip: u64, id: u64 },
     Replace { track: u64, clip: u64, note: Note }, Tempo(f64), Mix { track: u64, gain: f32, pan: f32 },
     Instrument { track: u64, instrument: Instrument },
+    Audibility { track: u64, mute: bool, solo: bool },
     AddTrack { after: u64 }, DuplicateTrack { track: u64 }, InsertTrack { index: usize, track: Track }, RemoveTrack { track: u64 },
     TrackInfo { track: u64, name: String, color: String }, MoveTrack { track: u64, index: usize },
 }
 impl Edit {
-    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } => Impact::Metadata, Self::Mix { .. } => Impact::Realtime, _ => Impact::Structural } }
+    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } => Impact::Realtime, _ => Impact::Structural } }
     fn apply(self, p: &mut Project) -> Result<Self, String> {
         match self {
             Self::Insert { track, clip, index, note } => {
@@ -238,6 +244,11 @@ impl Edit {
                 validate_mix(gain, pan)?; let t = p.track_mut(track)?;
                 let inverse = Self::Mix { track, gain: t.gain, pan: t.pan }; t.gain = gain; t.pan = pan; Ok(inverse)
             }
+            Self::Audibility { track, mute, solo } => {
+                let t = p.track_mut(track)?;
+                let inverse = Self::Audibility { track, mute: t.mute, solo: t.solo };
+                t.mute = mute; t.solo = solo; Ok(inverse)
+            }
             Self::Instrument { track, instrument } => {
                 validate_instrument(&instrument)?; let t = p.track_mut(track)?;
                 Ok(Self::Instrument { track, instrument: std::mem::replace(&mut t.instrument.config, instrument) })
@@ -246,7 +257,7 @@ impl Edit {
                 let index = p.tracks.iter().position(|t| t.id == after).ok_or("Track no longer exists")? + 1;
                 let mut next = p.next_id;
                 let track = Track { id: take_id(&mut next)?, name: format!("Oscillator {}", p.tracks.len() + 1),
-                    color: TRACK_COLORS[p.tracks.len() % TRACK_COLORS.len()].into(), gain: 0.7, pan: 0.0,
+                    color: TRACK_COLORS[p.tracks.len() % TRACK_COLORS.len()].into(), gain: 0.7, pan: 0.0, mute: false, solo: false,
                     instrument: InstrumentInstance { id: take_id(&mut next)?, config: Instrument::Sine },
                     clips: vec![MidiClip { id: take_id(&mut next)?, name: "Main".into(), start_tick: 0, length_ticks: p.length_ticks, notes: Vec::new() }] };
                 p.insert_track(index, track, next)
@@ -386,4 +397,25 @@ impl History {
         p = Project::demo(); p.tracks[0].clips[0].length_ticks = PPQ; assert!(p.validate().is_err());
         p = Project::demo(); p.tracks[1].clips[0].notes[0].id = p.tracks[0].clips[0].notes[0].id; assert!(p.validate().is_err());
     }
+    #[test] fn audibility_flags_default_persist_and_undo_without_changing_faders() {
+        let mut p = Project::demo(); let original = p.clone(); let mut h = History::default();
+        let mut old = serde_json::to_value(&p).unwrap();
+        for t in old["tracks"].as_array_mut().unwrap() { t.as_object_mut().unwrap().remove("mute"); t.as_object_mut().unwrap().remove("solo"); }
+        assert_eq!(Project::decode(&serde_json::to_vec(&old).unwrap()).unwrap(), p);
+        for mask in 0..16 {
+            for i in 0..2 { p.tracks[i].mute = mask & (1 << (i*2)) != 0; p.tracks[i].solo = mask & (2 << (i*2)) != 0; }
+            let q = Project::decode(&serde_json::to_vec(&p).unwrap()).unwrap(); assert_eq!(q, p);
+            for t in &p.tracks { assert_eq!(p.audible(t.id), !t.mute && (!p.tracks.iter().any(|t| t.solo) || t.solo)); }
+        }
+        p = original.clone();
+        h.execute(&mut p, Edit::Audibility { track: 1, mute: true, solo: true }).unwrap();
+        h.execute(&mut p, Edit::Audibility { track: 2, mute: false, solo: true }).unwrap();
+        assert!(!p.audible(1)); assert!(p.audible(2));
+        h.undo(&mut p).unwrap(); h.undo(&mut p).unwrap(); assert_eq!(p, original);
+        h.redo(&mut p).unwrap(); assert!(p.tracks[0].mute && p.tracks[0].solo);
+        assert_eq!(p.tracks[0].gain, original.tracks[0].gain); assert_eq!(p.tracks[0].pan, original.tracks[0].pan);
+        h.execute(&mut p, Edit::DuplicateTrack { track: 1 }).unwrap();
+        assert!(p.tracks[1].mute && p.tracks[1].solo);
+    }
+
 }

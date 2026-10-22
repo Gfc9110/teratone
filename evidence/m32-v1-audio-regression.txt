@@ -1,0 +1,4 @@
+PASS: v1 example output is byte-identical to the M3.1 reference.
+Bytes: 1536044
+SHA-256: c5e43d8f56299da06bdc6e2c167ba0690cb858f48cf70c2df676a86f4d501426
+No fixture/source project was rewritten.

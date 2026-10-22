@@ -1,0 +1,19 @@
+PASS constructor/setter validation consistency
+PASS overlapping note occurrence IDs
+PASS variable-block scheduling invariance
+PASS play/pause/stop/seek reset policy
+PASS loop boundaries and block invariance
+PASS bounded queue overflow and emergency note-off
+PASS live audition without moving transport
+PASS session and event-density validation
+PASS SPSC two-thread ordering stress
+PASS streaming export and waveform peaks
+PASS malformed WAV bounds and fuzz smoke
+PASS sampler pitch/release and engine integration
+PASS C ABI transactional load/export/lifecycle
+PASS concurrent controls, telemetry, device stop
+PASS mute gate reaches silence with a 5 ms ramp
+PASS all 64 mute/solo states and initial silence
+PASS mixer backpressure, Stop and voice continuity
+PASS versioned mixer ABI, generation and export
+18 interactive checks passed

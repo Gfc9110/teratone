@@ -4,15 +4,16 @@ This increment retains the uploaded C++20 audio graph/DSP and adds a native engi
 service, bounded transport/live-note control, sampling, streaming WAV export,
 a C ABI, and a Rust/Slint application implementation.
 
-**M3.1 local increment — 22 October 2026:** track creation, duplication, removal,
-reordering, names/colors and independent instance/clip identities are implemented.
-The app reads v1 projects and saves v2 while retaining a v1 migration backup.
-The native DSP/ABI and dependency versions remain unchanged. Validation passed:
-18 headless Rust tests, 21 UI-enabled Rust tests, four native suites, and the
-software layout probe. The migrated v1 example renders byte-identically to the
-baseline. This is the first M3 increment; mute/solo, arrangement clip controls,
-vertical piano keyboard, new oscillator DSP and drum kit are still pending.
-See [M3 progress and validation](docs/M3_IMPLEMENTATION_PROGRESS.md).
+**M3.2 local increment — 22 October 2026:** multitrack arrangement with fixed
+headers, clip previews, drag reorder and a collapsible inspector. Mute/solo work
+live and in export, preserve fader values, and participate in save/undo/redo.
+Multiple solo tracks are cumulative; mute takes precedence. The app reads v1 and
+v2, saving v2 with a v1 migration checkpoint. The original C ABI remains compatible
+through additive mixer APIs; dependencies are unchanged. Validation: 24 headless
+and 33 UI-enabled Rust tests, four native suites, software UI at 100/200%,
+ASan/UBSan and focused TSan. Physical audio and Windows still need target-host tests.
+Clip manipulation, vertical keyboard, expanded synth and drums remain later M3 steps.
+See [M3 progress, validation and usage](docs/M3_IMPLEMENTATION_PROGRESS.md).
 
 **macOS update — 22 October 2026:** the Slint window sizing declaration is fixed,
 and both `scripts/validate_app.sh` and `scripts/validate_native.sh` now pass on

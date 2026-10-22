@@ -51,6 +51,7 @@ EngineService::EngineService(const SessionSpec& spec)
     }
     std::vector<size_t> inputs;
     inputs.reserve(trackCount_);
+    const bool anySolo = std::any_of(spec.tracks.begin(), spec.tracks.end(), [](const auto& t) { return t.solo; });
     for (uint32_t i = 0; i < trackCount_; ++i) {
         const auto& settings = spec.tracks[i];
         std::unique_ptr<InstrumentNode> instrument;
@@ -65,7 +66,10 @@ EngineService::EngineService(const SessionSpec& spec)
         auto source = graph_.add(std::move(instrument));
         auto gain = std::make_unique<GainPanNode>(settings.gain, settings.pan);
         gains_[i] = gain.get();
-        inputs.push_back(graph_.add(std::move(gain), {source}));
+        const auto mixed = graph_.add(std::move(gain), {source});
+        auto gate = std::make_unique<AudibilityNode>(!settings.mute && (!anySolo || settings.solo));
+        gates_[i] = gate.get();
+        inputs.push_back(graph_.add(std::move(gate), {mixed}));
     }
     graph_.setMaster(graph_.add(std::make_unique<MixerNode>(), std::move(inputs)));
     graph_.prepare(sampleRate_, maxFrames_);
@@ -104,6 +108,35 @@ bool EngineService::setGain(uint32_t track, float gain) noexcept {
 bool EngineService::setPan(uint32_t track, float pan) noexcept {
     if (track >= trackCount_ || !std::isfinite(pan)) return false;
     gains_[track]->setPan(pan); return true;
+}
+
+bool EngineService::submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept {
+    for (uint32_t i = 0; i < trackCount_; ++i) {
+        const auto& t = snapshot.tracks[i];
+        if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.gain < 0 || t.gain > 2 || t.pan < -1 || t.pan > 1) {
+            meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false;
+        }
+    }
+    if (mixSerial_ == std::numeric_limits<uint64_t>::max()) {
+        meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false;
+    }
+    snapshot.serial = mixSerial_ + 1;
+    if (!mixQueue_.push(snapshot)) { meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false; }
+    serial = ++mixSerial_; return true;
+}
+void EngineService::consumeMix() noexcept {
+    MixSnapshot next, latest; bool changed = false;
+    // Bounded even if the producer continues filling the queue.
+    for (size_t n = 0; n < 8 && mixQueue_.pop(next); ++n) { latest = next; changed = true; }
+    if (!changed) return;
+    bool anySolo = false;
+    for (uint32_t i = 0; i < trackCount_; ++i) anySolo |= latest.tracks[i].solo;
+    for (uint32_t i = 0; i < trackCount_; ++i) {
+        const auto& t = latest.tracks[i];
+        gains_[i]->setGain(t.gain); gains_[i]->setPan(t.pan);
+        gates_[i]->setAudible(!t.mute && (!anySolo || t.solo));
+    }
+    mixApplied_.store(latest.serial, std::memory_order_release);
 }
 
 void EngineService::discontinuity(uint64_t frame) noexcept {
@@ -152,6 +185,7 @@ void EngineService::consumeCommands() noexcept {
 }
 
 void EngineService::block(float* stereo, uint32_t frames) noexcept {
+    consumeMix(); // Stop/panic cancels note commands, never the desired mixer state.
     consumeCommands();
     uint32_t done = 0;
     float peakL = 0, peakR = 0;

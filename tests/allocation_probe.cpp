@@ -67,6 +67,11 @@ int main() {
         if (block % 50 == 10) {
             daw::Command note{daw::CommandType::NoteOff}; note.id = daw::LiveIdBit | 1; engine.submit(note);
         }
+        if (block % 4 == 0) {
+            daw::MixSnapshot mix; mix.tracks[0].gain = 0.5f; mix.tracks[1].gain = 0.7f;
+            mix.tracks[0].mute = block % 8 == 0; mix.tracks[1].solo = block % 12 == 0;
+            uint64_t serial = 0; engine.submitMix(mix, serial);
+        }
         engine.render(out.data(), 256);
         (void)engine.telemetry();
     }

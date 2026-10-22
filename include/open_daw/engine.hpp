@@ -120,6 +120,20 @@ private:
     float smoothing_ = 0.0f;
 };
 
+// Target changes happen only on the audio consumer at a block boundary.
+// This gate is separate from the nominal track fader and reaches exact silence.
+class AudibilityNode final : public AudioNode {
+public:
+    explicit AudibilityNode(bool audible) : current_(audible ? 1.0f : 0.0f), target_(current_) {}
+    void setAudible(bool audible) noexcept;
+    void prepare(double sampleRate, uint32_t) override;
+    void reset() noexcept override;
+    void process(const ProcessContext&, std::span<const AudioBlock* const>, AudioBlock&) noexcept override;
+private:
+    float current_, target_, step_ = 0;
+    uint32_t rampFrames_ = 240, remaining_ = 0;
+};
+
 class MixerNode final : public AudioNode {
 public:
     void prepare(double sampleRate, uint32_t maxFrames) override;

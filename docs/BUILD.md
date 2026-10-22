@@ -1,14 +1,16 @@
 # Build, run, and validation
 
-## M3.1 increment — 22 October 2026
+## M3.2 increment — 22 October 2026
 
-The current code passes 18 headless and 21 UI-enabled Rust tests, release builds,
-example v1 migration/render, all four native suites and shared-library checks.
-The layout probe covers Play/Undo/Add/Duplicate at 1280×820 and 1000×760, plus
-Help/About. Logs and snapshots use the `evidence/m3-` prefix. See
-[M3 progress](M3_IMPLEMENTATION_PROGRESS.md) for scope and limitations. Native
-audio hardware and Windows were not tested in this increment. Historical records
-below describe earlier code and keep their original test counts.
+Current gates: 24 headless / 33 UI-enabled Rust tests, release binaries, v1
+migration/render, four native suites (18 service checks) and shared-library checks.
+The software probe uses the real silent controller at 1280×820, 1000×760 and
+1000×760 logical at 200%; covers mixer, inspector, selection, scrolling and drag
+reorder. ASan/UBSan and separate focused TSan pass. Apple LeakSanitizer is not
+supported here: use `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1` on this host.
+Logs and snapshots: `evidence/m32-*`; see [M3 progress](M3_IMPLEMENTATION_PROGRESS.md)
+for scope and limitations. Physical audio, Windows and macOS Intel are untested.
+Historical records below retain their original counts.
 
 ## Local macOS validation — 22 October 2026
 
@@ -197,20 +199,25 @@ and review formatting before committing; rustfmt was not available here.
 
 ## Application interaction implemented in source
 
-The app starts with the two-track example. Select a track in the sidebar. Click
+The app starts with the two-track example. Select an arrangement header or MIDI clip. The inspector shows its instance and
+Master output. Mute/solo work in both headers and inspector; solo is cumulative
+and mute takes precedence. Drag `≡` to reorder, or use the inspector arrows.
+Show selected reveals the selected header; Inspector toggles the panel. Click
 empty piano-roll space to insert, drag to move, drag the right edge to resize,
 right-click or use Delete note to remove. Undo/Redo restores document edits.
 Zoom/pan/octave buttons change the viewport; click the ruler to seek. Audition pads
 send live note IDs. Mixer controls update the active engine without structural
-rebuild. Note/tempo/instrument/history edits deliberately stop playback.
+rebuild. Note/tempo/instrument/structural history edits deliberately stop playback;
+mixer and metadata history can continue live.
 
 Enter a short WAV path, root note and one-shot option to load a sample. Enter a
-project **folder** (not project.json) to Save/Open. Saving copies referenced samples
+project **folder** (not project.json) in the Project inspector tab to Save/Open. Saving copies referenced samples
 into assets/. Opening is refused while unsaved edits exist. Export writes an
 independent PCM16 WAV. Close asks for explicit save/discard; save does not silently
 close the window. Export completes before application teardown.
 
-File dialogs, shortcuts, multi-selection, automated GUI tests, native packaging,
+A software-rendered interaction test is available as `layout_probe`; full native
+GUI automation has not been run. File dialogs, shortcuts, multi-selection, native packaging,
 code signing and release installers are not included.
 
 ## CI configuration

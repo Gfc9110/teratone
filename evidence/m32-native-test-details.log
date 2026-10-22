@@ -1,0 +1,92 @@
+Start testing: Oct 22 18:02 CEST
+----------------------------------------------------------
+1/4 Testing: original_audio_core
+1/4 Test: original_audio_core
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/open_daw_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"original_audio_core" start time: Oct 22 18:02 CEST
+Output:
+----------------------------------------------------------
+PASS graph routing
+PASS graph cycle
+PASS graph invalid connection
+PASS sample-accurate MIDI and block invariance
+PASS 440 Hz frequency
+PASS ADSR and voice stealing
+PASS atomic gain/pan updates
+PASS offline demo and WAV export
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"original_audio_core" end time: Oct 22 18:02 CEST
+"original_audio_core" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/4 Testing: interactive_service
+2/4 Test: interactive_service
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/service_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"interactive_service" start time: Oct 22 18:02 CEST
+Output:
+----------------------------------------------------------
+PASS constructor/setter validation consistency
+PASS overlapping note occurrence IDs
+PASS variable-block scheduling invariance
+PASS play/pause/stop/seek reset policy
+PASS loop boundaries and block invariance
+PASS bounded queue overflow and emergency note-off
+PASS live audition without moving transport
+PASS session and event-density validation
+PASS SPSC two-thread ordering stress
+PASS streaming export and waveform peaks
+PASS malformed WAV bounds and fuzz smoke
+PASS sampler pitch/release and engine integration
+PASS C ABI transactional load/export/lifecycle
+PASS concurrent controls, telemetry, device stop
+PASS mute gate reaches silence with a 5 ms ramp
+PASS all 64 mute/solo states and initial silence
+PASS mixer backpressure, Stop and voice continuity
+PASS versioned mixer ABI, generation and export
+18 interactive checks passed
+<end of output>
+Test time =   0.59 sec
+----------------------------------------------------------
+Test Passed.
+"interactive_service" end time: Oct 22 18:02 CEST
+"interactive_service" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/4 Testing: pure_c_abi
+3/4 Test: pure_c_abi
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/api_smoke"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"pure_c_abi" start time: Oct 22 18:02 CEST
+Output:
+----------------------------------------------------------
+PASS pure C ABI client
+<end of output>
+Test time =   0.32 sec
+----------------------------------------------------------
+Test Passed.
+"pure_c_abi" end time: Oct 22 18:02 CEST
+"pure_c_abi" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/4 Testing: callback_cpp_allocations
+4/4 Test: callback_cpp_allocations
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/allocation_probe"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"callback_cpp_allocations" start time: Oct 22 18:02 CEST
+Output:
+----------------------------------------------------------
+Monitored 10001 renders: new=0 delete=0
+<end of output>
+Test time =   0.30 sec
+----------------------------------------------------------
+Test Passed.
+"callback_cpp_allocations" end time: Oct 22 18:02 CEST
+"callback_cpp_allocations" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Oct 22 18:02 CEST

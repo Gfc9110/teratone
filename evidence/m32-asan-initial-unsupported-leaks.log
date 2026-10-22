@@ -1,0 +1,79 @@
+-- The C compiler identification is AppleClang 17.0.0.17000013
+-- The CXX compiler identification is AppleClang 17.0.0.17000013
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (1.0s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m32-asan
+[  8%] Building CXX object CMakeFiles/open_daw_core.dir/src/engine.cpp.o
+[  8%] Building CXX object CMakeFiles/open_daw_core.dir/src/wav.cpp.o
+[ 13%] Linking CXX static library lib/libopen_daw_core.a
+[ 13%] Built target open_daw_core
+[ 17%] Building CXX object CMakeFiles/open_daw_tests.dir/tests/tests.cpp.o
+[ 26%] Building CXX object CMakeFiles/daw_demo.dir/src/main.cpp.o
+[ 26%] Building CXX object CMakeFiles/open_daw_engine.dir/src/service.cpp.o
+[ 30%] Building CXX object CMakeFiles/open_daw_engine.dir/src/media.cpp.o
+[ 34%] Linking CXX executable daw_demo
+[ 39%] Linking CXX executable open_daw_tests
+[ 43%] Building CXX object CMakeFiles/open_daw_engine.dir/src/device.cpp.o
+[ 43%] Built target daw_demo
+[ 43%] Built target open_daw_tests
+[ 47%] Linking CXX static library lib/libopen_daw_engine.a
+[ 47%] Built target open_daw_engine
+[ 56%] Building CXX object CMakeFiles/open_daw_api.dir/src/api.cpp.o
+[ 56%] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[ 60%] Building CXX object CMakeFiles/daw_session.dir/src/session_main.cpp.o
+[ 65%] Building CXX object CMakeFiles/allocation_probe.dir/tests/allocation_probe.cpp.o
+[ 69%] Linking CXX executable allocation_probe
+[ 73%] Linking CXX executable daw_session
+[ 73%] Built target allocation_probe
+[ 78%] Linking CXX shared library libopen_daw_api.dylib
+[ 82%] Linking CXX static library lib/libopen_daw_api_static.a
+[ 82%] Built target daw_session
+[ 82%] Built target open_daw_api
+[ 82%] Built target open_daw_api_static
+[ 91%] Building C object CMakeFiles/api_smoke.dir/tests/api_smoke.c.o
+[ 91%] Building CXX object CMakeFiles/service_tests.dir/tests/service_tests.cpp.o
+[ 95%] Linking CXX executable api_smoke
+[ 95%] Built target api_smoke
+[100%] Linking CXX executable service_tests
+[100%] Built target service_tests
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m32-asan
+    Start 1: original_audio_core
+1/4 Test #1: original_audio_core ..............Subprocess aborted***Exception:   0.80 sec
+==6391==AddressSanitizer: detect_leaks is not supported on this platform.
+
+    Start 2: interactive_service
+2/4 Test #2: interactive_service ..............Subprocess aborted***Exception:   0.27 sec
+==6392==AddressSanitizer: detect_leaks is not supported on this platform.
+
+    Start 3: pure_c_abi
+3/4 Test #3: pure_c_abi .......................Subprocess aborted***Exception:   0.28 sec
+==6393==AddressSanitizer: detect_leaks is not supported on this platform.
+
+    Start 4: callback_cpp_allocations
+4/4 Test #4: callback_cpp_allocations .........Subprocess aborted***Exception:   0.28 sec
+==6431==AddressSanitizer: detect_leaks is not supported on this platform.
+
+
+0% tests passed, 4 tests failed out of 4
+
+Total Test time (real) =   1.96 sec
+
+The following tests FAILED:
+	  1 - original_audio_core (Subprocess aborted)
+	  2 - interactive_service (Subprocess aborted)
+	  3 - pure_c_abi (Subprocess aborted)
+	  4 - callback_cpp_allocations (Subprocess aborted)
+Errors while running CTest

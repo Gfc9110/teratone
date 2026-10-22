@@ -22,6 +22,7 @@ struct TrackSettings {
     std::shared_ptr<const SampleData> sample; // null -> existing sine synthesizer
     uint8_t rootNote = 60;
     bool oneShot = false;
+    bool mute = false, solo = false;
 };
 struct SessionSpec {
     double sampleRate = 48000;
@@ -30,6 +31,9 @@ struct SessionSpec {
     std::vector<TrackSettings> tracks{TrackSettings{}};
     std::vector<SessionNote> notes;
 };
+
+struct TrackMix { float gain = 0.8f, pan = 0; bool mute = false, solo = false; };
+struct MixSnapshot { std::array<TrackMix, MaxTracks> tracks{}; uint64_t serial = 0; };
 
 enum class CommandType : uint32_t { Play, Pause, Seek, Loop, NoteOn, NoteOff };
 struct Command {
@@ -59,6 +63,9 @@ public:
     void panic() noexcept;                 // priority silence, retains transport
     bool setGain(uint32_t track, float gain) noexcept;
     bool setPan(uint32_t track, float pan) noexcept;
+    bool submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept;
+    uint64_t mixApplied() const noexcept { return mixApplied_.load(std::memory_order_acquire); }
+    uint64_t mixSubmitted() const noexcept { return mixSerial_; } // control thread only
     void render(float* stereo, uint32_t frames) noexcept; // only audio consumer
     Telemetry telemetry() const noexcept; // approximate atomic fields, not transactional
     double sampleRate() const noexcept { return sampleRate_; }
@@ -70,6 +77,10 @@ private:
     Graph graph_;
     std::array<InstrumentNode*, MaxTracks> instruments_{};
     std::array<GainPanNode*, MaxTracks> gains_{};
+    std::array<AudibilityNode*, MaxTracks> gates_{};
+    SpscQueue<MixSnapshot, 9> mixQueue_; // eight coherent snapshots, independent of note traffic
+    uint64_t mixSerial_ = 0;
+    std::atomic<uint64_t> mixApplied_{0};
     std::array<std::array<BlockNoteEvent, BlockEventCapacity>, MaxTracks> events_{};
     std::array<size_t, MaxTracks> counts_{};
     std::vector<Scheduled> schedule_;
@@ -87,6 +98,7 @@ private:
         std::atomic<bool> playing{false}, looping{false};
     } meter_;
     void discontinuity(uint64_t frame) noexcept;
+    void consumeMix() noexcept;
     void consumeCommands() noexcept;
     void block(float* stereo, uint32_t frames) noexcept;
 };

@@ -195,4 +195,13 @@ pub fn export_atomic(path: &Path, project: &Project) -> Result<(), String> {
         p.tracks[0].instrument.config = Instrument::Sampler { sample_path: "../outside.wav".into(), root_note: 60, one_shot: false };
         assert!(resolve_samples(&path, &mut p).is_err()); fs::remove_dir_all(path).unwrap();
     }
+    #[test] fn audibility_roundtrip_and_all_muted_export() {
+        let path = directory(); let mut p = Project::demo();
+        p.tracks[0].mute = true; p.tracks[0].solo = true; p.tracks[1].mute = true;
+        save(&path, &p).unwrap(); let loaded = load(&path).unwrap(); assert_eq!(loaded, p);
+        let wav = path.join("muted.wav"); export_atomic(&wav, &loaded).unwrap();
+        let data = fs::read(wav).unwrap(); assert_eq!(data.len(), 44 + p.frame_at(p.length_ticks, 48000) as usize * 4);
+        assert!(data[44..].iter().all(|b| *b == 0)); fs::remove_dir_all(path).unwrap();
+    }
+
 }

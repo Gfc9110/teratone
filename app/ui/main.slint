@@ -1,286 +1,472 @@
-import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, ListView, ScrollView, AboutSlint, Palette } from "std-widgets.slint";
+import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, ScrollView, AboutSlint, Palette } from "std-widgets.slint";
 
+export struct MiniVisual { x: float, y: float, w: float, h: float }
+export struct ClipVisual { id: string, name: string, start: float, length: float, selected: bool, notes: [MiniVisual] }
 export struct TrackVisual {
     id: string, name: string, tint: color, instrument: string, selected: bool,
+    mute: bool, solo: bool, audible: bool, clips: [ClipVisual],
 }
-export struct NoteVisual {
-    x: float, y: float, w: float, h: float, selected: bool, label: string,
-}
+export struct NoteVisual { x: float, y: float, w: float, h: float, selected: bool, label: string }
 component Pad inherits Rectangle {
     in property <string> label;
     callback gate(bool);
-    background: touch.pressed ? #72dfb8 : #263445;
-    border-radius: 4px;
+    background: touch.pressed ? #72dfb8 : #263445; border-radius: 4px;
     Text { text: root.label; color: touch.pressed ? #0d1117 : #dce6f0; horizontal-alignment: center; vertical-alignment: center; }
     touch := TouchArea {
         pointer-event(event) => {
-            if (event.kind == PointerEventKind.down) { root.gate(true); }
-            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) { root.gate(false); }
+            if event.kind == PointerEventKind.down { root.gate(true); }
+            if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { root.gate(false); }
         }
     }
 }
 export component AppWindow inherits Window {
+    init => { Palette.color-scheme = ColorScheme.dark; }
     title: "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
-    preferred-width: 1280px; preferred-height: 820px;
-    min-width: 1000px; min-height: 760px;
-    background: #0d1117;
-    default-font-family: "sans-serif"; default-font-size: 13px;
+    preferred-width: 1280px; preferred-height: 820px; min-width: 1000px; min-height: 760px;
+    background: #0d1117; default-font-family: "sans-serif"; default-font-size: 13px;
     in property <string> project-name: "First session";
     in property <string> status: "Starting application controller…";
+    in property <string> action-error;
+    in property <int> pending-actions;
+    in property <string> mix-label: "Ready on Play";
     in property <string> selected-label;
     in property <string> transport-text: "001 : 01";
     in property <[TrackVisual]> track-items;
     in property <string> track-id: "1";
     in property <string> track-name: "Sine lead";
-    in property <int> color-index: 0;
+    in-out property <string> track-name-draft: "Sine lead";
+    in property <string> instrument: "Sine oscillator";
+    in-out property <string> sample-path;
+    in-out property <int> sample-root: 60;
+    in-out property <bool> sample-one-shot: false;
+    in-out property <int> color-index: 0;
     in property <[string]> clip-names;
     in property <[string]> clip-ids;
-    in property <int> clip-index: 0;
+    in-out property <int> clip-index: 0;
     in property <float> clip-start-beat: 0;
-    out property <float> add-track-x: add-track-button.absolute-position.x / 1px + add-track-button.width / 2px;
-    out property <float> add-track-y: add-track-button.absolute-position.y / 1px + add-track-button.height / 2px;
-    out property <float> duplicate-track-x: duplicate-button.absolute-position.x / 1px + duplicate-button.width / 2px;
-    out property <float> duplicate-track-y: duplicate-button.absolute-position.y / 1px + duplicate-button.height / 2px;
     in property <int> track-index: 0;
-    in property <int> bpm: 120;
-    in property <float> gain: 0.7;
-    in property <float> pan: 0.0;
-    in property <bool> dirty: false;
-    in property <bool> can-undo: false;
-    in property <bool> can-redo: false;
-    in property <bool> playing: false;
-    in property <bool> looping: false;
-    in property <bool> export-busy: false;
-    in property <float> peak-left: 0;
-    in property <float> peak-right: 0;
-    in property <float> playhead-x: 0;
+    in-out property <int> bpm: 120;
+    in-out property <float> gain: 0.7;
+    in-out property <float> pan: 0;
+    in property <bool> muted;
+    in property <bool> soloed;
+    in property <bool> audible: true;
+    in property <bool> dirty;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    in property <bool> playing;
+    in property <bool> looping;
+    in property <bool> export-busy;
+    in property <float> peak-left;
+    in property <float> peak-right;
+    in property <float> playhead-x;
+    in property <float> project-position;
     in property <float> pixels-per-beat: 64;
-    in property <float> scroll-beat: 0;
-    in property <int> top-note: 84;
+    in property <float> scroll-beat;
+    in property <int> top-note: 73;
     in property <[NoteVisual]> note-items;
+    in property <float> project-beats: 16;
+    in property <bool> arrangement-limited;
+    in-out property <bool> inspector-visible: true;
+    in-out property <bool> project-tab: false;
     in-out property <bool> confirm-close: false;
     in-out property <bool> about-visible: false;
     in-out property <string> project-path: "First-session.opendaw";
     in-out property <string> export-path: "First-session.wav";
+    in-out property <float> arrangement-zoom: 48;
+    in-out property <length> arrangement-x: 0px;
+    in-out property <length> arrangement-y: 0px;
+    private property <length> header-width: 208px;
+    private property <length> row-height: 76px;
+    private property <int> arrangement-first-beat: max(0, floor(-root.arrangement-x / 1px / root.arrangement-zoom));
+    private property <int> arrangement-beat-count: ceil(root.lane-width / root.arrangement-zoom) + 2;
+    private property <length> inspector-width: root.inspector-visible ? 280px : 0px;
+    private property <length> arrangement-height: max(152px, min(224px, root.height - 596px));
+    private property <string> drag-id;
+    private property <bool> dragging;
+    private property <int> drag-index: -1;
+    private property <float> drag-start;
+    private property <float> drag-pointer;
+    private property <int> drop-index: -1;
     out property <float> canvas-width: grid.width / 1px;
     out property <float> canvas-height: grid.height / 1px;
+    out property <float> lane-width: rows.visible-width / 1px - root.header-width / 1px;
+    out property <float> rows-x: rows.absolute-position.x / 1px;
+    out property <float> rows-y: rows.absolute-position.y / 1px;
+    out property <float> rows-height: rows.visible-height / 1px;
+    out property <float> row-size: root.row-height / 1px;
+    out property <float> header-size: root.header-width / 1px;
+    out property <float> grid-x: grid.absolute-position.x / 1px;
+    out property <float> grid-y: grid.absolute-position.y / 1px;
+    out property <float> play-x: play-button.absolute-position.x / 1px + play-button.width / 2px;
+    out property <float> play-y: play-button.absolute-position.y / 1px + play-button.height / 2px;
+    out property <float> undo-x: undo-button.absolute-position.x / 1px + undo-button.width / 2px;
+    out property <float> undo-y: undo-button.absolute-position.y / 1px + undo-button.height / 2px;
+    out property <float> add-track-x: add-track-button.absolute-position.x / 1px + add-track-button.width / 2px;
+    out property <float> add-track-y: add-track-button.absolute-position.y / 1px + add-track-button.height / 2px;
+    out property <float> duplicate-track-x: duplicate-button.absolute-position.x / 1px + duplicate-button.width / 2px;
+    out property <float> duplicate-track-y: duplicate-button.absolute-position.y / 1px + duplicate-button.height / 2px;
+    out property <float> inspector-gain-x: gain-slider.absolute-position.x / 1px + gain-slider.width / 2px;
+    out property <float> inspector-gain-y: gain-slider.absolute-position.y / 1px + gain-slider.height / 2px;
+    out property <float> inspector-gain-value: gain-slider.value;
+    out property <float> inspector-mute-x: inspector-mute.absolute-position.x / 1px + inspector-mute.width / 2px;
+    out property <float> inspector-mute-y: inspector-mute.absolute-position.y / 1px + inspector-mute.height / 2px;
+    out property <float> inspector-toggle-x: inspector-toggle.absolute-position.x / 1px + inspector-toggle.width / 2px;
+    out property <float> inspector-toggle-y: inspector-toggle.absolute-position.y / 1px + inspector-toggle.height / 2px;
     callback play(); callback pause(); callback stop(); callback toggle-loop();
     callback select-track(string); callback select-clip(string, string);
     callback add-track(string); callback duplicate-track(string); callback remove-track(string);
-    callback move-track(string, int); callback rename-track(string, string); callback color-track(string, int);
-    callback tempo(int); callback mix(string, float, float); callback finish-mix();
+    callback move-track(string, int); callback reorder-track(string, int);
+    callback rename-track(string, string); callback color-track(string, int);
+    callback toggle-mute(string); callback toggle-solo(string);
+    callback tempo(int); callback set-gain(string, float); callback set-pan(string, float); callback finish-mix();
     callback undo(); callback redo(); callback remove-note();
-    callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float);
+    callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
     callback down(float, float, bool); callback moved(float, float); callback up(float, float);
     callback audition(string, int, bool); callback save-project(string); callback open-project(string);
     callback export-audio(string); callback import-sample(string, string, int, bool); callback use-sine(string);
     callback exit-confirmed();
-
-    MenuBar {
-        Menu {
-            title: "Help";
-            MenuItem { title: "About OpenDAW"; activated => { root.about-visible = true; } }
+    public function reveal-selected() {
+        root.arrangement-y = min(0px, max(min(0px, rows.visible-height - rows.content-height),
+            max(-root.track-index * root.row-height, min(root.arrangement-y, rows.visible-height - (root.track-index + 1) * root.row-height))));
+    }
+    public function tick-drag() {
+        if root.drag-id != "" && root.dragging {
+            if root.drag-pointer < root.rows-y + 24 { root.arrangement-y = min(0px, root.arrangement-y + 8px); }
+            if root.drag-pointer > root.rows-y + root.rows-height - 24 {
+                root.arrangement-y = max(min(0px, rows.visible-height - rows.content-height), root.arrangement-y - 8px);
+            }
+            root.drop-index = max(0, min(root.track-items.length - 1, floor((root.drag-pointer - root.rows-y - root.arrangement-y / 1px) / root.row-size)));
         }
     }
+    public function clamp-scroll() {
+        root.arrangement-y = min(0px, max(min(0px, rows.visible-height - rows.content-height), root.arrangement-y));
+        root.arrangement-x = min(0px, max(min(0px, horizontal.visible-width - horizontal.content-width), root.arrangement-x));
+    }
+    MenuBar {
+        Menu { title: "Help"; MenuItem { title: "About OpenDAW"; activated => { root.about-visible = true; } } }
+    }
     Rectangle {
-        x: 0; y: 0; height: 72px; width: parent.width; background: #151d28;
-        Text { x: 22px; y: 12px; text: "OPENDAW"; color: #79e3bf; font-size: 24px; font-weight: 700; }
-        Text { x: 24px; y: 43px; text: "NATIVE AUDIO / INTERACTIVE PROTOTYPE"; color: #8394aa; font-size: 9px; }
+        x: 0; y: 0; height: 64px; width: parent.width; background: #151d28;
+        Text { x: 16px; y: 10px; text: "OPENDAW"; color: #79e3bf; font-size: 23px; font-weight: 700; }
+        Text { x: 18px; y: 39px; text: "ARRANGEMENT / TRACK MIXER"; color: #8394aa; font-size: 9px; }
         HorizontalLayout {
-            x: 252px; y: 20px; width: parent.width - 520px; height: 34px; spacing: 8px;
-            Button { text: root.playing ? "Playing" : "Play"; clicked => { root.play(); } }
+            x: 232px; y: 15px; width: parent.width - 500px; height: 34px; spacing: 6px;
+            play-button := Button { text: root.playing ? "Playing" : "Play"; clicked => { root.play(); } }
             Button { text: "Pause"; clicked => { root.pause(); } }
             Button { text: "Stop"; clicked => { root.stop(); } }
             Button { text: root.looping ? "Loop on" : "Loop off"; clicked => { root.toggle-loop(); } }
             Rectangle { horizontal-stretch: 1; }
         }
-        Text { x: parent.width - 220px; y: 17px; width: 196px; height: 36px;
-            text: root.transport-text; font-size: 24px; color: #e8f2ff; horizontal-alignment: right; }
+        Text { x: parent.width - 230px; y: 11px; width: 210px; height: 36px; text: root.transport-text;
+            font-size: 25px; color: #e8f2ff; horizontal-alignment: right; }
     }
-    Rectangle {
-        x: 0; y: 72px; width: 226px; height: root.height - 120px; background: #131b25;
-        ScrollView {
-            x: 10px; y: 10px; width: parent.width - 20px; height: parent.height - 20px;
-            content-width: self.visible-width; content-height: 1060px;
-            horizontal-scrollbar-policy: always-off;
-            VerticalLayout {
-                width: parent.width - 10px; height: 1060px; spacing: 7px;
-                Text { height: 18px; text: "TRACKS  ·  " + root.track-items.length + " / 16"; color: #8295ad; font-size: 11px; }
-                ListView {
-                    height: 190px; horizontal-scrollbar-policy: always-off;
-                    for track in root.track-items : Rectangle {
-                        height: 54px; background: track.selected ? #263c50 : #151e29;
-                        Rectangle { x: 0; y: 0; width: 4px; height: parent.height; background: track.tint; }
-                        Button {
-                            x: 10px; y: 3px; width: parent.width - 18px; height: 28px;
-                            text: (track.selected ? "› " : "") + track.name;
-                            clicked => { root.select-track(track.id); }
+    main := Rectangle {
+        x: 12px; y: 74px; width: root.width - root.inspector-width - 32px; height: root.height - 124px;
+        HorizontalLayout {
+            x: 0; y: 0; width: parent.width; height: 30px; spacing: 5px;
+            Text { text: "TRACKS  " + root.track-items.length + " / 16"; color: #a6bdd4; vertical-alignment: center; }
+            add-track-button := Button { text: "+ Track"; enabled: root.track-items.length < 16; clicked => { root.add-track(root.track-id); } }
+            duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < 16; clicked => { root.duplicate-track(root.track-id); } }
+            Button { text: "Show selected"; clicked => { root.reveal-selected(); } }
+            Rectangle { horizontal-stretch: 1; }
+            Button { text: "−"; clicked => { root.arrangement-zoom = max(12, root.arrangement-zoom * 0.8); root.clamp-scroll(); } }
+            Button { text: "+"; clicked => { root.arrangement-zoom = min(192, root.arrangement-zoom * 1.25); } }
+            inspector-toggle := Button { text: root.inspector-visible ? "Inspector ›" : "‹ Inspector"; clicked => { root.inspector-visible = !root.inspector-visible; } }
+        }
+        Rectangle {
+            x: 0; y: 38px; width: parent.width; height: 26px; background: #1a2633;
+            Text { x: 12px; y: 5px; text: "TRACK / INSTRUMENT"; color: #91a7bf; font-size: 10px; }
+            Rectangle {
+                x: root.header-width; y: 0; width: parent.width - self.x; height: parent.height; clip: true;
+                for beat in root.arrangement-beat-count : Text {
+                    x: ((beat + root.arrangement-first-beat) * root.arrangement-zoom) * 1px + root.arrangement-x + 4px; y: 4px;
+                    text: Math.mod(beat + root.arrangement-first-beat, 4) == 0 ? (floor((beat + root.arrangement-first-beat) / 4) + 1) + ".1" : "·";
+                    color: #a6b9cf; font-size: 10px;
+                }
+                TouchArea { clicked => { root.seek-project((self.mouse-x - root.arrangement-x) / 1px / root.arrangement-zoom); } }
+            }
+        }
+        rows := ScrollView {
+            x: 0; y: 64px; width: parent.width; height: root.arrangement-height;
+            content-width: self.visible-width; content-height: max(self.visible-height, root.track-items.length * root.row-height);
+            content-y <=> root.arrangement-y;
+            horizontal-scrollbar-policy: always-off; vertical-scrollbar-policy: always-on;
+            for track[index] in root.track-items : Rectangle {
+                x: 0; y: index * root.row-height; width: rows.visible-width; height: root.row-height;
+                background: track.selected ? #22354a : #141e2b;
+                header := Rectangle {
+                    x: 0; y: 0; width: root.header-width; height: parent.height;
+                    Rectangle { x: 0; y: 0; width: 4px; height: parent.height - 1px; background: track.tint; }
+                    Text { x: 9px; y: 9px; text: "≡"; color: #829bb2; }
+                    handle := TouchArea {
+                        x: 4px; y: 0; width: 24px; height: parent.height;
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                root.drag-id = track.id; root.drag-index = index; root.drag-start = self.absolute-position.y / 1px + self.mouse-y / 1px;
+                                root.drag-pointer = root.drag-start; root.dragging = false;
+                            }
+                            if event.kind == PointerEventKind.up && root.drag-id == track.id {
+                                if root.dragging && root.drop-index >= 0 { root.reorder-track(track.id, root.drop-index); }
+                                else { root.select-track(track.id); }
+                                root.drag-id = ""; root.dragging = false; root.drop-index = -1;
+                            }
+                            if event.kind == PointerEventKind.cancel { root.drag-id = ""; root.dragging = false; root.drop-index = -1; }
                         }
-                        Text { x: 12px; y: 33px; width: parent.width - 20px; height: 16px;
-                            text: track.instrument; color: #9bafc6; font-size: 10px; overflow: elide; }
+                        moved => {
+                            if self.pressed && root.drag-id == track.id {
+                                root.drag-pointer = self.absolute-position.y / 1px + self.mouse-y / 1px;
+                                if abs(root.drag-pointer - root.drag-start) > 4 { root.dragging = true; }
+                                root.tick-drag();
+                            }
+                        }
+                    }
+                    Button {
+                        x: 30px; y: 5px; width: root.header-width - 38px; height: 28px;
+                        text: (track.selected ? "› " : "") + track.name;
+                        clicked => { root.select-track(track.id); }
+                    }
+                    Text { x: 32px; y: 36px; width: 100px; height: 15px; text: track.instrument;
+                        color: #a0b4cb; font-size: 10px; overflow: elide; }
+                    Rectangle { x: 32px; y: 59px; width: 6px; height: 6px; border-radius: 3px; background: track.audible ? #78d9b7 : #697587; }
+                    Text { x: 44px; y: 54px; text: track.audible ? "To Master" : track.mute ? "Muted" : "Solo excluded"; color: #839bb4; font-size: 9px; }
+                    Button { x: 133px; y: 38px; width: 32px; height: 28px; text: "M"; accessible-checkable: true; accessible-checked: track.mute; checked: track.mute;
+                        accessible-label: "Mute " + track.name; clicked => { root.toggle-mute(track.id); } }
+                    Button { x: 169px; y: 38px; width: 32px; height: 28px; text: "S"; accessible-checkable: true; accessible-checked: track.solo; checked: track.solo;
+                        accessible-label: "Solo " + track.name; clicked => { root.toggle-solo(track.id); } }
+                }
+                lane := Rectangle {
+                    x: root.header-width; y: 0; width: parent.width - self.x; height: parent.height; clip: true;
+                    background: track.selected ? #182a3b : #111b27;
+                    for beat in root.arrangement-beat-count : Rectangle {
+                        x: (beat + root.arrangement-first-beat) * root.arrangement-zoom * 1px + root.arrangement-x; y: 0; width: 1px; height: parent.height;
+                        background: Math.mod(beat + root.arrangement-first-beat, 4) == 0 ? #314357 : #1d2b3b;
+                    }
+                    TouchArea {
+                        clicked => { root.select-track(track.id); }
+                        scroll-event(event) => {
+                            if event.delta-x != 0px { root.arrangement-x += event.delta-x; root.clamp-scroll(); return accept; }
+                            reject
+                        }
+                    }
+                    for clip in track.clips : Rectangle {
+                        x: clip.start * root.arrangement-zoom * 1px + root.arrangement-x; y: 7px;
+                        width: max(4px, clip.length * root.arrangement-zoom * 1px - 2px); height: parent.height - 14px;
+                        border-radius: 4px; background: track.audible ? track.tint.with-alpha(0.30) : track.tint.with-alpha(0.12);
+                        border-width: clip.selected ? 2px : 1px; border-color: clip.selected ? #d8edee : track.tint.with-alpha(0.5);
+                        Text { x: 8px; y: 5px; width: parent.width - 16px; height: 15px; text: clip.name; color: #d4e6ed; font-size: 11px; overflow: elide; }
+                        Rectangle {
+                            x: 5px; y: 26px; width: max(0px, parent.width - 10px); height: parent.height - 31px; clip: true;
+                            for note in clip.notes : Rectangle {
+                                x: note.x * parent.width; y: note.y * parent.height;
+                                width: max(1px, note.w * parent.width - 1px); height: max(2px, note.h * parent.height);
+                                background: track.audible ? track.tint : #6a7c88;
+                            }
+                        }
+                        TouchArea { clicked => { root.select-clip(track.id, clip.id); }
+                            scroll-event(event) => {
+                                if event.delta-x != 0px { root.arrangement-x += event.delta-x; root.clamp-scroll(); return accept; }
+                                reject
+                            }
+                        }
+                    }
+                    if root.project-position * root.arrangement-zoom * 1px + root.arrangement-x >= 0px : Rectangle {
+                        x: root.project-position * root.arrangement-zoom * 1px + root.arrangement-x; y: 0; width: 1px; height: parent.height; background: #edf8ff;
                     }
                 }
-                HorizontalLayout {
-                    height: 30px; spacing: 4px;
-                    add-track-button := Button { text: "+ Oscillator"; enabled: root.track-items.length < 16; clicked => { root.add-track(root.track-id); } }
-                    duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < 16; clicked => { root.duplicate-track(root.track-id); } }
+                Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: #324254; }
+            }
+            if root.dragging && root.drop-index >= 0 : Rectangle {
+                x: 0; y: (root.drop-index + (root.drop-index > root.drag-index ? 1 : 0)) * root.row-height; width: rows.visible-width; height: 3px; background: #ffe39b;
+            }
+        }
+        horizontal := ScrollView {
+            x: root.header-width; y: 64px + root.arrangement-height; width: parent.width - self.x - 12px; height: 18px;
+            min-height: 18px; content-width: max(self.visible-width, root.project-beats * root.arrangement-zoom * 1px);
+            content-height: self.visible-height; content-x <=> root.arrangement-x;
+            horizontal-scrollbar-policy: always-on; vertical-scrollbar-policy: always-off;
+        }
+        editor := Rectangle {
+            x: 0; y: 92px + root.arrangement-height; width: parent.width; height: parent.height - self.y;
+            HorizontalLayout {
+                x: 0; y: 0; width: parent.width; height: 30px; spacing: 4px;
+                undo-button := Button { text: "Undo"; enabled: root.can-undo; clicked => { root.undo(); } }
+                Button { text: "Redo"; enabled: root.can-redo; clicked => { root.redo(); } }
+                Button { text: "Delete note"; clicked => { root.remove-note(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: "←"; clicked => { root.pan-view(-4); } }
+                Button { text: "→"; clicked => { root.pan-view(4); } }
+                Button { text: "−"; clicked => { root.zoom(0.8); } }
+                Button { text: "+"; clicked => { root.zoom(1.25); } }
+                Button { text: "Oct −"; clicked => { root.pitch-view(-12); } }
+                Button { text: "Oct +"; clicked => { root.pitch-view(12); } }
+            }
+            HorizontalLayout {
+                x: 0; y: 30px; width: parent.width; height: 24px; spacing: 6px;
+                Text { text: "CLIP · " + root.track-name; color: #a6bbd2; vertical-alignment: center; }
+                ComboBox { model: root.clip-names; current-index <=> root.clip-index; enabled: root.clip-ids.length > 0;
+                    selected(value) => { if self.current-index >= 0 && self.current-index < root.clip-ids.length {
+                        root.select-clip(root.track-id, root.clip-ids[self.current-index]); } } }
+                Text { text: "Start " + (root.clip-start-beat + 1); color: #8199b2; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Rectangle {
+                x: 0; y: 58px; height: 19px; width: parent.width; background: #1a2532; clip: true;
+                for beat in 64 : Text { x: beat * root.pixels-per-beat * 1px + 4px; y: 3px;
+                    text: root.scroll-beat + beat + 1; color: #a2b5cc; font-size: 10px; }
+                TouchArea { clicked => { root.seek(root.scroll-beat + self.mouse-x / 1px / root.pixels-per-beat); } }
+            }
+            grid := Rectangle {
+                x: 0; y: 78px; width: parent.width; height: max(200px, parent.height - 123px); background: #101923; clip: true;
+                for row in 128 : Rectangle {
+                    x: 0; y: row * 16px; width: parent.width; height: 16px;
+                    background: Math.mod(root.top-note - row + 120, 12) == 1 || Math.mod(root.top-note - row + 120, 12) == 3 ||
+                        Math.mod(root.top-note - row + 120, 12) == 6 || Math.mod(root.top-note - row + 120, 12) == 8 ||
+                        Math.mod(root.top-note - row + 120, 12) == 10 ? #131e2a : #172332;
+                    Rectangle { x: 0; y: parent.height - 1px; height: 1px; width: parent.width; background: #233246; }
                 }
+                for beat in 256 : Rectangle { x: beat * root.pixels-per-beat / 4 * 1px; y: 0; width: 1px; height: parent.height;
+                    background: Math.mod(beat, 4) == 0 ? #35475e : #202e40; }
+                for note in root.note-items : Rectangle {
+                    x: note.x * 1px; y: note.y * 1px; width: note.w * 1px; height: note.h * 1px;
+                    background: note.selected ? #e7c77b : #62bfa6; border-radius: 2px;
+                    Text { x: 4px; y: 0; width: parent.width - 5px; height: parent.height; text: note.label;
+                        color: #102b29; font-size: 9px; vertical-alignment: center; overflow: elide; }
+                }
+                if root.playhead-x >= 0 && root.playhead-x < root.canvas-width : Rectangle {
+                    x: root.playhead-x * 1px; y: 0; width: 2px; height: parent.height; background: #edf8ff;
+                }
+                touch := TouchArea {
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down { root.down(self.mouse-x / 1px, self.mouse-y / 1px, event.button == PointerEventButton.right); }
+                        if event.kind == PointerEventKind.up { root.up(self.mouse-x / 1px, self.mouse-y / 1px); }
+                        if event.kind == PointerEventKind.cancel { root.stop(); }
+                    }
+                    moved => { root.moved(self.mouse-x / 1px, self.mouse-y / 1px); }
+                }
+            }
+            Text { x: 0; y: parent.height - 39px; width: parent.width; height: 14px; text: root.selected-label;
+                color: #93a7bd; font-size: 10px; overflow: elide; }
+            HorizontalLayout {
+                x: 0; y: parent.height - 22px; width: parent.width; height: 20px; spacing: 5px;
+                Text { text: "AUDITION"; color: #7e92a9; vertical-alignment: center; font-size: 10px; }
+                for pitch in [60, 62, 64, 65, 67, 69, 71, 72] : Pad {
+                    label: pitch; gate(on) => { root.audition(root.track-id, pitch, on); }
+                }
+            }
+        }
+    }
+    inspector := Rectangle {
+        x: root.width - root.inspector-width - 8px; y: 74px; width: root.inspector-width; height: root.height - 124px;
+        visible: root.inspector-visible; background: #141e2b; border-radius: 5px;
+        HorizontalLayout {
+            x: 10px; y: 6px; width: parent.width - 20px; height: 30px; spacing: 5px;
+            Button { text: "Track"; checked: !root.project-tab; clicked => { root.project-tab = false; } }
+            Button { text: "Project"; checked: root.project-tab; clicked => { root.project-tab = true; } }
+        }
+        ScrollView {
+            x: 12px; y: 48px; width: parent.width - 24px; height: parent.height - 60px;
+            horizontal-scrollbar-policy: always-off; content-width: self.visible-width;
+            content-height: root.project-tab ? 360px : 770px;
+            VerticalLayout {
+                visible: !root.project-tab;
+                x: 0; y: 0; width: parent.width - 8px; height: 770px; spacing: 7px;
+                Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.track-index + 1); color: #7edcba; font-size: 11px; }
+                name-edit := LineEdit { height: 30px; text <=> root.track-name-draft; accepted => { root.rename-track(root.track-id, self.text); } }
+                Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.track-id, name-edit.text); } }
+                ComboBox { height: 30px; model: ["Mint", "Blue", "Amber", "Violet", "Rose", "Cyan"]; current-index <=> root.color-index;
+                    selected(value) => { root.color-track(root.track-id, self.current-index); } }
+                Text { height: 18px; text: root.instrument + "  ·  independent instance"; color: #a0b4ca; font-size: 10px; }
+                Text { height: 18px; text: "Output → Master"; color: #c1d2e3; }
+                HorizontalLayout {
+                    height: 30px; spacing: 5px;
+                    inspector-mute := Button { text: "Mute"; accessible-checkable: true; accessible-checked: root.muted; checked: root.muted;
+                        clicked => { root.toggle-mute(root.track-id); } }
+                    Button { text: "Solo"; accessible-checkable: true; accessible-checked: root.soloed; checked: root.soloed;
+                        clicked => { root.toggle-solo(root.track-id); } }
+                }
+                Text { height: 18px; text: root.audible ? "Audible · solo is cumulative" : root.muted ? "Muted · fader value retained" : "Excluded by another solo";
+                    color: root.audible ? #79d8b5 : #e0bd7b; font-size: 10px; }
+                Text { height: 18px; text: "Volume  " + round(root.gain * 100) + "%"; color: #c7d4e5; }
+                gain-slider := Slider { height: 26px; value <=> root.gain; minimum: 0; maximum: 2;
+                    changed(value) => { root.set-gain(root.track-id, value); } released(value) => { root.finish-mix(); } }
+                Text { height: 18px; text: "Pan  " + round(root.pan * 100); color: #c7d4e5; }
+                Slider { height: 26px; value <=> root.pan; minimum: -1; maximum: 1;
+                    changed(value) => { root.set-pan(root.track-id, value); } released(value) => { root.finish-mix(); } }
+                Text { height: 18px; text: root.mix-label; color: #7e96b0; font-size: 10px; }
                 HorizontalLayout {
                     height: 30px; spacing: 4px;
                     Button { text: "↑"; enabled: root.track-index > 0; clicked => { root.move-track(root.track-id, -1); } }
                     Button { text: "↓"; enabled: root.track-index < root.track-items.length - 1; clicked => { root.move-track(root.track-id, 1); } }
                     Button { text: "Remove"; enabled: root.track-items.length > 1; clicked => { root.remove-track(root.track-id); } }
                 }
-                Text { height: 18px; text: "SELECTED TRACK"; color: #8295ad; font-size: 11px; }
-                name-edit := LineEdit { height: 30px; text: root.track-name;
-                    accepted => { root.rename-track(root.track-id, self.text); } }
-                Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.track-id, name-edit.text); } }
-                ComboBox { height: 30px; model: ["Mint", "Blue", "Amber", "Violet", "Rose", "Cyan"]; current-index: root.color-index;
-                    selected(value) => { root.color-track(root.track-id, self.current-index); } }
-                Rectangle { height: 1px; background: #293747; }
-                HorizontalLayout {
-                    height: 30px;
-                    Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
-                    SpinBox { value: root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
-                }
-                Text { height: 18px; text: "Gain"; color: #c7d4e5; }
-                Slider { height: 26px; value: root.gain; minimum: 0; maximum: 2;
-                    changed(value) => { root.mix(root.track-id, value, root.pan); } released(value) => { root.finish-mix(); } }
-                Text { height: 18px; text: "Pan"; color: #c7d4e5; }
-                Slider { height: 26px; value: root.pan; minimum: -1; maximum: 1;
-                    changed(value) => { root.mix(root.track-id, root.gain, value); } released(value) => { root.finish-mix(); } }
+                Text { height: 30px; text: "Drag ≡ to reorder tracks.\nTrack / note edits stop playback."; color: #8b9eb3; font-size: 10px; }
                 Rectangle { height: 1px; background: #293747; }
                 Button { height: 30px; text: "Use sine instrument"; clicked => { root.use-sine(root.track-id); } }
-                sample-file := LineEdit { height: 30px; placeholder-text: "Path to short WAV sample"; }
+                sample-file := LineEdit { height: 30px; text <=> root.sample-path; placeholder-text: "Path to short WAV sample"; }
                 HorizontalLayout {
                     height: 30px;
-                    Text { text: "Root"; color: #c7d4e5; vertical-alignment: center; }
-                    root-note := SpinBox { minimum: 0; maximum: 127; value: 60; }
+                    Text { text: "Root MIDI"; color: #c7d4e5; vertical-alignment: center; }
+                    root-note := SpinBox { minimum: 0; maximum: 127; value <=> root.sample-root; }
                 }
-                one-shot := CheckBox { height: 26px; text: "One-shot"; }
+                one-shot := CheckBox { height: 26px; text: "One-shot"; checked <=> root.sample-one-shot; }
                 Button { height: 30px; text: "Load WAV into this track";
                     clicked => { root.import-sample(root.track-id, sample-file.text, root-note.value, one-shot.checked); } }
-                Rectangle { height: 1px; background: #293747; }
+                Rectangle { vertical-stretch: 1; }
+            }
+            VerticalLayout {
+                visible: root.project-tab;
+                x: 0; y: 0; width: parent.width - 8px; height: 360px; spacing: 8px;
                 Text { height: 18px; text: "PROJECT FOLDER"; color: #8295ad; font-size: 11px; }
                 LineEdit { height: 30px; text <=> root.project-path; }
-                HorizontalLayout {
-                    height: 30px;
+                HorizontalLayout { height: 30px;
                     Button { text: "Save"; clicked => { root.save-project(root.project-path); } }
                     Button { text: "Open"; clicked => { root.open-project(root.project-path); } }
+                }
+                HorizontalLayout { height: 30px;
+                    Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
+                    SpinBox { value <=> root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
                 }
                 Text { height: 18px; text: "WAV EXPORT"; color: #8295ad; font-size: 11px; }
                 LineEdit { height: 30px; text <=> root.export-path; }
                 Button { height: 30px; text: root.export-busy ? "Exporting…" : "Export PCM16 WAV"; enabled: !root.export-busy;
                     clicked => { root.export-audio(root.export-path); } }
-                Text { height: 40px; text: "Track / note edits stop playback.\nNames and colors update live."; color: #8b9bb0; font-size: 11px; }
-            }
-        }
-    }
-    main := Rectangle {
-        x: 242px; y: 88px; width: root.width - 258px; height: root.height - 152px;
-        HorizontalLayout {
-            x: 0; y: 0; height: 32px; width: parent.width; spacing: 6px;
-            Button { text: "Undo"; enabled: root.can-undo; clicked => { root.undo(); } }
-            Button { text: "Redo"; enabled: root.can-redo; clicked => { root.redo(); } }
-            Button { text: "Delete note"; clicked => { root.remove-note(); } }
-            Rectangle { horizontal-stretch: 1; }
-            Button { text: "← 4 beats"; clicked => { root.pan-view(-4); } }
-            Button { text: "4 beats →"; clicked => { root.pan-view(4); } }
-            Button { text: "−"; clicked => { root.zoom(0.8); } }
-            Button { text: "+"; clicked => { root.zoom(1.25); } }
-            Button { text: "Oct −"; clicked => { root.pitch-view(-12); } }
-            Button { text: "Oct +"; clicked => { root.pitch-view(12); } }
-        }
-        HorizontalLayout {
-            y: 40px; height: 30px; width: parent.width; spacing: 8px;
-            Text { text: "MIDI CLIP"; color: #8295ad; vertical-alignment: center; }
-            ComboBox { model: root.clip-names; current-index: root.clip-index; enabled: root.clip-ids.length > 0;
-                selected(value) => { if self.current-index >= 0 && self.current-index < root.clip-ids.length {
-                    root.select-clip(root.track-id, root.clip-ids[self.current-index]); } } }
-            Text { text: "Local time · project start " + (root.clip-start-beat + 1) + " beat"; color: #93a7bd; vertical-alignment: center; }
-            Rectangle { horizontal-stretch: 1; }
-        }
-        Rectangle {
-            y: 78px; height: 27px; width: parent.width; background: #1a2532; clip: true;
-            for beat in 64 : Text {
-                x: beat * root.pixels-per-beat * 1px + 4px;
-                text: root.scroll-beat + beat + 1; color: #a2b5cc; font-size: 10px;
-            }
-            TouchArea { clicked => { root.seek(root.scroll-beat + self.mouse-x / 1px / root.pixels-per-beat); } }
-        }
-        grid := Rectangle {
-            y: 106px; width: parent.width; height: parent.height - 184px;
-            background: #101923; clip: true;
-            for row in 128 : Rectangle {
-                y: row * 16px; width: parent.width; height: 16px;
-                background: Math.mod(root.top-note - row + 120, 12) == 1 || Math.mod(root.top-note - row + 120, 12) == 3 ||
-                    Math.mod(root.top-note - row + 120, 12) == 6 || Math.mod(root.top-note - row + 120, 12) == 8 ||
-                    Math.mod(root.top-note - row + 120, 12) == 10 ? #131e2a : #172332;
-                Rectangle { y: parent.height - 1px; height: 1px; width: parent.width; background: #233246; }
-            }
-            for beat in 256 : Rectangle {
-                x: beat * root.pixels-per-beat / 4 * 1px; width: 1px; height: parent.height;
-                background: Math.mod(beat, 4) == 0 ? #35475e : #202e40;
-            }
-            for note in root.note-items : Rectangle {
-                x: note.x * 1px; y: note.y * 1px; width: note.w * 1px; height: note.h * 1px;
-                background: note.selected ? #e7c77b : #62bfa6; border-radius: 2px;
-                Text { x: 4px; width: parent.width - 5px; height: parent.height; text: note.label;
-                    color: #102b29; font-size: 9px; vertical-alignment: center; overflow: elide; }
-            }
-            if root.playhead-x >= 0 && root.playhead-x < root.canvas-width : Rectangle {
-                x: root.playhead-x * 1px; width: 2px; height: parent.height; background: #edf8ff;
-            }
-            touch := TouchArea {
-                pointer-event(event) => {
-                    if event.kind == PointerEventKind.down { root.down(self.mouse-x / 1px, self.mouse-y / 1px, event.button == PointerEventButton.right); }
-                    if event.kind == PointerEventKind.up { root.up(self.mouse-x / 1px, self.mouse-y / 1px); }
-                    if event.kind == PointerEventKind.cancel { root.stop(); }
-                }
-                moved => { root.moved(self.mouse-x / 1px, self.mouse-y / 1px); }
-            }
-        }
-        Text { y: parent.height - 68px; width: parent.width; text: root.selected-label; color: #93a7bd; font-size: 11px; overflow: elide; }
-        HorizontalLayout {
-            y: parent.height - 42px; width: parent.width; height: 32px; spacing: 6px;
-            Text { text: "AUDITION"; color: #7e92a9; vertical-alignment: center; }
-            for pitch in [60, 62, 64, 65, 67, 69, 71, 72] : Pad {
-                label: pitch; gate(on) => { root.audition(root.track-id, pitch, on); }
+                Text { height: 34px; text: "Export includes track mute / solo.\nPlayback continues independently."; color: #96abc0; font-size: 11px; }
+                Rectangle { vertical-stretch: 1; }
             }
         }
     }
     Rectangle {
-        y: root.height - 48px; width: root.width; height: 48px; background: #151e29;
-        Text { x: 16px; y: 7px; height: 34px; width: parent.width - 220px; text: root.status;
-            color: #a8b9cd; vertical-alignment: center; overflow: elide; font-size: 11px; }
-        Rectangle { x: parent.width - 190px; y: 14px; width: 170px; height: 7px; background: #29384a;
-            Rectangle { width: parent.width * root.peak-left; height: parent.height; background: #70dcb5; } }
-        Rectangle { x: parent.width - 190px; y: 26px; width: 170px; height: 7px; background: #29384a;
-            Rectangle { width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
+        x: 0; y: root.height - 42px; width: root.width; height: 42px; background: #151e29;
+        Text { x: 12px; y: 4px; height: 19px; width: parent.width - 218px;
+            text: root.action-error != "" ? root.action-error : root.arrangement-limited ? "Preview limited to 256 clips; zoom in." : root.status;
+            color: root.action-error != "" ? #f2b6a1 : #a8b9cd; vertical-alignment: center; overflow: elide; font-size: 11px; }
+        Text { x: 12px; y: 24px; height: 14px; text: root.pending-actions > 0 ? root.pending-actions + " actions pending" : root.mix-label;
+            color: #7891ac; font-size: 9px; }
+        Rectangle { x: parent.width - 190px; y: 10px; width: 170px; height: 6px; background: #29384a;
+            Rectangle { x: 0; y: 0; width: parent.width * root.peak-left; height: parent.height; background: #70dcb5; } }
+        Rectangle { x: parent.width - 190px; y: 23px; width: 170px; height: 6px; background: #29384a;
+            Rectangle { x: 0; y: 0; width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
     }
     if root.about-visible : Rectangle {
-        width: parent.width; height: parent.height; background: #000000b0;
+        x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
         TouchArea { }
-        Rectangle {
+        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 420px; height: 320px; background: Palette.background; border-radius: 8px;
-            VerticalLayout {
-                padding: 24px; spacing: 16px;
+            VerticalLayout { padding: 24px; spacing: 16px;
                 Text { text: "OpenDAW 0.2.0"; color: Palette.foreground; font-size: 23px; }
-                Text { text: "Music creation with a C++ audio engine and Slint interface.";
-                    color: Palette.foreground; wrap: word-wrap; }
+                Text { text: "Music creation with a C++ audio engine and Slint interface."; color: Palette.foreground; wrap: word-wrap; }
                 AboutSlint { }
                 Button { text: "Close"; clicked => { root.about-visible = false; } }
             }
         }
     }
     if root.confirm-close : Rectangle {
-        width: parent.width; height: parent.height; background: #000000b0;
+        x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
         TouchArea { }
-        Rectangle {
-            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 480px; height: 190px; background: #1b293a; border-radius: 8px;
-            VerticalLayout {
-                padding: 24px; spacing: 16px;
+            VerticalLayout { padding: 24px; spacing: 16px;
                 Text { text: "Close OpenDAW?"; color: #eef6ff; font-size: 23px; }
                 Text { text: "Save your edits before closing. Unsaved changes will be lost."; color: #adbed1; wrap: word-wrap; }
                 HorizontalLayout {

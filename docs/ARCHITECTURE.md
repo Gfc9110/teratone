@@ -4,17 +4,17 @@
 
 ```text
 Slint / main GUI thread
-  -> bounded Rust request channel
+  -> bounded UI outbox + Rust request channel / ACKs
 Rust controller worker
   -> authoritative Project + inverse-command History
   -> musical-tick-to-frame preparation
   -> checked bridge (one Engine owner, !Send / !Sync)
 C ABI / one native control producer
-  -> EngineService (prepared graph, schedule, command queue)
+  -> EngineService (prepared graph, schedule, note queue + coherent mixer queue)
   -> OutputDevice (owns/quiesces audio consumer)
 C++ audio consumer
   -> block-relative note events -> SynthNode / SamplerNode
-  -> GainPanNode -> MixerNode -> bounded stereo output
+  -> GainPanNode -> AudibilityNode (5 ms gate) -> MixerNode -> bounded stereo output
 
 Offline export: separate worker + separate engine instance + streaming writer.
 ```
@@ -40,12 +40,25 @@ silently truncating note-offs. Telemetry uses lock-free atomics on supported
 
 Stop/panic have a priority atomic path. A failed note-off requests panic rather
 than leaving a voice stuck. That emergency path discards pending native commands.
-The application additionally cancels its UI backlog on Stop or queue saturation
-and displays this fact; it is not a durable command-delivery mechanism.
+The independent 8-entry mixer queue survives this discard. The application retains
+durable document edits on Stop/saturation. A UI outbox (256 pending, 64 in flight)
+retries full channels, coalesces only contiguous transient controls, and reports a
+rejected new action explicitly. ACKs carry request identity/revision/error; a stop
+epoch invalidates old transport/audition/gestures. A new Play after Stop waits for
+priority quiescence before dispatch. This is bounded in-memory delivery, not an
+on-disk command journal.
 
-Gain and pan use smoothed atomic targets read per processing block. They are not
-sample-accurate automation. Queue submission acknowledges acceptance, not audible
-completion; last-applied serial and telemetry can be used for observation.
+A complete gain/pan/mute/solo snapshot is copied through an SPSC queue with at
+most 8 reads per block. Generation guards slots after load; the latest complete
+snapshot sets all targets coherently before rendering. Gain/pan keep their nominal
+values and smoothing. Mute/solo derive `!mute && (!any_solo || solo)` and a separate
+5 ms linear gate reaching exact silence. Voices keep advancing while muted. Initial
+load/export gates are correct from sample zero. The legacy C++ setGain/setPan
+methods remain available; the application and C ABI use coherent snapshots.
+These are block-boundary targets, not sample-accurate automation. Submitted/applied
+serials distinguish acceptance from consumption, not completion of the ramp. Full
+queues preserve the Rust document and trigger retry. Play reloads desired mix if
+there was no consumer after Stop. The old od_gain_pan API can now report queue full.
 
 Processing accepts variable callback sizes, subdividing into the prepared maximum.
 Loop/EOF boundaries split processing without moving scheduled note offsets.
@@ -59,7 +72,8 @@ not prove absence of every malloc, driver call, page fault, or scheduler delay.
 
 - Play starts at the current position, or restarts from zero after EOF.
 - Pause keeps position but resets voices. Resume does not chase earlier notes.
-- Stop silences and returns to zero; pending commands are discarded.
+- Stop silences and returns to zero; pending native transport/note commands are
+  discarded. Desired mixer state and durable UI document edits are retained.
 - Seek resets DSP/event cursors. Notes beginning before the new position are not
   reconstructed. The next note starting at that position can play.
 - Loops require a range at least as long as the prepared block; crossing the end
@@ -78,9 +92,10 @@ session in place. Successful loads stop/join output before destroying the old
 service and leave the device closed. Temporary memory can include both graphs
 and both sets of media. No live topology swapping is claimed.
 
-The application stops playback on score/tempo/instrument/history edits and marks
-its playback description dirty. Play recompiles and reopens output. Gain/pan can
-change live once compilation exists. Failed control operations are surfaced.
+The application stops playback on score/tempo/instrument/structural history edits
+and marks its playback description dirty. Play recompiles and reopens output.
+Gain/pan/mute/solo and metadata, including their history, can change live once
+compilation exists. Failed control operations are surfaced.
 
 The output-device object is destroyed before its engine. Silent/WASAPI workers
 are joined. CoreAudio output is stopped, uninitialized, and disposed. Platform
@@ -119,9 +134,13 @@ avoid an object per note in the full document. The cap is displayed, not applied
 to playback. Building the scene/hit test still scans the track and creates text
 labels; spatial indexing, batching and WGPU are later profiling-driven work.
 
-No graphical performance or memory benchmark has been run. Keyboard navigation,
-custom-editor accessibility, docking, HiDPI, multi-monitor and touch behavior are
-not complete or validated.
+M3.2 adds bounded arrangement previews (32 aggregate rectangles/clip, 256 visible
+clips with an explicit warning) and preserves the track model across unrelated
+updates. Header/lane rows share vertical scroll; horizontal offset is applied only
+to lanes and ruler. A software interaction probe checks 100/200% layouts and the
+real controller. A 16-track/100k-note headless smoke benchmark is recorded; it is
+not a hardware audio/UI-frame performance certificate. Keyboard navigation,
+custom-editor accessibility, docking, multi-monitor and touch remain incomplete.
 
 ## Relevant files
 
@@ -133,6 +152,9 @@ not complete or validated.
 - app/src/controller.rs: sole native control owner and application coordination.
 - app/src/storage.rs: versioned folder persistence and export commit.
 - app/src/editor.rs: interaction and render-neutral note scene.
+- app/src/arrangement.rs: bounded clip/track scene and viewport culling.
+- app/src/mailbox.rs: bounded UI outbox, coalescing, priority stop epoch and ACKs.
+- app/src/ui_support.rs: stable Slint models and selected-track form synchronization.
 - app/src/bridge.rs: checked Rust ABI wrapper.
 - app/src/main.rs, app/ui/main.slint: presentation adapter.
 
@@ -147,8 +169,9 @@ an undo gesture. Selection releases live audition notes instead of resetting all
 scheduled voices. Export and native preparation flatten clips to absolute frames.
 The C++ graph, DSP and C ABI v1 are unchanged in this increment.
 
-The sidebar exposes track CRUD/order/properties and the editor can select existing
-MIDI clips. Arrangement editing, mute/solo, the vertical keyboard, expanded synth
-and multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
+In M3.1, the sidebar exposed track CRUD/order/properties and the editor could
+select existing MIDI clips. M3.2 replaces that presentation with arrangement rows
+and inspector, and adds persistent live mute/solo. Clip manipulation, the vertical
+keyboard, expanded synth and multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
 for exact scope, evidence and remaining limitations; PROJECT_FORMAT.md documents
 the implemented v2 fields rather than the broader proposed handoff model.

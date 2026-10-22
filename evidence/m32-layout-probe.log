@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running `app/target/debug/examples/layout_probe`
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1280×820, scale 1
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1000×760, scale 1
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1000×760, scale 2
+PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected
