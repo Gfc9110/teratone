@@ -1,0 +1,6 @@
+[1/6] Building CXX object CMakeFiles/open_daw_api.dir/src/api.cpp.o
+[2/6] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[3/6] Linking CXX static library lib/libopen_daw_api_static.a
+[4/6] Linking CXX shared library libopen_daw_api.so
+[5/6] Linking CXX executable api_smoke
+[6/6] Linking CXX executable service_tests

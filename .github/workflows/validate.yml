@@ -1,0 +1,51 @@
+name: OpenDAW validation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: cmake --build build/native --config Release --parallel 4
+      - run: ctest --test-dir build/native -C Release --output-on-failure
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=Debug -DOD_SANITIZE=ON
+      - run: cmake --build build/asan --parallel 4
+      - run: ctest --test-dir build/asan --output-on-failure
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+  frontend-candidate:
+    # Source supplied without a Rust toolchain in the authoring environment.
+    # This job is a required VALIDATION gate, not evidence that it already passes.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libegl1-mesa-dev
+      - run: cargo generate-lockfile
+      - run: cargo test --locked --no-default-features
+      - run: cargo test --locked
+      - run: cargo build --locked --release --bin opendaw --bin opendaw-project
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-lockfile-${{ runner.os }}
+          path: app/Cargo.lock

@@ -1,0 +1,6 @@
+PASS: 8 WAV variants through the shared C ABI
+PASS: non-finite media rejected without replacing the active session
+PASS: 25 randomized callback partitions are bit-identical
+PASS: Unicode export path, WAV metadata, and independent export state
+PASS: explicit silent device excludes a second render consumer
+Shared-library integration checks passed (not a Rust/UI or hardware test).

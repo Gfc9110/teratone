@@ -1,0 +1,23 @@
+[1/23] Building CXX object CMakeFiles/open_daw_core.dir/src/wav.cpp.o
+[2/23] Building CXX object CMakeFiles/open_daw_engine.dir/src/media.cpp.o
+[3/23] Building CXX object CMakeFiles/open_daw_core.dir/src/engine.cpp.o
+[4/23] Linking CXX static library lib/libopen_daw_core.a
+[5/23] Building CXX object CMakeFiles/open_daw_engine.dir/src/service.cpp.o
+[6/23] Building CXX object CMakeFiles/open_daw_engine.dir/src/device.cpp.o
+[7/23] Linking CXX static library lib/libopen_daw_engine.a
+[8/23] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[9/23] Linking CXX static library lib/libopen_daw_api_static.a
+[10/23] Building CXX object CMakeFiles/daw_demo.dir/src/main.cpp.o
+[11/23] Building CXX object CMakeFiles/open_daw_api.dir/src/api.cpp.o
+[12/23] Building C object CMakeFiles/api_smoke.dir/tests/api_smoke.c.o
+[13/23] Building CXX object CMakeFiles/open_daw_tests.dir/tests/tests.cpp.o
+[14/23] Linking CXX shared library libopen_daw_api.so
+[15/23] Building CXX object CMakeFiles/daw_session.dir/src/session_main.cpp.o
+[16/23] Linking CXX executable daw_demo
+[17/23] Linking CXX executable daw_session
+[18/23] Linking CXX executable open_daw_tests
+[19/23] Linking CXX executable api_smoke
+[20/23] Building CXX object CMakeFiles/allocation_probe.dir/tests/allocation_probe.cpp.o
+[21/23] Linking CXX executable allocation_probe
+[22/23] Building CXX object CMakeFiles/service_tests.dir/tests/service_tests.cpp.o
+[23/23] Linking CXX executable service_tests

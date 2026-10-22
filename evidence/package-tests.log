@@ -1,0 +1,69 @@
+Internal ctest changing into directory: /mnt/data/work/package-check-build
+UpdateCTestConfiguration  from :/mnt/data/work/package-check-build/DartConfiguration.tcl
+Parse Config file:/mnt/data/work/package-check-build/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/mnt/data/work/package-check-build/DartConfiguration.tcl
+Parse Config file:/mnt/data/work/package-check-build/DartConfiguration.tcl
+Test project /mnt/data/work/package-check-build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: original_audio_core
+
+1: Test command: /mnt/data/work/package-check-build/open_daw_tests
+1: Working Directory: /mnt/data/work/package-check-build
+1: Test timeout computed to be: 1500
+1: PASS graph routing
+1: PASS graph cycle
+1: PASS graph invalid connection
+1: PASS sample-accurate MIDI and block invariance
+1: PASS 440 Hz frequency
+1: PASS ADSR and voice stealing
+1: PASS atomic gain/pan updates
+1: PASS offline demo and WAV export
+1/4 Test #1: original_audio_core ..............   Passed    0.05 sec
+test 2
+    Start 2: interactive_service
+
+2: Test command: /mnt/data/work/package-check-build/service_tests
+2: Working Directory: /mnt/data/work/package-check-build
+2: Test timeout computed to be: 1500
+2: PASS constructor/setter validation consistency
+2: PASS overlapping note occurrence IDs
+2: PASS variable-block scheduling invariance
+2: PASS play/pause/stop/seek reset policy
+2: PASS loop boundaries and block invariance
+2: PASS bounded queue overflow and emergency note-off
+2: PASS live audition without moving transport
+2: PASS session and event-density validation
+2: PASS SPSC two-thread ordering stress
+2: PASS streaming export and waveform peaks
+2: PASS malformed WAV bounds and fuzz smoke
+2: PASS sampler pitch/release and engine integration
+2: PASS C ABI transactional load/export/lifecycle
+2: PASS concurrent controls, telemetry, device stop
+2: 14 interactive checks passed
+2/4 Test #2: interactive_service ..............   Passed    0.10 sec
+test 3
+    Start 3: pure_c_abi
+
+3: Test command: /mnt/data/work/package-check-build/api_smoke
+3: Working Directory: /mnt/data/work/package-check-build
+3: Test timeout computed to be: 1500
+3: PASS pure C ABI client
+3/4 Test #3: pure_c_abi .......................   Passed    0.01 sec
+test 4
+    Start 4: callback_cpp_allocations
+
+4: Test command: /mnt/data/work/package-check-build/allocation_probe
+4: Working Directory: /mnt/data/work/package-check-build
+4: Test timeout computed to be: 1500
+4: Monitored 10001 renders: new=0 delete=0
+4/4 Test #4: callback_cpp_allocations .........   Passed    0.38 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =   0.55 sec

@@ -1,0 +1,207 @@
+import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, AboutSlint } from "std-widgets.slint";
+
+export struct NoteVisual {
+    x: float, y: float, w: float, h: float, selected: bool, label: string,
+}
+component Pad inherits Rectangle {
+    in property <string> label;
+    callback gate(bool);
+    background: touch.pressed ? #72dfb8 : #263445;
+    border-radius: 4px;
+    Text { text: root.label; color: touch.pressed ? #0d1117 : #dce6f0; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) { root.gate(true); }
+            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) { root.gate(false); }
+        }
+    }
+}
+export component AppWindow inherits Window {
+    title: "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
+    width: 1280px; height: 820px; min-width: 1000px; min-height: 760px;
+    background: #0d1117;
+    default-font-family: "sans-serif"; default-font-size: 13px;
+    in property <string> project-name: "First session";
+    in property <string> status: "Starting application controller…";
+    in property <string> selected-label;
+    in property <string> transport-text: "001 : 01";
+    in property <[string]> track-names;
+    in property <int> track-index: 0;
+    in property <int> bpm: 120;
+    in property <float> gain: 0.7;
+    in property <float> pan: 0.0;
+    in property <bool> dirty: false;
+    in property <bool> can-undo: false;
+    in property <bool> can-redo: false;
+    in property <bool> playing: false;
+    in property <bool> looping: false;
+    in property <bool> export-busy: false;
+    in property <float> peak-left: 0;
+    in property <float> peak-right: 0;
+    in property <float> playhead-x: 0;
+    in property <float> pixels-per-beat: 64;
+    in property <float> scroll-beat: 0;
+    in property <int> top-note: 84;
+    in property <[NoteVisual]> note-items;
+    in-out property <bool> confirm-close: false;
+    in-out property <string> project-path: "First-session.opendaw";
+    in-out property <string> export-path: "First-session.wav";
+    out property <float> canvas-width: grid.width / 1px;
+    out property <float> canvas-height: grid.height / 1px;
+    callback play(); callback pause(); callback stop(); callback toggle-loop();
+    callback select-track(int); callback tempo(int); callback mix(float, float);
+    callback undo(); callback redo(); callback remove-note();
+    callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float);
+    callback down(float, float, bool); callback moved(float, float); callback up(float, float);
+    callback audition(int, bool); callback save-project(string); callback open-project(string);
+    callback export-audio(string); callback import-sample(string, int, bool); callback use-sine();
+    callback exit-confirmed();
+
+    Rectangle {
+        height: 72px; width: parent.width; background: #151d28;
+        Text { x: 22px; y: 12px; text: "OPENDAW"; color: #79e3bf; font-size: 24px; font-weight: 700; }
+        Text { x: 24px; y: 43px; text: "NATIVE AUDIO / INTERACTIVE PROTOTYPE"; color: #8394aa; font-size: 9px; }
+        HorizontalLayout {
+            x: 252px; y: 20px; width: parent.width - 520px; height: 34px; spacing: 8px;
+            Button { text: root.playing ? "Playing" : "Play"; clicked => { root.play(); } }
+            Button { text: "Pause"; clicked => { root.pause(); } }
+            Button { text: "Stop"; clicked => { root.stop(); } }
+            Button { text: root.looping ? "Loop on" : "Loop off"; clicked => { root.toggle-loop(); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Text { x: parent.width - 220px; y: 17px; width: 196px; height: 36px;
+            text: root.transport-text; font-size: 24px; color: #e8f2ff; horizontal-alignment: right; }
+    }
+    Rectangle {
+        x: 0; y: 72px; width: 226px; height: root.height - 120px; background: #131b25;
+        VerticalLayout {
+            x: 16px; y: 14px; width: 194px; height: parent.height - 28px; spacing: 7px;
+            Text { text: "TRACK / INSTRUMENT"; color: #8295ad; font-size: 11px; }
+            ComboBox { model: root.track-names; current-index: root.track-index;
+                selected(value) => { root.select-track(self.current-index); } }
+            HorizontalLayout {
+                Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
+                SpinBox { value: root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
+            }
+            Text { text: "Gain"; color: #c7d4e5; }
+            Slider { value: root.gain; minimum: 0; maximum: 2; changed(value) => { root.mix(value, root.pan); } }
+            Text { text: "Pan"; color: #c7d4e5; }
+            Slider { value: root.pan; minimum: -1; maximum: 1; changed(value) => { root.mix(root.gain, value); } }
+            Rectangle { height: 1px; background: #293747; }
+            Button { text: "Use sine instrument"; clicked => { root.use-sine(); } }
+            sample-file := LineEdit { placeholder-text: "Path to short WAV sample"; }
+            HorizontalLayout {
+                Text { text: "Root"; color: #c7d4e5; vertical-alignment: center; }
+                root-note := SpinBox { minimum: 0; maximum: 127; value: 60; }
+            }
+            one-shot := CheckBox { text: "One-shot / drum"; }
+            Button { text: "Load WAV sample";
+                clicked => { root.import-sample(sample-file.text, root-note.value, one-shot.checked); } }
+            Rectangle { height: 1px; background: #293747; }
+            Text { text: "PROJECT FOLDER"; color: #8295ad; font-size: 11px; }
+            LineEdit { text <=> root.project-path; }
+            HorizontalLayout {
+                Button { text: "Save"; clicked => { root.save-project(root.project-path); } }
+                Button { text: "Open"; clicked => { root.open-project(root.project-path); } }
+            }
+            Text { text: "WAV EXPORT"; color: #8295ad; font-size: 11px; }
+            LineEdit { text <=> root.export-path; }
+            Button { text: root.export-busy ? "Exporting…" : "Export PCM16 WAV"; enabled: !root.export-busy;
+                clicked => { root.export-audio(root.export-path); } }
+            Rectangle { vertical-stretch: 1; }
+            Text { text: "C++20 engine · Rust application\nStructural edits stop playback."; color: #8b9bb0; font-size: 11px; }
+            AboutSlint { }
+        }
+    }
+    main := Rectangle {
+        x: 242px; y: 88px; width: root.width - 258px; height: root.height - 152px;
+        HorizontalLayout {
+            height: 32px; width: parent.width; spacing: 6px;
+            Button { text: "Undo"; enabled: root.can-undo; clicked => { root.undo(); } }
+            Button { text: "Redo"; enabled: root.can-redo; clicked => { root.redo(); } }
+            Button { text: "Delete note"; clicked => { root.remove-note(); } }
+            Rectangle { horizontal-stretch: 1; }
+            Button { text: "← 4 beats"; clicked => { root.pan-view(-4); } }
+            Button { text: "4 beats →"; clicked => { root.pan-view(4); } }
+            Button { text: "−"; clicked => { root.zoom(0.8); } }
+            Button { text: "+"; clicked => { root.zoom(1.25); } }
+            Button { text: "Oct −"; clicked => { root.pitch-view(-12); } }
+            Button { text: "Oct +"; clicked => { root.pitch-view(12); } }
+        }
+        Rectangle {
+            y: 44px; height: 27px; width: parent.width; background: #1a2532; clip: true;
+            for beat in 64 : Text {
+                x: beat * root.pixels-per-beat * 1px + 4px;
+                text: root.scroll-beat + beat + 1; color: #a2b5cc; font-size: 10px;
+            }
+            TouchArea { clicked => { root.seek(root.scroll-beat + self.mouse-x / 1px / root.pixels-per-beat); } }
+        }
+        grid := Rectangle {
+            y: 72px; width: parent.width; height: parent.height - 150px;
+            background: #101923; clip: true;
+            for row in 128 : Rectangle {
+                y: row * 16px; width: parent.width; height: 16px;
+                background: Math.mod(root.top-note - row + 120, 12) == 1 || Math.mod(root.top-note - row + 120, 12) == 3 ||
+                    Math.mod(root.top-note - row + 120, 12) == 6 || Math.mod(root.top-note - row + 120, 12) == 8 ||
+                    Math.mod(root.top-note - row + 120, 12) == 10 ? #131e2a : #172332;
+                Rectangle { y: parent.height - 1px; height: 1px; width: parent.width; background: #233246; }
+            }
+            for beat in 256 : Rectangle {
+                x: beat * root.pixels-per-beat / 4 * 1px; width: 1px; height: parent.height;
+                background: Math.mod(beat, 4) == 0 ? #35475e : #202e40;
+            }
+            for note in root.note-items : Rectangle {
+                x: note.x * 1px; y: note.y * 1px; width: note.w * 1px; height: note.h * 1px;
+                background: note.selected ? #e7c77b : #62bfa6; border-radius: 2px;
+                Text { x: 4px; width: parent.width - 5px; height: parent.height; text: note.label;
+                    color: #102b29; font-size: 9px; vertical-alignment: center; overflow: elide; }
+            }
+            if root.playhead-x >= 0 && root.playhead-x < root.canvas-width : Rectangle {
+                x: root.playhead-x * 1px; width: 2px; height: parent.height; background: #edf8ff;
+            }
+            touch := TouchArea {
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down { root.down(self.mouse-x / 1px, self.mouse-y / 1px, event.button == PointerEventButton.right); }
+                    if event.kind == PointerEventKind.up { root.up(self.mouse-x / 1px, self.mouse-y / 1px); }
+                    if event.kind == PointerEventKind.cancel { root.stop(); }
+                }
+                moved => { root.moved(self.mouse-x / 1px, self.mouse-y / 1px); }
+            }
+        }
+        Text { y: parent.height - 68px; width: parent.width; text: root.selected-label; color: #93a7bd; font-size: 11px; overflow: elide; }
+        HorizontalLayout {
+            y: parent.height - 42px; width: parent.width; height: 32px; spacing: 6px;
+            Text { text: "AUDITION"; color: #7e92a9; vertical-alignment: center; }
+            for pitch in [60, 62, 64, 65, 67, 69, 71, 72] : Pad {
+                label: pitch; gate(on) => { root.audition(pitch, on); }
+            }
+        }
+    }
+    Rectangle {
+        y: root.height - 48px; width: root.width; height: 48px; background: #151e29;
+        Text { x: 16px; y: 7px; height: 34px; width: parent.width - 220px; text: root.status;
+            color: #a8b9cd; vertical-alignment: center; overflow: elide; font-size: 11px; }
+        Rectangle { x: parent.width - 190px; y: 14px; width: 170px; height: 7px; background: #29384a;
+            Rectangle { width: parent.width * root.peak-left; height: parent.height; background: #70dcb5; } }
+        Rectangle { x: parent.width - 190px; y: 26px; width: 170px; height: 7px; background: #29384a;
+            Rectangle { width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
+    }
+    if root.confirm-close : Rectangle {
+        width: parent.width; height: parent.height; background: #000000b0;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: 480px; height: 190px; background: #1b293a; border-radius: 8px;
+            VerticalLayout {
+                padding: 24px; spacing: 16px;
+                Text { text: "Close OpenDAW?"; color: #eef6ff; font-size: 23px; }
+                Text { text: "Save your edits before closing. Unsaved changes will be lost."; color: #adbed1; wrap: word-wrap; }
+                HorizontalLayout {
+                    Button { text: "Keep editing"; clicked => { root.confirm-close = false; } }
+                    Button { text: "Save"; clicked => { root.save-project(root.project-path); root.confirm-close = false; } }
+                    Button { text: "Discard and close"; clicked => { root.exit-confirmed(); } }
+                }
+            }
+        }
+    }
+}

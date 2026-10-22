@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "name": "First session",
+  "bpm": 120.0,
+  "length_ticks": 15360,
+  "next_id": 100,
+  "tracks": [
+    {
+      "id": 1,
+      "name": "Sine lead",
+      "gain": 0.7,
+      "pan": -0.15,
+      "instrument": {
+        "kind": "sine"
+      },
+      "notes": [
+        {
+          "id": 10,
+          "start": 0,
+          "duration": 720,
+          "pitch": 60,
+          "velocity": 100
+        },
+        {
+          "id": 11,
+          "start": 960,
+          "duration": 720,
+          "pitch": 64,
+          "velocity": 100
+        },
+        {
+          "id": 12,
+          "start": 1920,
+          "duration": 720,
+          "pitch": 67,
+          "velocity": 100
+        },
+        {
+          "id": 13,
+          "start": 2880,
+          "duration": 720,
+          "pitch": 72,
+          "velocity": 100
+        },
+        {
+          "id": 14,
+          "start": 3840,
+          "duration": 720,
+          "pitch": 67,
+          "velocity": 100
+        },
+        {
+          "id": 15,
+          "start": 4800,
+          "duration": 720,
+          "pitch": 64,
+          "velocity": 100
+        },
+        {
+          "id": 16,
+          "start": 5760,
+          "duration": 720,
+          "pitch": 62,
+          "velocity": 100
+        },
+        {
+          "id": 17,
+          "start": 6720,
+          "duration": 720,
+          "pitch": 67,
+          "velocity": 100
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Bass",
+      "gain": 0.55,
+      "pan": 0.15,
+      "instrument": {
+        "kind": "sine"
+      },
+      "notes": [
+        {
+          "id": 20,
+          "start": 0,
+          "duration": 2880,
+          "pitch": 48,
+          "velocity": 90
+        },
+        {
+          "id": 21,
+          "start": 3840,
+          "duration": 2880,
+          "pitch": 43,
+          "velocity": 90
+        }
+      ]
+    }
+  ]
+}

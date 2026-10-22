@@ -1,0 +1,688 @@
+--- starter/.gitignore
++++ interactive/.gitignore
+@@ -1,9 +1,12 @@
+ /build/
+ /build_*/
+ /out/
+-*.wav
++/app/target/
+ *.obj
+ *.o
+ *.pdb
+ *.ilk
+ .DS_Store
++/First-session.wav
++/First-session.opendaw/
++# Cargo.lock should be committed after the first validated dependency resolution.
+--- starter/CMakeLists.txt
++++ interactive/CMakeLists.txt
+@@ -1,25 +1,82 @@
+ cmake_minimum_required(VERSION 3.20)
+-project(OpenDawAudioCore VERSION 0.1.0 LANGUAGES CXX)
++project(OpenDaw VERSION 0.2.0 LANGUAGES C CXX)
+ set(CMAKE_CXX_STANDARD 20)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+-
++set(CMAKE_POSITION_INDEPENDENT_CODE ON)
++set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
++foreach(CONFIG DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
++  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG} "${CMAKE_BINARY_DIR}/lib")
++endforeach()
++option(OD_SANITIZE "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
++option(OD_THREAD_SANITIZE "Enable ThreadSanitizer (separate build)" OFF)
++if(OD_SANITIZE AND OD_THREAD_SANITIZE)
++  message(FATAL_ERROR "Use separate ASan/UBSan and TSan builds")
++endif()
++if(NOT MSVC)
++  if(OD_SANITIZE)
++    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
++    add_link_options(-fsanitize=address,undefined)
++  elseif(OD_THREAD_SANITIZE)
++    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
++    add_link_options(-fsanitize=thread)
++  endif()
++endif()
++find_package(Threads REQUIRED)
++function(od_warnings TARGET)
++  if(MSVC)
++    target_compile_options(${TARGET} PRIVATE /W4 /permissive- /utf-8)
++  else()
++    target_compile_options(${TARGET} PRIVATE -Wall -Wextra -Wpedantic)
++  endif()
++endfunction()
+ add_library(open_daw_core STATIC src/engine.cpp src/wav.cpp)
+ target_include_directories(open_daw_core PUBLIC include)
+-if(MSVC)
+-  target_compile_options(open_daw_core PRIVATE /W4 /permissive-)
+-else()
+-  target_compile_options(open_daw_core PRIVATE -Wall -Wextra -Wpedantic)
++od_warnings(open_daw_core)
++add_library(open_daw_engine STATIC src/service.cpp src/media.cpp src/device.cpp)
++target_link_libraries(open_daw_engine PUBLIC open_daw_core Threads::Threads)
++od_warnings(open_daw_engine)
++if(APPLE)
++  target_link_libraries(open_daw_engine PUBLIC "-framework AudioUnit" "-framework AudioToolbox" "-framework CoreAudio")
++elseif(WIN32)
++  target_link_libraries(open_daw_engine PUBLIC ole32 uuid avrt)
+ endif()
+-
++add_library(open_daw_api_static STATIC src/api.cpp)
++target_link_libraries(open_daw_api_static PUBLIC open_daw_engine)
++od_warnings(open_daw_api_static)
++add_library(open_daw_api SHARED src/api.cpp)
++target_link_libraries(open_daw_api PUBLIC open_daw_engine)
++target_compile_definitions(open_daw_api PRIVATE OD_SHARED OD_BUILDING)
++set_target_properties(open_daw_api PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
++od_warnings(open_daw_api)
+ add_executable(daw_demo src/main.cpp)
+ target_link_libraries(daw_demo PRIVATE open_daw_core)
+ if(WIN32)
+   target_sources(daw_demo PRIVATE src/wasapi.cpp)
+   target_link_libraries(daw_demo PRIVATE ole32 uuid)
+ endif()
+-
+-enable_testing()
+-add_executable(open_daw_tests tests/tests.cpp)
+-target_link_libraries(open_daw_tests PRIVATE open_daw_core)
+-add_test(NAME audio_core COMMAND open_daw_tests)
++add_executable(daw_session src/session_main.cpp)
++target_link_libraries(daw_session PRIVATE open_daw_engine)
++od_warnings(daw_session)
++include(CTest)
++if(BUILD_TESTING)
++  add_executable(open_daw_tests tests/tests.cpp)
++  target_link_libraries(open_daw_tests PRIVATE open_daw_core)
++  add_test(NAME original_audio_core COMMAND open_daw_tests)
++  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/service_tests.cpp")
++    add_executable(service_tests tests/service_tests.cpp)
++    target_link_libraries(service_tests PRIVATE open_daw_api_static)
++    od_warnings(service_tests)
++    add_test(NAME interactive_service COMMAND service_tests)
++  endif()
++  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/api_smoke.c")
++    add_executable(api_smoke tests/api_smoke.c)
++    target_link_libraries(api_smoke PRIVATE open_daw_api_static)
++    add_test(NAME pure_c_abi COMMAND api_smoke)
++  endif()
++endif()
++if(BUILD_TESTING)
++  add_executable(allocation_probe tests/allocation_probe.cpp)
++  target_link_libraries(allocation_probe PRIVATE open_daw_engine)
++  add_test(NAME callback_cpp_allocations COMMAND allocation_probe)
++endif()
+--- starter/README.md
++++ interactive/README.md
+@@ -1,52 +1,103 @@
+-# Open DAW — M1/M2 prototype
++# OpenDAW — interactive foundation, 0.2.0 source candidate
+ 
+-A **custom headless C++20 audio engine** designed for a future Godot-based, cross-platform open-source DAW. No JUCE, Tracktion, or game engine dependency.
++This increment retains the uploaded C++20 audio graph/DSP and adds a native engine
++service, bounded transport/live-note control, sampling, streaming WAV export,
++a C ABI, and a Rust/Slint application implementation.
+ 
+-**Implementation status:**
+-- **M1 prototype implemented:** sine synthesis, sample-accurate scheduled MIDI, voice stealing, ADSR, offline rendering, WAV PCM16 export, unit tests.
+-- **M2 prototype implemented in part:** audio DAG with cycle validation/topological ordering, gain/pan smoothing, stereo mixer, same renderer offline/realtime, Windows WASAPI shared event-driven playback code.
+-- **Still pending for full M2:** Windows build and device playback validation, automated DSP allocation audit, underrun instrumentation, manual latency test, explicit transport and interactive MIDI queue, cross-platform native audio backends. Windows WASAPI path is **not verified** in this environment.
+-- **Not implemented yet:** audio file import, waveform clips, drum sampler, chromatic sampler, CLAP/VST, Godot UI.
++**Validation status matters:** the C++ implementation was built and tested on
++Linux x86_64 with GCC and Clang, ASan/UBSan, and a focused ThreadSanitizer run.
++**The Rust/Slint application was not compiled or run** because Rust and package
++network access were unavailable in the authoring environment. macOS/CoreAudio and
++Windows/WASAPI adapters are implemented as source but were not compiled or tested
++on those platforms. No physical audio latency or graphical performance claims
++are made. This is not a finished or shipping DAW.
+ 
+-## Build and run
++## Run the verified native path
++
++Requires a C++20 compiler and CMake 3.20 or newer; no downloaded C++ dependencies.
++From this directory on Linux/macOS:
+ 
+ ```sh
+-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+-cmake --build build --config Release
+-ctest --test-dir build --output-on-failure -C Release
++./scripts/validate_native.sh
++./build/release/daw_session --render demo.wav --seconds 8
++./build/release/daw_session --interactive --silent
+ ```
+ 
+-Render WAV (all desktop OSes with C++20 compiler):
++`--silent` is explicitly a **no-audio simulation clock**, not an output fallback.
++On macOS/Windows, after validating the platform build and device:
+ 
+ ```sh
+-./build/daw_demo --offline demo.wav --seconds 5 --rate 48000 --block 256
++./build/release/daw_session --play --seconds 8
+ ```
+ 
+-On Windows with MSVC, binaries are typically under `build/Release/`. Native playback is Windows-only in this prototype:
++Windows PowerShell: `./scripts/validate_native.ps1`; the default Visual Studio
++build places the executable in `build/native/Release/daw_session.exe`.
+ 
+-```powershell
+-.\build\Release\daw_demo.exe --realtime --seconds 6
++Interactive commands: `play`, `pause`, `stop`, `seek 2`, `loop 0 4`, `unloop`,
++`on 60`, `off 60`, `gain 0 0.5`, `pan 0 -0.2`, `status`, `quit`.
++The CLI's default example has two instrument tracks. `--sample short.wav` replaces
++its lead instrument with the sampler.
++
++## Validate and launch the application candidate
++
++Requires Rust stable, CMake, a native C++ toolchain, dependency download access,
++and platform GUI development libraries. See [BUILD.md](docs/BUILD.md).
++The frontend is delivered as unvalidated source, not a prebuilt application.
++
++```sh
++./scripts/validate_app.sh
++cd app
++cargo run --locked --release --bin opendaw
++# On Linux, native audio is not implemented in this increment:
++cargo run --locked --release --bin opendaw -- --silent
+ ```
+ 
+-`--realtime` is a **prototype backend** that uses the system shared mixer sample rate and can report unsupported device sample formats. It needs validation on a real Windows system before it can be considered functional.
++There is deliberately **no fabricated Cargo.lock**. The validation script resolves
++it on a connected host. Preserve and commit the lockfile only after validation;
++the supplied source is not a reproducible locked Rust release yet.
+ 
+-## Architecture
++## Implemented boundaries
+ 
+-See `docs/ARCHITECTURE.md` and the handoff `DAW_M1_M2_HANDOFF.md` (also delivered separately).
++- C++: `EngineService`, per-block sequencing, transport, note IDs, bounded controls,
++  fixed-voice sine/sampler instruments, device ownership, offline export.
++- C ABI: opaque engine handle, checked arguments, explicit lifetime and single
++  control-thread contract. Audio does not call back into Rust or the UI.
++- Rust source: versioned project document, command/inverse undo, independent editor
++  interaction model, asset-copying persistence, native wrapper and controller.
++- Slint source: transport, selected-track piano roll, mixer controls, note editing,
++  audition pads, sample loading, project save/open, and export controls.
++- Tests and evidence: original eight core checks, fourteen service checks, a pure C
++  client, allocation probe, independent Python shared-library exercise, raw logs.
+ 
+-## Test coverage
++Structural score edits stop audio. Live gain/pan controls do not rebuild the graph.
++This is intentional: stop/prepare/restart is the initial safe lifecycle, not live
++lock-free topology swapping. The UI uses visible note primitives, not a custom
++WGPU renderer. View construction still scans the selected track; it is not a
++finished large-project performance solution.
+ 
+-- Graph mix and invalid-cycle detection
+-- Sample-accurate note onset and block-size invariance
+-- 440 Hz note test
+-- ADSR and voice stealing stress
+-- Atomic gain/pan adjustments
+-- WAV header / duration / non-clipping demo
++## Important limits
+ 
+-## Future samplers without rewrites
++Native output is provided as **unvalidated source for macOS and Windows**. Linux
++currently supports offline processing and explicit silent-clock testing only.
++Seek/loop boundaries reset voices; there is no sustained-note chasing. Project end
++cuts tails. Sampling uses linear interpolation, not high-quality time-stretching.
++The project model currently has constant tempo and note tracks, not audio clips.
+ 
+-- `AudioClipNode`: file on a timeline, seek and play; disk/audio decoding off callback.
+-- `DrumSamplerNode`: sample per pad, MIDI trigger, one-shot, gain/pan/choke.
+-- `ChromaticSamplerNode`: root note, resampling-based pitch shifting, polyphony.
++Not implemented: recording, long-file streaming, external MIDI-device input,
++CLAP/VST3/AU hosting or scanning, arbitrary bus/send routing in the service,
++latency compensation, automation lanes, mobile/browser packaging, automatic crash
++recovery, or native plugin-window embedding.
+ 
+-All three use the existing `AudioNode` contract. Keep sample data immutable, decoded/loading outside the realtime thread. Pitch increment is `2^((note-rootNote+cents/100)/12) * sourceSampleRate/engineSampleRate`; changing playback speed changes the sample's duration. Independent time-stretching is a separate feature.
++## Documentation
++
++- [Implementation status and handoff](docs/IMPLEMENTATION_STATUS.md)
++- [Architecture and ownership](docs/ARCHITECTURE.md)
++- [Build and validation instructions](docs/BUILD.md)
++- [Executed test report and limits](docs/TEST_REPORT.md)
++- [Project format](docs/PROJECT_FORMAT.md)
++- [Next acceptance gates](docs/NEXT_STEPS.md)
++- [Dependency notices](THIRD_PARTY_NOTICES.md)
++
++Original milestone documents are preserved under `docs/legacy/`; they describe
++the historical starter, not the current completion status. The authored code
++retains the original MIT license. Third-party dependencies have their own terms.
+--- starter/docs/ARCHITECTURE.md
++++ interactive/docs/ARCHITECTURE.md
+@@ -1,22 +1,137 @@
+-# Audio engine architecture — M1/M2
++# Architecture implemented in this increment
+ 
+-- **Runtime:** C++20 with CMake; audio engine has no UI/game engine dependency. Future Godot app can connect through GDExtension without placing Godot on the audio thread.
+-- **Audio data:** float32 planar stereo (`AudioBlock`). Backend handles format conversion/interleaving.
+-- **Time:** absolute frame counter (`uint64_t`). Synth events are sorted before playback and processed at their exact frame even when changing the DSP block length.
+-- **Graph:** `Graph` owns `AudioNode`s. Before playback, `prepare()` validates connections, rejects cycles, sorts dependencies, allocates buffers and resolves input pointers. `process()` only clears preallocated buffers and runs nodes in topological order. Graph mutation while prepared is prohibited.
+-- **Synth:** 24 voices, sine oscillator, note velocity, ADSR, deterministic voice stealing. `NoteEvent` is offline-scheduled for M1/M2; a realtime lock-free MIDI event ring and transport controller are TODO.
+-- **Mixer:** `GainPanNode` atomic target parameters with 5 ms smoothing, equal-power panning. `MixerNode` adds multiple audio inputs. Master has no limiter, and can exceed ±1 depending on graph; WAV export clamps, while raw float output preserves overs.
+-- **Device:** `wasapi.cpp` demonstrates shared event-driven output; event signals request filling native buffers, potentially broken into multiple DSP chunks <= configured `maxFrames`. Graph is sample-rate-matched to device; float32/PCM16 output formats only; no guaranteed requested buffer size. Requires real Windows validation.
+-- **Threading:** graph compilation and changes of node topology off audio thread. Atomic gain/pan targets can be changed by another thread. Playback-time MIDI queue, graph hot swapping and safe deferred destruction of nodes are deferred, not secretly claimed supported.
+-- **Sample-based instruments:** a future `SampleAsset` contains decoded immutable audio and metadata. A `SamplePlayerNode` keeps fractional read position and interpolates between samples. A `DrumSamplerNode` maps note numbers to pads/one-shots; a `ChromaticSamplerNode` maps pitches around root notes. Import/decoding happens outside audio callback; long clips will need streaming buffers.
+-- **Headless:** `renderOffline` executes exactly the same graph as native output. Deterministic unit tests can run without sound hardware.
++## Ownership and dependency direction
+ 
+-## Known limitations of this starter
++```text
++Slint / main GUI thread
++  -> bounded Rust request channel
++Rust controller worker
++  -> authoritative Project + inverse-command History
++  -> musical-tick-to-frame preparation
++  -> checked bridge (one Engine owner, !Send / !Sync)
++C ABI / one native control producer
++  -> EngineService (prepared graph, schedule, command queue)
++  -> OutputDevice (owns/quiesces audio consumer)
++C++ audio consumer
++  -> block-relative note events -> SynthNode / SamplerNode
++  -> GainPanNode -> MixerNode -> bounded stereo output
+ 
+-1. Realtime WASAPI has not been built or played in the Linux execution environment.
+-2. Sine synthesis uses direct `std::sin`; additional oscillators, modulation and anti-aliasing are future DSP work.
+-3. Scheduled MIDI events require a fixed sequence; MIDI input, control commands and transport are future work.
+-4. Runtime sample rate changes, device hot swap and streaming media are not implemented.
+-5. WASAPI shared-mode can negotiate formats/channels not supported by this simple backend.
+-6. Full graph swap/reconfiguration during playback is not supported.
+-7. Input/output realtime latency and device underruns still need measurement on Windows.
++Offline export: separate worker + separate engine instance + streaming writer.
++```
++
++The C++ callback never invokes Rust closures, UI methods, file decoding, or graph
++construction. Rust does not receive sample-by-sample audio via the bridge. C++ owns
++processing objects and sample buffers. The user-editable project belongs to Rust;
++the native SessionSpec is a derived playback description, not a second editor.
++The legacy Graph and sine DSP remain independently usable.
++
++## Real-time execution contract
++
++Only one producer submits engine commands and only one consumer renders. The
++Rust controller serializes UI requests. Future MIDI/device producers must not be
++attached to the existing SPSC queue without separate serialization/queues.
++
++The native queue accepts 1,024 entries, and at most 64 commands are consumed per
++prepared block. There are at most 256 scheduled events per track in any prepared
++block window, checked before activation. A fixed 320-event per-track buffer
++covers scheduled plus live events. Over-dense projects are rejected rather than
++silently truncating note-offs. Telemetry uses lock-free atomics on supported
++64-bit desktop targets; values form an approximate snapshot, not a transaction.
++
++Stop/panic have a priority atomic path. A failed note-off requests panic rather
++than leaving a voice stuck. That emergency path discards pending native commands.
++The application additionally cancels its UI backlog on Stop or queue saturation
++and displays this fact; it is not a durable command-delivery mechanism.
++
++Gain and pan use smoothed atomic targets read per processing block. They are not
++sample-accurate automation. Queue submission acknowledges acceptance, not audible
++completion; last-applied serial and telemetry can be used for observation.
++
++Processing accepts variable callback sizes, subdividing into the prepared maximum.
++Loop/EOF boundaries split processing without moving scheduled note offsets.
++Non-finite DSP output is replaced with silence; output is clamped to [-1,1], with
++clipping counters and raw peak telemetry. This is not a mastering limiter.
++
++The allocation probe measures overridden C++ new/delete operations only. It does
++not prove absence of every malloc, driver call, page fault, or scheduler delay.
++
++## Transport policy
++
++- Play starts at the current position, or restarts from zero after EOF.
++- Pause keeps position but resets voices. Resume does not chase earlier notes.
++- Stop silences and returns to zero; pending commands are discarded.
++- Seek resets DSP/event cursors. Notes beginning before the new position are not
++  reconstructed. The next note starting at that position can play.
++- Loops require a range at least as long as the prepared block; crossing the end
++  resets voices and jumps exactly to the loop start. Sustained audio is cut.
++- EOF stops and resets voices. Export longer than the project writes trailing
++  silence, not effect/instrument tails.
++- Live audition can run while transport is stopped; musical position stays fixed.
++- Nonzero scheduled note IDs are unique. The high bit is reserved for live IDs.
++  The legacy SynthNode preloaded-event API remains for compatibility/testing.
++
++## Structural changes and failure containment
++
++A new graph is constructed/prepared outside the callback. The C ABI prepares the
++candidate before stopping the old device; invalid loads leave the old native
++session in place. Successful loads stop/join output before destroying the old
++service and leave the device closed. Temporary memory can include both graphs
++and both sets of media. No live topology swapping is claimed.
++
++The application stops playback on score/tempo/instrument/history edits and marks
++its playback description dirty. Play recompiles and reopens output. Gain/pan can
++change live once compilation exists. Failed control operations are surfaced.
++
++The output-device object is destroyed before its engine. Silent/WASAPI workers
++are joined. CoreAudio output is stopped, uninitialized, and disposed. Platform
++implementations require target-host testing, including callback quiescence.
++
++There is one process. A UI hang does not intentionally schedule audio, but a
++process crash can terminate audio. Plugin isolation and crash containment are not
++implemented and must not be inferred from thread separation.
++
++## Media and export
++
++Short WAVs: PCM16/24/32 and IEEE float32, mono/stereo RIFF, 8–384 kHz. Other
++containers, WAVE_FORMAT_EXTENSIBLE, compressed audio, RF64, and streaming imports
++are not implemented. Import validates chunk bounds, byte rates, alignment, finite
++samples, and frame limits. A load deduplicates identical path strings and enforces
++128 MiB decoded sample storage. Per-file limit: 2,880,000 source frames (60 seconds
++at 48 kHz; duration differs with sample rate). Path aliases are not content hashes.
++
++Sampler: 24 fixed voices, deterministic oldest stealing, root pitch, gated or
++one-shot behavior, linear interpolation, short gated release. Pitch changes alter
++playback speed/duration. There is no independent time-stretch or anti-aliased
++resampler. Waveform min/max extraction is a native utility, not a persistent cache
++or a waveform editor in this UI.
++
++Export builds an independent engine and writes small PCM16 stereo blocks. It does
++not allocate the whole render. RIFF output must remain below 4 GiB. The low-level
++native CLI/API truncates the chosen destination; the Rust application wrapper
++exports to a sibling temporary file and replaces the destination after success.
++
++## Presentation
++
++Selection, viewport, drag previews, snapping and hit-testing live in editor.rs,
++not in DSP or Slint objects. Persistent edits are committed at gesture completion.
++The first UI uses Slint primitives: viewport culling and a 3,000-visible-note cap
++avoid an object per note in the full document. The cap is displayed, not applied
++to playback. Building the scene/hit test still scans the track and creates text
++labels; spatial indexing, batching and WGPU are later profiling-driven work.
++
++No graphical performance or memory benchmark has been run. Keyboard navigation,
++custom-editor accessibility, docking, HiDPI, multi-monitor and touch behavior are
++not complete or validated.
++
++## Relevant files
++
++- include/open_daw/service.hpp, src/service.cpp: sequencing/transport/execution.
++- include/open_daw/api.h, src/api.cpp: ABI, preparation, ownership, errors.
++- src/device.cpp: native/silent device lifecycle.
++- src/media.cpp: sampler/import/export.
++- app/src/project.rs: document, validation, command inverses.
++- app/src/controller.rs: sole native control owner and application coordination.
++- app/src/storage.rs: versioned folder persistence and export commit.
++- app/src/editor.rs: interaction and render-neutral note scene.
++- app/src/bridge.rs: checked Rust ABI wrapper.
++- app/src/main.rs, app/ui/main.slint: presentation adapter.
+--- starter/docs/TEST_REPORT.md
++++ interactive/docs/TEST_REPORT.md
+@@ -1,27 +1,86 @@
+-# Execution report — 2026-10-20
++# Executed validation — 22 October 2026
+ 
+-## Verified in available Linux environment
++## Scope and provenance
+ 
+-- CMake Release configured and compiled successfully with GCC 14.2 / C++20.
+-- `ctest --output-on-failure`: **1 test executable / 8 independently printed checks, all passed**.
+-  - Graph mixing of two sources.
+-  - Directed cycle detection.
+-  - Invalid connection rejection.
+-  - Sample-accurate note onset and block-size invariance (64/128/256/512 frames).
+-  - A4/440 Hz frequency check.
+-  - Polyphony, voice stealing and ADSR stress.
+-  - Runtime atomic gain/pan smoothing.
+-  - Demo WAV generation and header validation.
+-- Built and ran a second Debug configuration using AddressSanitizer and UndefinedBehaviorSanitizer: CTest passed.
+-- Executed offline demo: `--offline /mnt/data/open_daw_preview.wav --seconds 5 --rate 48000 --block 256`.
+-- Independently parsed the generated WAV: PCM 16-bit stereo, 48,000 Hz, 240,000 frames = 5 seconds, 960,044 bytes. RMS in first samples was nonzero; no error in file parsing.
++All executed checks ran on Linux x86_64 in the authoring container. The input was
++Open_DAW_M1_M2_Starter.zip; provenance.json records its checksum. Native source was
++extended, not replaced with another engine. Evidence contains raw configure/build/
++test output and the observed environment. Build logs contain temporary absolute
++paths from this environment, not requirements for the recipient.
+ 
+-## Not verified / incomplete
++## Results actually observed
+ 
+-- WASAPI Windows compilation and real sound device playback. Windows-only backend source is present, but this environment has no Windows SDK/audio endpoint.
+-- Native cross-platform realtime drivers other than WASAPI.
+-- Automated proof that the entire realtime callback performs zero allocations; the implementation is designed for this but should be instrumented on Windows.
+-- Interactive note control, external MIDI devices, runtime graph swap, and multithread graph execution.
+-- CPU/latency under real Windows playback and long-duration stress.
++| Run | Observed result |
++|---|---|
++| GCC 14.2 Release | 4/4 CTest executables passed |
++| Clang 17 Release | 4/4 CTest executables passed |
++| GCC Debug ASan + UBSan, leak detection enabled | 4/4 passed; no sanitizer finding in these runs |
++| GCC Debug ThreadSanitizer | 14 focused service checks passed; no race report in this run |
++| Pure C ABI caller | Compiled as C and linked/executed against the native implementation |
++| Allocation probe | 10,001 render calls; intercepted C++ new=0 and delete=0 |
++| Python shared-library ABI integration | 8 WAV variants, 25 randomized callback partitions, error/state/export/device checks passed |
++| Native silent-clock CLI | Ran explicitly without hardware audio; normal teardown, zero reported clipping |
++| Eight-second streaming export | PCM16, stereo, 48 kHz, 384,000 frames; independently parsed |
+ 
+-**Status:** M1 baseline PASS on Linux; M2 graph/mixer PASS on Linux; M2 Windows native realtime VALIDATION PENDING.
++Four CTest executables are not four individual assertions: the original executable
++contains eight checks and the service executable contains fourteen. The remaining
++two are the C smoke client and allocation probe. Do not add the repeated compiler/
++sanitizer runs and present them as distinct features tested.
++
++## Original checks retained
++
++Original graph behavior, stereo/gain/mixing, note scheduling, oscillator/ADSR,
++voice limits, and PCM16 export tests remain in tests/tests.cpp. All eight pass in
++each executed CTest configuration.
++
++## Added service checks
++
++1. Constructor and setter gain/pan validation agree.
++2. Overlapping same-pitch notes have independent nonzero IDs.
++3. Variable processing blocks give invariant output.
++4. Transport play/pause/stop and explicit reset-on-seek semantics.
++5. Loop boundaries and block partition invariance.
++6. Bounded queue rejection and emergency note-off/panic.
++7. Live audition without moving stopped musical transport.
++8. Session limits and scheduled-event density rejection.
++9. Two-thread SPSC ordering under 100,000 queued values.
++10. Streaming export, waveform peaks and RIFF size guard.
++11. Malformed WAV boundary tests and 100 random malformed-header smoke cases.
++12. Sampler playback, pitch/release and engine integration.
++13. C ABI failed-load preservation, independent export, consumer exclusion, teardown.
++14. Concurrent controls, telemetry and silent-device lifecycle.
++
++The shared-library Python script additionally imports PCM16/24/32 and float32 in
++both mono and stereo, rejects a NaN sample without replacing the active session,
++compares 25 seeded randomized callback partitions byte-for-byte with a reference,
++checks a Unicode export filename and parses WAV metadata, and verifies that a
++second headless consumer is rejected while the silent device is open.
++
++## What the results do not prove
++
++- The allocation probe overrides C++ new/delete forms. It does not intercept every
++  malloc/free implementation, operating-system facility, plugin or audio driver.
++- Sanitizers cover exercised code and schedules. A clean run is not proof that all
++  possible memory errors or races are absent.
++- There was no physical audio-device access, underrun measurement, round-trip
++  latency measurement, sustained hardware stress session, or deadline percentile
++  benchmark. SilentClock is a test clock, not a low-latency device benchmark.
++- macOS/CoreAudio and Windows/WASAPI code was not compiled or run in this container.
++- Rust, Cargo, rustfmt and Slint were unavailable; no Rust test, Slint compilation,
++  launch, screenshot, rendering benchmark or application end-to-end test ran.
++- The authored Rust tests, CI workflow, save/recovery protocol, UI interactions,
++  cross-language Rust wrapper and target packaging still require execution.
++- The example JSON was checked as JSON, not validated with the unbuilt Rust CLI.
++- No plugins, recording, MIDI hardware, mobile platform or browser was tested.
++
++## Reproduction
++
++Use scripts/validate_native.sh or scripts/validate_native.ps1. Run the separate
++ASan/UBSan and TSan commands in BUILD.md. Run verify_shared_api.py against a Release
++shared library; loading an ASan library into ordinary Python requires additional
++runtime setup and is not the procedure used here. Run validate_app.sh on a connected
++host to begin the pending frontend validation gate.
++
++The eight-second WAV is delivered separately as OpenDAW_Demo.wav; its checksum and
++metadata are in evidence/demo-metadata.json. It demonstrates the native renderer,
++not the Slint application or a hardware capture.
+--- starter/include/open_daw/engine.hpp
++++ interactive/include/open_daw/engine.hpp
+@@ -16,6 +16,7 @@
+     uint8_t note = 60;
+     uint8_t velocity = 100;
+     bool on = true;
++    uint64_t id = 0; // 0 = legacy pitch matching; nonzero = independent note occurrence.
+ };
+ 
+ struct ProcessContext {
+@@ -42,10 +43,28 @@
+                          AudioBlock& output) noexcept = 0;
+ };
+ 
+-class SynthNode final : public AudioNode {
++struct BlockNoteEvent {
++    uint32_t offset = 0;
++    uint8_t note = 60;
++    uint8_t velocity = 100;
++    bool on = true;
++    uint64_t id = 0;
++};
++
++class InstrumentNode : public AudioNode {
++public:
++    // The owner keeps this span alive until process() returns; sorted by offset.
++    // Set every block. No allocation or ownership transfer.
++    void setBlockEvents(std::span<const BlockNoteEvent> events) noexcept { blockEvents_ = events; }
++protected:
++    std::span<const BlockNoteEvent> blockEvents_{};
++};
++
++class SynthNode final : public InstrumentNode {
+ public:
+     static constexpr size_t MaxVoices = 24;
+ 
++    // Legacy demo scheduling only. EngineService uses block events instead.
+     // Setup-only operations: do not call from audio thread.
+     void addEvent(NoteEvent event);
+     void clearEvents();
+@@ -60,6 +79,7 @@
+     enum class Phase : uint8_t { Off, Attack, Decay, Sustain, Release };
+     struct Voice {
+         uint8_t note = 0;
++        uint64_t id = 0;
+         float level = 0.0f;
+         float velocityGain = 0.0f;
+         double phase = 0.0;
+@@ -78,8 +98,8 @@
+     uint32_t releaseSamples_ = 4800;
+     float sustain_ = 0.7f;
+ 
+-    void noteOn(uint8_t note, uint8_t velocity) noexcept;
+-    void noteOff(uint8_t note) noexcept;
++    void noteOn(uint8_t note, uint8_t velocity, uint64_t id) noexcept;
++    void noteOff(uint8_t note, uint64_t id) noexcept;
+     float sampleVoice(Voice& voice) noexcept;
+ };
+ 
+--- starter/src/engine.cpp
++++ interactive/src/engine.cpp
+@@ -1,6 +1,7 @@
+ #include "open_daw/engine.hpp"
+ 
+ #include <algorithm>
++#include <cassert>
+ #include <cmath>
+ #include <functional>
+ #include <limits>
+@@ -22,6 +23,7 @@
+ }
+ 
+ void SynthNode::addEvent(NoteEvent event) {
++    if (event.note > 127 || event.velocity > 127) throw std::invalid_argument("Invalid note event");
+     events_.push_back(event);
+     std::stable_sort(events_.begin(), events_.end(), [](const auto& a, const auto& b) {
+         return a.frame < b.frame;
+@@ -67,12 +69,13 @@
+ 
+ void SynthNode::reset() noexcept {
+     voices_.fill(Voice{});
++    blockEvents_ = {};
+     nextEvent_ = 0;
+     voiceCounter_ = 0;
+ }
+ 
+-void SynthNode::noteOn(uint8_t note, uint8_t velocity) noexcept {
+-    if (velocity == 0) { noteOff(note); return; }
++void SynthNode::noteOn(uint8_t note, uint8_t velocity, uint64_t id) noexcept {
++    if (velocity == 0) { noteOff(note, id); return; }
+     auto* destination = static_cast<Voice*>(nullptr);
+     for (auto& voice : voices_) {
+         if (voice.state == Phase::Off) { destination = &voice; break; }
+@@ -90,6 +93,7 @@
+     const double frequency = 440.0 * std::pow(2.0, (static_cast<int>(note) - 69) / 12.0);
+     *destination = Voice{};
+     destination->note = note;
++    destination->id = id;
+     destination->level = velocity / 127.0f; // Envelope also applied during synthesis.
+     destination->velocityGain = destination->level;
+     destination->phaseIncrement = frequency / sampleRate_;
+@@ -102,10 +106,10 @@
+     destination->velocityGain = velocity / 127.0f;
+ }
+ 
+-void SynthNode::noteOff(uint8_t note) noexcept {
+-    // Stop all matching voices, including overlapping occurrences of the same note.
++void SynthNode::noteOff(uint8_t note, uint64_t id) noexcept {
++    // IDs isolate overlapping same-pitch notes. ID 0 retains legacy pitch semantics.
+     for (auto& voice : voices_) {
+-        if (voice.note == note && voice.state != Phase::Off && voice.state != Phase::Release) {
++        if ((id ? voice.id == id : voice.note == note) && voice.state != Phase::Off && voice.state != Phase::Release) {
+             voice.state = Phase::Release;
+             voice.envelopeSamples = 0;
+         }
+@@ -156,22 +160,32 @@
+ 
+ void SynthNode::process(const ProcessContext& ctx, std::span<const AudioBlock* const>,
+                         AudioBlock& output) noexcept {
++    size_t blockEvent = 0;
+     for (uint32_t i = 0; i < ctx.frames; ++i) {
++        while (blockEvent < blockEvents_.size() && blockEvents_[blockEvent].offset <= i) {
++            const auto& e = blockEvents_[blockEvent++];
++            if (e.on && e.velocity) noteOn(e.note, e.velocity, e.id);
++            else noteOff(e.note, e.id);
++        }
+         const uint64_t frame = ctx.startFrame + i;
+         while (nextEvent_ < events_.size() && events_[nextEvent_].frame <= frame) {
+             const auto& event = events_[nextEvent_++];
+-            if (event.on && event.velocity) noteOn(event.note, event.velocity);
+-            else noteOff(event.note);
++            if (event.on && event.velocity) noteOn(event.note, event.velocity, event.id);
++            else noteOff(event.note, event.id);
+         }
+         float sample = 0.0f;
+         for (auto& voice : voices_) sample += 0.20f * sampleVoice(voice);
+         output.left[i] = sample;
+         output.right[i] = sample;
+     }
++    blockEvents_ = {};
+ }
+ 
+ GainPanNode::GainPanNode(float gain, float pan)
+-    : targetGain_(gain), targetPan_(pan), currentGain_(gain), currentPan_(pan) {
++    : targetGain_(std::clamp(gain, 0.0f, 2.0f)),
++      targetPan_(std::clamp(pan, -1.0f, 1.0f)),
++      currentGain_(std::clamp(gain, 0.0f, 2.0f)),
++      currentPan_(std::clamp(pan, -1.0f, 1.0f)) {
+     if (!std::isfinite(gain) || !std::isfinite(pan)) {
+         throw std::invalid_argument("gain/pan not finite");
+     }
+@@ -235,7 +249,7 @@
+ 
+ void Graph::prepare(double sampleRate, uint32_t maxFrames) {
+     if (entries_.empty() || master_ >= entries_.size() || maxFrames == 0 ||
+-        sampleRate < 8000 || !std::isfinite(sampleRate)) {
++        sampleRate < 8000 || sampleRate > 384000 || !std::isfinite(sampleRate)) {
+         throw std::invalid_argument("Invalid graph configuration");
+     }
+     prepared_ = false;
+@@ -276,6 +290,7 @@
+ 
+ const AudioBlock& Graph::process(uint64_t startFrame, uint32_t frames) noexcept {
+     // Caller contract: graph prepared; frames <= maxFrames; realtime thread only.
++    assert(prepared_ && frames <= maxFrames_);
+     const ProcessContext ctx{startFrame, frames, sampleRate_};
+     for (auto index : renderOrder_) {
+         auto& entry = *entries_[index];

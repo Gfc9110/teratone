@@ -1,0 +1,120 @@
+use crate::project::{Instrument, Project};
+use std::{ffi::{c_char, CStr, CString}, marker::PhantomData, path::Path, ptr::NonNull, rc::Rc};
+
+#[repr(C)] struct RawEngine { _private: [u8; 0] }
+#[repr(C)] struct RawNote { id: u64, start_frame: u64, end_frame: u64, track: u32, pitch: u32, velocity: u32 }
+#[repr(C)] struct RawTrack { gain: f32, pan: f32, sample_path_utf8: *const c_char, root_note: u32, one_shot: u32 }
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Telemetry {
+    pub position: u64, pub rendered_frames: u64, pub blocks: u64, pub last_applied: u64,
+    pub rejected_commands: u64, pub clipped_samples: u64,
+    pub peak_left: f32, pub peak_right: f32,
+    pub playing: u32, pub looping: u32, pub device_open: u32, pub device_error: u32,
+}
+extern "C" {
+    fn od_abi_version() -> u32;
+    fn od_error_message() -> *const c_char;
+    fn od_create(rate: u32, block: u32) -> *mut RawEngine;
+    fn od_destroy(e: *mut RawEngine);
+    fn od_load(e: *mut RawEngine, tracks: *const RawTrack, count: usize, notes: *const RawNote, note_count: usize, length: u64) -> i32;
+    fn od_play(e: *mut RawEngine) -> i32;
+    fn od_pause(e: *mut RawEngine) -> i32;
+    fn od_stop(e: *mut RawEngine) -> i32;
+    fn od_panic(e: *mut RawEngine) -> i32;
+    fn od_seek(e: *mut RawEngine, frame: u64) -> i32;
+    fn od_loop(e: *mut RawEngine, enabled: u32, begin: u64, end: u64) -> i32;
+    fn od_live_note(e: *mut RawEngine, track: u32, id: u64, pitch: u32, velocity: u32, on: u32) -> i32;
+    fn od_gain_pan(e: *mut RawEngine, track: u32, gain: f32, pan: f32) -> i32;
+    fn od_read_telemetry(e: *const RawEngine, out: *mut Telemetry) -> i32;
+    fn od_render(e: *mut RawEngine, stereo: *mut f32, frames: u32) -> i32;
+    fn od_device_start(e: *mut RawEngine, silent_clock: u32) -> i32;
+    fn od_device_stop(e: *mut RawEngine) -> i32;
+    fn od_export(e: *mut RawEngine, path: *const c_char, frames: u64) -> i32;
+}
+fn last_error(code: i32) -> String {
+    // The API returns a valid thread-local, NUL-terminated buffer; copy before any next API call.
+    let text = unsafe { CStr::from_ptr(od_error_message()) }.to_string_lossy();
+    format!("Native engine ({code}): {text}")
+}
+fn check(code: i32) -> Result<(), String> { if code == 0 { Ok(()) } else { Err(last_error(code)) } }
+
+/// Exactly one control-thread owner. Not Send/Sync; no raw pointer exposed to UI code.
+/// C++ owns the audio consumer and joins it before destroying/replacing its graph.
+pub struct Engine {
+    raw: NonNull<RawEngine>, rate: u32, _single_owner: PhantomData<Rc<()>>,
+}
+impl Engine {
+    pub fn new(rate: u32, block: u32) -> Result<Self, String> {
+        // No Rust callbacks cross the audio boundary.
+        unsafe {
+            if od_abi_version() != 1 { return Err("Native ABI version mismatch".into()); }
+            let raw = NonNull::new(od_create(rate, block)).ok_or_else(|| last_error(4))?;
+            Ok(Self { raw, rate, _single_owner: PhantomData })
+        }
+    }
+    pub fn load(&mut self, project: &Project) -> Result<(), String> {
+        project.validate()?;
+        let paths: Vec<Option<CString>> = project.tracks.iter().map(|track| match &track.instrument {
+            Instrument::Sine => Ok(None),
+            Instrument::Sampler { sample_path, .. } => CString::new(sample_path.as_bytes()).map(Some).map_err(|e| e.to_string()),
+        }).collect::<Result<_, String>>()?;
+        let tracks: Vec<_> = project.tracks.iter().zip(paths.iter()).map(|(track, path)| {
+            let (root_note, one_shot) = match &track.instrument {
+                Instrument::Sine => (60, 0), Instrument::Sampler { root_note, one_shot, .. } => (*root_note as u32, u32::from(*one_shot)),
+            };
+            RawTrack { gain: track.gain, pan: track.pan, sample_path_utf8: path.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()), root_note, one_shot }
+        }).collect();
+        let rate = self.rate;
+        let notes: Vec<_> = project.tracks.iter().enumerate().flat_map(|(index, track)| track.notes.iter().map(move |note| RawNote {
+            id: note.id, start_frame: project.frame_at(note.start, rate),
+            end_frame: project.frame_at(note.start + note.duration, rate),
+            track: index as u32, pitch: note.pitch as u32, velocity: note.velocity as u32,
+        })).collect();
+        // All arrays/C strings remain alive for this synchronous, copying call.
+        check(unsafe { od_load(self.raw.as_ptr(), tracks.as_ptr(), tracks.len(), notes.as_ptr(), notes.len(), project.frame_at(project.length_ticks, self.rate)) })
+    }
+    pub fn play(&mut self) -> Result<(), String> { check(unsafe { od_play(self.raw.as_ptr()) }) }
+    pub fn pause(&mut self) -> Result<(), String> { check(unsafe { od_pause(self.raw.as_ptr()) }) }
+    pub fn stop(&mut self) -> Result<(), String> { check(unsafe { od_stop(self.raw.as_ptr()) }) }
+    pub fn panic(&mut self) -> Result<(), String> { check(unsafe { od_panic(self.raw.as_ptr()) }) }
+    pub fn seek(&mut self, frame: u64) -> Result<(), String> { check(unsafe { od_seek(self.raw.as_ptr(), frame) }) }
+    pub fn set_loop(&mut self, enabled: bool, begin: u64, end: u64) -> Result<(), String> {
+        check(unsafe { od_loop(self.raw.as_ptr(), u32::from(enabled), begin, end) })
+    }
+    pub fn live_note(&mut self, track: u32, id: u64, pitch: u8, on: bool) -> Result<(), String> {
+        if id == 0 || id >= (1u64 << 63) { return Err("Invalid live ID".into()); }
+        check(unsafe { od_live_note(self.raw.as_ptr(), track, id | (1u64 << 63), pitch as u32, 100, u32::from(on)) })
+    }
+    pub fn mix(&mut self, index: u32, gain: f32, pan: f32) -> Result<(), String> {
+        check(unsafe { od_gain_pan(self.raw.as_ptr(), index, gain, pan) })
+    }
+    pub fn telemetry(&self) -> Result<Telemetry, String> {
+        let mut result = Telemetry::default(); check(unsafe { od_read_telemetry(self.raw.as_ptr(), &mut result) })?; Ok(result)
+    }
+    pub fn start_device(&mut self, silent: bool) -> Result<(), String> {
+        check(unsafe { od_device_start(self.raw.as_ptr(), u32::from(silent)) })
+    }
+    pub fn close_device(&mut self) -> Result<(), String> { check(unsafe { od_device_stop(self.raw.as_ptr()) }) }
+    pub fn render(&mut self, frames: u32) -> Result<Vec<f32>, String> {
+        if frames > 1_048_576 { return Err("Headless block too large".into()); }
+        let mut result = vec![0.0; frames as usize * 2];
+        check(unsafe { od_render(self.raw.as_ptr(), result.as_mut_ptr(), frames) })?; Ok(result)
+    }
+    pub fn export(&mut self, path: &Path, frames: u64) -> Result<(), String> {
+        let path = CString::new(path.to_str().ok_or("Export path must be UTF-8")?).map_err(|e| e.to_string())?;
+        check(unsafe { od_export(self.raw.as_ptr(), path.as_ptr(), frames) })
+    }
+}
+impl Drop for Engine { fn drop(&mut self) { unsafe { od_destroy(self.raw.as_ptr()); } } }
+
+#[cfg(test)] mod tests {
+    use super::*;
+    #[test] fn native_bridge_roundtrip() {
+        let mut e = Engine::new(48000, 256).unwrap(); let p = Project::demo(); e.load(&p).unwrap(); e.play().unwrap();
+        assert!(e.render(512).unwrap().iter().any(|x| x.abs() > 0.001));
+        assert_eq!(e.telemetry().unwrap().position, 512); e.stop().unwrap(); e.render(256).unwrap();
+        assert_eq!(e.telemetry().unwrap().position, 0);
+    }
+    #[test] fn abi_layout_on_64_bit_targets() { assert_eq!(std::mem::size_of::<RawNote>(), 40); assert_eq!(std::mem::size_of::<RawTrack>(), 24); assert_eq!(std::mem::size_of::<Telemetry>(), 72); }
+}

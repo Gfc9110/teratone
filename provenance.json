@@ -1,0 +1,35 @@
+{
+  "artifact": "OpenDAW interactive foundation 0.2.0 source candidate",
+  "date": "2026-10-22",
+  "input_archive": "Open_DAW_M1_M2_Starter.zip",
+  "input_sha256": "4b6097308efbf623d790f41398ede6c5bc6be237f0c99e321f56141cfac03a2c",
+  "modified_original_paths_at_same_location": [
+    ".gitignore",
+    "CMakeLists.txt",
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/TEST_REPORT.md",
+    "include/open_daw/engine.hpp",
+    "src/engine.cpp"
+  ],
+  "unchanged_original_paths_at_same_location": [
+    "LICENSE",
+    "src/main.cpp",
+    "src/wasapi.cpp",
+    "src/wav.cpp",
+    "tests/tests.cpp"
+  ],
+  "historical_documents": "Original milestone documents are retained under docs/legacy; README replaced with current status.",
+  "native_validation": "GCC and Clang Release, GCC ASan/UBSan: 4/4 CTest targets each; focused TSan: 14 checks; Python shared ABI checks passed.",
+  "frontend_validation": "NOT COMPILED OR EXECUTED: Rust/cargo absent. No resolved Cargo.lock supplied.",
+  "platform_validation": "No physical audio output, macOS/Windows compilation, mobile or browser testing.",
+  "source_control": "No repository commit/push or hosted CI execution performed.",
+  "package_excludes": [
+    "compiled binaries",
+    "native build directories",
+    "Cargo target cache",
+    "original ZIP",
+    "secrets",
+    "font files"
+  ]
+}

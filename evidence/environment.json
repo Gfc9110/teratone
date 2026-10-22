@@ -1,0 +1,10 @@
+{
+  "system": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+  "cargo_path": null,
+  "rustc_path": null,
+  "cmake": "cmake version 3.31.6",
+  "g++": "g++ (Debian 14.2.0-19) 14.2.0",
+  "clang++": "clang version 17.0.0 (https://github.com/swiftlang/llvm-project.git 10999b6d034fe318f3d56c83bddb6572593a8bb0)",
+  "validation_note": "Native Linux x86_64 only. No macOS/Windows SDK or physical audio device validation. Rust/Slint not compiled or run."
+}

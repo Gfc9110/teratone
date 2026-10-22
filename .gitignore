@@ -1,0 +1,12 @@
+/build/
+/build_*/
+/out/
+/app/target/
+*.obj
+*.o
+*.pdb
+*.ilk
+.DS_Store
+/First-session.wav
+/First-session.opendaw/
+# Cargo.lock should be committed after the first validated dependency resolution.

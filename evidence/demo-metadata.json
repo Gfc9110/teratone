@@ -1,0 +1,10 @@
+{
+  "path": "OpenDAW_Demo.wav",
+  "channels": 2,
+  "sample_rate": 48000,
+  "bits": 16,
+  "frames": 384000,
+  "duration_seconds": 8.0,
+  "peak_pcm16": 4097,
+  "sha256": "9c75c40dcea2588c43f6070540db128bf76c80485220bfd5c47666c9aa934d1a"
+}
