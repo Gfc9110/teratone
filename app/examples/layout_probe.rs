@@ -91,7 +91,7 @@ fn clip_piano_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&Ref
     let x=ui.get_rows_x()+ui.get_header_size()+16.0*ui.get_arrangement_zoom()+ui.get_arrangement_x()+30.0;
     let y=ui.get_rows_y()+25.0;
     pointer(window,x,y,0);pointer(window,x+ui.get_arrangement_zoom(),y+ui.get_row_size(),1);
-    snapshot(window,"../evidence/m33-clip-drag-preview.ppm",1280,820);
+    snapshot(window,"../evidence/m34-clip-drag-preview.ppm",1280,820);
     pointer(window,x+ui.get_arrangement_zoom(),y+ui.get_row_size(),2);pump!();
     assert_eq!(last.as_ref().unwrap().track_id,2);assert_eq!(last.as_ref().unwrap().clip_id,new);assert_eq!(last.as_ref().unwrap().clip_start,17*960);
     ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().track_id,1);assert_eq!(last.as_ref().unwrap().clip_start,16*960);
@@ -128,16 +128,61 @@ fn clip_piano_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&Ref
         command!(Request::ZoomY(rh/last.as_ref().unwrap().viewport.row_height));command!(Request::ScrollPiano(0.0,(127.0-64.0)*rh+0.375));
         let v=last.as_ref().unwrap();let key=v.keys.iter().find(|k|k.pitch==60).unwrap();let note=&v.notes[0];
         assert!((key.y+key.height/2.0-note.y-note.height/2.0).abs()<1.0,"Key and note centers align at every zoom/scale");
-        snapshot(window,&format!("../evidence/m33-piano-{width}-{}x-row{}.ppm",scale as u32,rh as u32),pw,ph);
+        snapshot(window,&format!("../evidence/m34-piano-{width}-{}x-row{}.ppm",scale as u32,rh as u32),pw,ph);
         let old_y=ui.get_keyboard_y();let old_scroll=ui.get_piano_scroll_y();wheel(window,ui.get_keyboard_x()+35.0,old_y+50.0,0.0,-21.5);pump!();assert!(ui.get_piano_scroll_y()>old_scroll);
     }
     // Save and reopen through the real persistence layer: notation did not change MIDI 60.
-    let path=std::env::temp_dir().join(format!("opendaw-m33-ui-{}",std::process::id()));command!(Request::Save(path.clone()));
+    let path=std::env::temp_dir().join(format!("opendaw-m34-ui-{}",std::process::id()));command!(Request::Save(path.clone()));
     let saved=opendaw_app::storage::load(&path).unwrap();let c=saved.clip(1,clip).unwrap();assert_eq!(c.notes.len(),1);assert_eq!(c.notes[0].pitch,60);assert_eq!(c.notes[0].velocity,37);assert_eq!(c.start_tick,3*960);assert_eq!(c.name,"Verse");std::fs::remove_dir_all(path).unwrap();
     window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:1.0});window.set_size(slint::PhysicalSize::new(1280,820));command!(Request::FitNotes);
     println!("PASS M3.3: pointer clip CRUD/transfer/resize, one-step undo/redo, extension, empty-lane creation, stable IDs and portable save");
     println!("PASS M3.3: fixed keyboard, C3/C4/C5 notation, MIDI 60 insertion, velocity, fractional scroll, three vertical zooms, 100/200% alignment");
     println!("PASS M3.3: keyboard audition never records; hold/release, window exit, focus loss and track change release the original token");
+}
+
+fn synth_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<Mailbox>,connection:&controller::Connection,presenter:&mut ui_support::Presenter,last:&mut Option<ViewState>){
+    use opendaw_app::synth::{Waveform,SynthField};
+    macro_rules! pump {()=>{settle(ui,mailbox,connection,presenter,last)}}
+    macro_rules! command {($r:expr)=>{{mailbox.borrow_mut().enqueue($r).unwrap();pump!();}}}
+    command!(Request::SelectTrack(1));let second=last.as_ref().unwrap().tracks.iter().find(|t|t.id==2).unwrap().clone();
+    for (width,height,scale) in [(1280,820,1.0),(1000,760,1.0),(1000,760,2.0)]{
+        window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:scale});let pw=(width as f32*scale) as u32;let ph=(height as f32*scale) as u32;window.set_size(slint::PhysicalSize::new(pw,ph));pump!();
+        click(window,ui.get_synth_sound_tab_x(),ui.get_synth_sound_tab_y());pump!();ui.set_factory_index(2);
+        click(window,ui.get_synth_preset_apply_x(),ui.get_synth_preset_apply_y());pump!();assert_eq!(last.as_ref().unwrap().synth.unwrap().waveform,Waveform::Square);
+        click(window,ui.get_synth_shape_x(),ui.get_synth_shape_y());pump!();assert!(last.as_ref().unwrap().synth.unwrap().shape<0.9);assert!(ui.get_preset_label().contains("modified"));
+        ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().synth.unwrap().shape,1.0);
+        // Pointer drag is one history step; changing PWM never changes the other track.
+        let x=ui.get_synth_duty_x();let y=ui.get_synth_duty_y();pointer(window,x,y,0);pointer(window,x+45.0,y,1);pointer(window,x+45.0,y,2);pump!();
+        assert!(last.as_ref().unwrap().synth.unwrap().pulse_width>0.6);assert_eq!(last.as_ref().unwrap().tracks.iter().find(|t|t.id==2).unwrap(),&second);
+        ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().synth.unwrap().pulse_width,0.25);
+        // The actual combo keyboard interaction reaches the controller via the same adapter.
+        click(window,ui.get_synth_waveform_x(),ui.get_synth_waveform_y());
+        for key in [slint::platform::Key::DownArrow,slint::platform::Key::Return]{
+            let text:slint::SharedString=key.into();window.dispatch_event(WindowEvent::KeyPressed{text:text.clone()});window.dispatch_event(WindowEvent::KeyReleased{text});
+        }pump!();assert_eq!(last.as_ref().unwrap().synth.unwrap().waveform,Waveform::Triangle);
+        let attack=last.as_ref().unwrap().synth.unwrap().attack;click(window,ui.get_synth_attack_x()+10.0,ui.get_synth_attack_y());pump!();assert!(last.as_ref().unwrap().synth.unwrap().attack>attack);
+        snapshot(window,&format!("../evidence/m34-synth-{width}-{}x.ppm",scale as u32),pw,ph);
+        let path=std::env::temp_dir().join(format!("opendaw-m34-ui-preset-{}-{}.json",std::process::id(),scale));
+        ui.set_preset_path(path.to_str().unwrap().into());ui.set_preset_name("UI Triangle".into());
+        wheel(window,ui.get_synth_save_preset_x(),height as f32-130.0,0.0,-500.0);pump!();
+        let y=ui.get_synth_save_preset_y();assert!(y>130.0 && y<height as f32-55.0,"Preset controls reachable by scroll: {y}");
+        click(window,ui.get_synth_save_preset_x(),y);pump!();assert!(path.exists());
+        let saved=opendaw_app::storage::load_synth_preset(&path).unwrap();let instance=last.as_ref().unwrap().instance_id;
+        command!(Request::SynthParameter{track:1,instance,field:SynthField::Attack,value:0.7});
+        click(window,ui.get_synth_load_preset_x(),ui.get_synth_load_preset_y());pump!();assert_eq!(last.as_ref().unwrap().synth,Some(saved.parameters));
+        snapshot(window,&format!("../evidence/m34-synth-presets-{width}-{}x.ppm",scale as u32),pw,ph);std::fs::remove_file(path).unwrap();
+        ui.set_sound_tab(false);ui.set_inspector_scroll(0.0);pump!();
+    }
+    let instance=last.as_ref().unwrap().instance_id;command!(Request::SynthParameter{track:1,instance,field:SynthField::Waveform,value:0.0});
+    ui.set_sound_tab(true);ui.set_inspector_scroll(0.0);pump!();let revision=last.as_ref().unwrap().revision;
+    click(window,ui.get_synth_shape_x(),ui.get_synth_shape_y());click(window,ui.get_synth_duty_x(),ui.get_synth_duty_y());pump!();
+    assert_eq!(last.as_ref().unwrap().revision,revision,"Inactive sine Shape/PWM controls do not edit the document");ui.invoke_undo();pump!();
+    ui.set_sound_tab(false);ui.set_inspector_scroll(0.0);pump!();
+    command!(Request::DuplicateTrack(1));let copy=last.as_ref().unwrap().track_id;let instance=last.as_ref().unwrap().instance_id;
+    command!(Request::FactoryPreset{track:copy,instance,index:1});command!(Request::SelectTrack(1));assert_eq!(last.as_ref().unwrap().synth.unwrap().waveform,Waveform::Triangle);
+    command!(Request::RemoveTrack(copy));command!(Request::SelectTrack(1));
+    ui.set_sound_tab(false);ui.set_inspector_scroll(0.0);window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:1.0});window.set_size(slint::PhysicalSize::new(1280,820));pump!();
+    println!("PASS M3.4: pointer preset/shape/PWM/ADSR, waveform combo, modified indicator, one-step undo, independent duplicate, preset save/load at 1280/1000 logical pixels and 100/200% scaling");
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -170,7 +215,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.set_size(slint::PhysicalSize::new(physical_width,physical_height));
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(ui.get_canvas_height() >= 180.0, "Grid must show all demo notes: {}",ui.get_canvas_height());
-        let pixels=snapshot(&window,&format!("../evidence/m33-arrangement-{width}-{}x.ppm",scale as u32),physical_width,physical_height);
+        let pixels=snapshot(&window,&format!("../evidence/m34-arrangement-{width}-{}x.ppm",scale as u32),physical_width,physical_height);
         check_alignment(&pixels,&ui,scale);
         click(&window,ui.get_play_x(),ui.get_play_y()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         ui.invoke_stop(); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
@@ -207,6 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor:1.0 }); window.set_size(slint::PhysicalSize::new(1280,820));
     clip_piano_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
+    synth_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
     for _ in 0..10 { mailbox.borrow_mut().enqueue(Request::DuplicateTrack(1)).unwrap(); }
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     let x=ui.get_rows_x(); let y=ui.get_rows_y();
@@ -216,7 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last); assert_eq!(ui.get_arrangement_y(),scroll, "Model update must preserve scroll");
     wheel(&window,x+ui.get_header_size()+80.0,y+45.0,-120.0,0.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     assert!(ui.get_arrangement_x() < 0.0, "Timeline must scroll independently of fixed headers");
-    let pixels=snapshot(&window,"../evidence/m33-scrolled-12-tracks.ppm",1280,820); check_alignment(&pixels,&ui,1.0);
+    let pixels=snapshot(&window,"../evidence/m34-scrolled-12-tracks.ppm",1280,820); check_alignment(&pixels,&ui,1.0);
     ui.set_arrangement_y(0.0); ui.set_arrangement_x(0.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     let first=last.as_ref().unwrap().tracks[0].id;
     pointer(&window,x+14.0,y+20.0,0); pointer(&window,x+14.0,y+ui.get_rows_height()-5.0,1);
@@ -232,11 +278,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mailbox.borrow_mut().enqueue(Request::SelectTrack(2)).unwrap();
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     ui.invoke_reveal_selected(); assert!(ui.get_arrangement_y() < -500.0);
-    snapshot(&window,"../evidence/m33-selected-track-revealed.ppm",1280,820);
+    snapshot(&window,"../evidence/m34-selected-track-revealed.ppm",1280,820);
     println!("PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected");
     click(&window,22.0,20.0); click(&window,80.0,60.0);
     assert!(ui.get_about_visible(), "Help opens About OpenDAW");
-    snapshot(&window,"../evidence/m33-about.ppm",1280,820);
+    snapshot(&window,"../evidence/m34-about.ppm",1280,820);
     let count=mailbox.borrow().pending_count(); click(&window,ui.get_play_x(),ui.get_play_y()); assert_eq!(mailbox.borrow().pending_count(),count,"About blocks transport");
     connection.flags.fetch_or(QUIT,Ordering::Release); connection.worker.join().unwrap();
     Ok(())

@@ -1,0 +1,14 @@
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+[ 12%] Built target open_daw_core
+[ 20%] Built target open_daw_tests
+[ 28%] Built target daw_demo
+[ 44%] Built target open_daw_engine
+[ 72%] Built target allocation_probe
+[ 72%] Built target open_daw_api_static
+[ 76%] Built target daw_session
+[ 76%] Built target open_daw_api
+[ 84%] Built target api_smoke
+[100%] Built target synth_tests
+[100%] Built target service_tests

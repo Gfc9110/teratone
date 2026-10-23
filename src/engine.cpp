@@ -4,12 +4,108 @@
 #include <cassert>
 #include <cmath>
 #include <functional>
+#include <complex>
+#include <mutex>
 #include <limits>
 
 namespace daw {
 namespace {
 constexpr double Tau = 6.283185307179586476925286766559;
 constexpr float PiOver4 = 0.7853981633974483096f;
+}
+
+bool SynthConfig::valid() const noexcept {
+    return static_cast<uint32_t>(waveform) <= 3 && std::isfinite(shape) && shape >= 0 && shape <= 1 &&
+        std::isfinite(pulseWidth) && pulseWidth >= 0.05f && pulseWidth <= 0.95f &&
+        std::isfinite(attack) && attack >= 0 && attack <= 10 && std::isfinite(decay) && decay >= 0 && decay <= 10 &&
+        std::isfinite(sustain) && sustain >= 0 && sustain <= 1 && std::isfinite(release) && release >= 0 && release <= 20;
+}
+namespace {
+// Radix-2 inverse FFT, used exclusively during prepare. No external DSP code or assets.
+void inverseFFT(std::vector<std::complex<double>>& a) {
+    const size_t n = a.size();
+    for (size_t i = 1, j = 0; i < n; ++i) {
+        size_t bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit; if (i < j) std::swap(a[i], a[j]);
+    }
+    for (size_t length = 2; length <= n; length <<= 1) {
+        const std::complex<double> step = std::polar(1.0, Tau / length);
+        for (size_t i = 0; i < n; i += length) {
+            std::complex<double> w = 1;
+            for (size_t j = 0; j < length / 2; ++j) {
+                const auto u = a[i + j], v = a[i + j + length / 2] * w;
+                a[i + j] = u + v; a[i + j + length / 2] = u - v; w *= step;
+            }
+        }
+    }
+}
+}
+std::shared_ptr<const OscillatorBank> OscillatorBank::shared(double rate) {
+    // Bounded weak cache shares only immutable tables between live/export/prepared graphs.
+    // The mutex/FFT and all shared_ptr ownership changes stay outside rendering.
+    struct Entry { double rate = 0; std::weak_ptr<const OscillatorBank> bank; };
+    static std::array<Entry, 4> cache;
+    static size_t next = 0;
+    static std::mutex mutex;
+    const std::lock_guard lock(mutex);
+    for (auto& entry : cache) if (entry.rate == rate) if (auto bank = entry.bank.lock()) return bank;
+    auto bank = std::make_shared<OscillatorBank>(rate);
+    cache[next] = {rate, bank}; next = (next + 1) % cache.size(); return bank;
+}
+OscillatorBank::OscillatorBank(double rate) : notes_(128), sampleRate_(rate) {
+    if (!std::isfinite(rate) || rate < 8000 || rate > 384000) throw std::invalid_argument("Invalid oscillator sample rate");
+    std::vector<std::complex<double>> bins(TableSize);
+    const double pi = Tau / 2;
+    for (size_t note = 0; note < 128; ++note) {
+        const double f = 440 * std::pow(2.0, (static_cast<int>(note) - 69) / 12.0);
+        const size_t harmonics = std::min<size_t>(2047, static_cast<size_t>(std::max(0.0, std::ceil(rate / (2 * f)) - 1)));
+        for (int triangle = 0; triangle < 2; ++triangle) {
+            std::fill(bins.begin(), bins.end(), std::complex<double>{});
+            for (size_t h = 1; h <= harmonics; ++h) {
+                double imaginary = 1.0 / (pi * h); // rising saw: -2/pi * sin(h*phase)/h
+                if (triangle) imaginary = h % 2 ? -4.0 / (pi * pi * h * h) * (h % 4 == 1 ? 1 : -1) : 0;
+                bins[h] = {0, imaginary}; bins[TableSize - h] = std::conj(bins[h]);
+            }
+            inverseFFT(bins); // coefficients already normalized; omit 1/N
+            auto& table = triangle ? notes_[note].triangle : notes_[note].saw;
+            for (size_t i = 0; i < TableSize; ++i) table[i] = static_cast<float>(bins[i].real());
+            table[TableSize] = table[0];
+        }
+    }
+}
+float OscillatorBank::read(const std::array<float, TableSize + 1>& table, double phase) noexcept {
+    if (phase < 0) phase += 1;
+    if (phase >= 1) phase -= 1;
+    const double position = phase * TableSize;
+    const auto i = static_cast<size_t>(position);
+    return table[i] + (table[i + 1] - table[i]) * static_cast<float>(position - i);
+}
+float OscillatorBank::sample(Waveform waveform, uint8_t note, double phase, float duty) const noexcept {
+    const auto& t = notes_[note];
+    switch (waveform) {
+        case Waveform::Sine: return static_cast<float>(std::sin(Tau * phase));
+        case Waveform::Saw: return read(t.saw, phase + 0.5); // fundamental aligned with sine morph
+        case Waveform::Square: return (read(t.saw, phase - duty) - read(t.saw, phase)) / (2 * std::max(duty, 1 - duty));
+        case Waveform::Triangle: return read(t.triangle, phase);
+    }
+    return 0;
+}
+void SynthNode::configure(const SynthConfig& config) {
+    if (!config.valid()) throw std::invalid_argument("Invalid synth configuration");
+    config_ = config; setADSR(config.attack, config.decay, config.sustain, config.release);
+}
+void SynthNode::applyConfig(const SynthConfig& config) noexcept {
+    // Already validated by control-side contracts. ADSR changes affect future note-ons only.
+    const bool changed = config.waveform != config_.waveform || config.shape != config_.shape || config.pulseWidth != config_.pulseWidth;
+    config_ = config;
+    attackSamples_ = static_cast<uint32_t>(std::round(config.attack * sampleRate_));
+    decaySamples_ = static_cast<uint32_t>(std::round(config.decay * sampleRate_));
+    releaseSamples_ = static_cast<uint32_t>(std::round(config.release * sampleRate_)); sustain_ = config.sustain;
+    if (!changed) return;
+    remaining_ = rampSamples_;
+    for (size_t w = 0; w < 4; ++w) weightSteps_[w] = ((w == static_cast<size_t>(config.waveform) ? 1.0f : 0.0f) - weights_[w]) / remaining_;
+    shapeStep_ = (config.shape - shape_) / remaining_; pulseStep_ = (config.pulseWidth - pulseWidth_) / remaining_;
 }
 
 void AudioBlock::allocate(size_t maxFrames) {
@@ -48,6 +144,7 @@ void SynthNode::setADSR(float attack, float decay, float sustain, float release)
             static_cast<double>(std::numeric_limits<uint32_t>::max() - 1),
             std::round(static_cast<double>(seconds) * sampleRate_)));
     };
+    config_.attack = attack; config_.decay = decay; config_.sustain = sustain; config_.release = release;
     attackSamples_ = toSamples(attack);
     decaySamples_ = toSamples(decay);
     releaseSamples_ = toSamples(release);
@@ -58,16 +155,18 @@ void SynthNode::prepare(double sampleRate, uint32_t) {
     if (sampleRate < 8000 || sampleRate > 384000 || !std::isfinite(sampleRate)) {
         throw std::invalid_argument("Invalid sample rate");
     }
-    // Scale the sample-count envelope defaults when a new sampling rate is used.
-    const float attack = static_cast<float>(attackSamples_ / sampleRate_);
-    const float decay = static_cast<float>(decaySamples_ / sampleRate_);
-    const float release = static_cast<float>(releaseSamples_ / sampleRate_);
+    if (!bank_ || bank_->sampleRate() != sampleRate) bank_ = OscillatorBank::shared(sampleRate);
+    rampSamples_ = std::max(1u, static_cast<uint32_t>(std::round(sampleRate * 0.010)));
+    // Retain seconds, not counts quantized at a previous sample rate. Prepare and
+    // runtime targets must agree even for sub-sample/short envelopes at 44.1/96kHz.
     sampleRate_ = sampleRate;
-    setADSR(attack, decay, sustain_, release);
+    setADSR(config_.attack, config_.decay, config_.sustain, config_.release);
     reset();
 }
 
 void SynthNode::reset() noexcept {
+    weights_.fill(0); weights_[static_cast<size_t>(config_.waveform)] = 1;
+    shape_ = config_.shape; pulseWidth_ = config_.pulseWidth; remaining_ = 0;
     voices_.fill(Voice{});
     blockEvents_ = {};
     nextEvent_ = 0;
@@ -91,6 +190,8 @@ void SynthNode::noteOn(uint8_t note, uint8_t velocity, uint64_t id) noexcept {
         }
     }
     const double frequency = 440.0 * std::pow(2.0, (static_cast<int>(note) - 69) / 12.0);
+    if (frequency >= sampleRate_ * 0.5) return; // explicit silence above Nyquist
+
     *destination = Voice{};
     destination->note = note;
     destination->id = id;
@@ -99,6 +200,7 @@ void SynthNode::noteOn(uint8_t note, uint8_t velocity, uint64_t id) noexcept {
     destination->phaseIncrement = frequency / sampleRate_;
     destination->age = ++voiceCounter_;
     destination->level = 0.0f;
+    destination->attack = attackSamples_; destination->decay = decaySamples_; destination->release = releaseSamples_; destination->sustain = sustain_;
     destination->state = attackSamples_ > 0 ? Phase::Attack : (decaySamples_ > 0 ? Phase::Decay : Phase::Sustain);
     if (attackSamples_ == 0) destination->level = 1.0f;
     if (attackSamples_ == 0 && decaySamples_ == 0) destination->level = sustain_;
@@ -121,38 +223,45 @@ float SynthNode::sampleVoice(Voice& voice) noexcept {
     const auto velocity = voice.velocityGain;
     switch (voice.state) {
         case Phase::Attack:
-            if (attackSamples_ == 0 || ++voice.envelopeSamples >= attackSamples_) {
+            if (voice.attack == 0 || ++voice.envelopeSamples >= voice.attack) {
                 voice.level = 1.0f;
                 voice.envelopeSamples = 0;
-                voice.state = decaySamples_ ? Phase::Decay : Phase::Sustain;
+                voice.state = voice.decay ? Phase::Decay : Phase::Sustain;
             } else {
-                voice.level = static_cast<float>(voice.envelopeSamples) / attackSamples_;
+                voice.level = static_cast<float>(voice.envelopeSamples) / voice.attack;
             }
             break;
         case Phase::Decay:
-            if (decaySamples_ == 0 || ++voice.envelopeSamples >= decaySamples_) {
-                voice.level = sustain_;
+            if (voice.decay == 0 || ++voice.envelopeSamples >= voice.decay) {
+                voice.level = voice.sustain;
                 voice.envelopeSamples = 0;
                 voice.state = Phase::Sustain;
             } else {
-                voice.level = 1.0f - (1.0f - sustain_) *
-                    (static_cast<float>(voice.envelopeSamples) / decaySamples_);
+                voice.level = 1.0f - (1.0f - voice.sustain) *
+                    (static_cast<float>(voice.envelopeSamples) / voice.decay);
             }
             break;
-        case Phase::Sustain: voice.level = sustain_; break;
+        case Phase::Sustain: voice.level = voice.sustain; break;
         case Phase::Release:
-            if (releaseSamples_ == 0 || ++voice.envelopeSamples >= releaseSamples_) {
+            if (voice.release == 0 || ++voice.envelopeSamples >= voice.release) {
                 voice.level = 0.0f;
                 voice.state = Phase::Off;
             } else {
                 // Exponential-like attenuation for smooth releases starting at any stage.
-                const float remain = 1.0f - 1.0f / (releaseSamples_ - voice.envelopeSamples + 1.0f);
+                const float remain = 1.0f - 1.0f / (voice.release - voice.envelopeSamples + 1.0f);
                 voice.level *= remain;
             }
             break;
         case Phase::Off: break;
     }
-    const float value = static_cast<float>(std::sin(Tau * voice.phase)) * voice.level * velocity;
+    const float sine = static_cast<float>(std::sin(Tau * voice.phase));
+    float oscillator = sine;
+    if (weights_[0] != 1) {
+        oscillator = weights_[0] * sine;
+        for (size_t w = 1; w < 4; ++w) if (weights_[w] != 0)
+            oscillator += weights_[w] * (sine * (1 - shape_) + shape_ * bank_->sample(static_cast<Waveform>(w), voice.note, voice.phase, pulseWidth_));
+    }
+    const float value = oscillator * voice.level * velocity;
     voice.phase += voice.phaseIncrement;
     if (voice.phase >= 1.0) voice.phase -= std::floor(voice.phase);
     return value;
@@ -162,6 +271,11 @@ void SynthNode::process(const ProcessContext& ctx, std::span<const AudioBlock* c
                         AudioBlock& output) noexcept {
     size_t blockEvent = 0;
     for (uint32_t i = 0; i < ctx.frames; ++i) {
+        if (remaining_) {
+            for (size_t w = 0; w < 4; ++w) weights_[w] += weightSteps_[w];
+            shape_ += shapeStep_; pulseWidth_ += pulseStep_;
+            if (--remaining_ == 0) { weights_.fill(0); weights_[static_cast<size_t>(config_.waveform)] = 1; shape_ = config_.shape; pulseWidth_ = config_.pulseWidth; }
+        }
         while (blockEvent < blockEvents_.size() && blockEvents_[blockEvent].offset <= i) {
             const auto& e = blockEvents_[blockEvent++];
             if (e.on && e.velocity) noteOn(e.note, e.velocity, e.id);

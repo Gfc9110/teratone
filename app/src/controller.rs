@@ -1,4 +1,5 @@
 use crate::{arrangement::{self, ArrangementViewport, TrackRow}, bridge::{Engine, Telemetry}, editor::{self, Gesture, KeyRow, NoteRect, Viewport}, project::{Edit, History, Impact, Instrument, Project, PPQ, MAX_TRACKS}, storage};
+use crate::synth::{SynthParameters,SynthPreset,SynthField};
 use std::{collections::{HashMap, VecDeque}, path::PathBuf, sync::{Arc, atomic::{AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender, TrySendError}}, thread::{self, JoinHandle}, time::{Duration, Instant}};
 pub const PANIC: u32 = 1; pub const STOP: u32 = 2; pub const QUIT: u32 = 4; pub const RELEASE: u32 = 8;
 #[derive(Debug)]
@@ -14,6 +15,9 @@ pub enum Request {
     AddClip { track: u64, beat: f64 }, DuplicateClip { track: u64, clip: u64 }, RemoveClip { track: u64, clip: u64 },
     MoveClip { track: u64, clip: u64, destination: u64, beat: f64 }, ResizeClip { track: u64, clip: u64, beats: f64 },
     RenameClip { track: u64, clip: u64, name: String }, Velocity { track: u64, clip: u64, note: u64, value: i32 },
+    SynthParameter {track:u64,instance:u64,field:SynthField,value:f32},
+    FactoryPreset {track:u64,instance:u64,index:usize},
+    SaveSynthPreset {track:u64,instance:u64,path:PathBuf,name:String}, LoadSynthPreset {track:u64,instance:u64,path:PathBuf},
     Tempo(f64), Mix { track: u64, gain: f32, pan: f32 }, FinishMix, Undo, Redo, Delete { track: u64, clip: u64, note: u64 },
     Viewport(f32, f32), Zoom(f32), ZoomY(f32), Pan(i32), Pitch(i32), ScrollPiano(f64, f32), FitNotes, Notation(i32),
     Down { track: u64, clip: u64, token: u64, viewport: Viewport, x: f32, y: f32, right: bool },
@@ -30,6 +34,7 @@ pub struct ViewState {
     pub clips: Vec<ClipView>, pub clip_index: Option<usize>, pub clip_start: u64, pub clip_id: u64, pub clip_length: u64, pub clip_name: String, pub track_name: String, pub track_color: String,
     pub bpm: f64, pub gain: f32, pub pan: f32, pub dirty: bool, pub can_undo: bool, pub can_redo: bool,
     pub mute: bool, pub solo: bool, pub audible: bool, pub project_beats: f32, pub arrangement_limited: bool,
+    pub synth:Option<SynthParameters>, pub synth_preset:Option<SynthPreset>,
     pub instrument: String, pub sample_path: String, pub root_note: u8, pub one_shot: bool, pub is_sampler: bool,
     pub revision: u64, pub mix_label: String, pub instance_id: u64, pub selected_note: u64, pub velocity: i32, pub keys: Vec<KeyRow>, pub live_count: usize,
     pub notes: Vec<NoteRect>, pub viewport: Viewport, pub export_busy: bool, pub selected_label: String,
@@ -145,6 +150,15 @@ impl State {
         }
         Ok(before != (self.pending_mix, self.applied_mix, self.mix_dirty))
     }
+    fn synth_instrument(&self,track:u64,instance:u64)->Result<&Instrument,String>{
+        let t=self.project.track(track).ok_or("Track no longer exists")?;
+        if t.instrument.id!=instance || t.instrument.config.synth().is_none(){return Err("Synth instance changed or no longer exists".into());} Ok(&t.instrument.config)
+    }
+    fn apply_preset(&mut self,track:u64,instance:u64,preset:SynthPreset)->Result<(),String>{
+        self.synth_instrument(track,instance)?;preset.validate()?;self.history.finish_gesture();
+        self.edit(Edit::Synth{track,instance,instrument:Instrument::Synth{parameters:preset.parameters,preset:Some(preset)},field:None})?;
+        self.status="Preset copied into this instance. ADSR applies to new notes.".into();Ok(())
+    }
     fn edit(&mut self, edit: Edit) -> Result<(), String> {
         let fallback = self.track_index(self.track_id)?;
         let impact = edit.impact();
@@ -156,7 +170,7 @@ impl State {
         match impact {
             Impact::Structural => { self.needs_compile = true; self.status = "Edited. Playback stopped; press Play to resume.".into(); }
             Impact::Metadata => self.status = "Track properties updated. Playback continues.".into(),
-            Impact::Realtime => { self.sync_mix()?; self.status = "Mixer updated; gain is preserved when muted.".into(); }
+            Impact::Realtime => { self.sync_mix()?; self.status = "Track sound updated. ADSR applies to new notes; playback continues.".into(); }
         }
         Ok(())
     }
@@ -178,7 +192,7 @@ impl State {
                 else { "Click empty space to insert · drag to move · drag right edge to resize".into() });
         let (tracks, arrangement_limited) = arrangement::scene(&self.project, self.arrangement, self.track_id, self.clip_id);
         let (sample_path, root_note, one_shot, is_sampler) = match &t.instrument.config {
-            Instrument::Sine => (String::new(), 60, false, false),
+            Instrument::Sine | Instrument::Synth { .. } => (String::new(), 60, false, false),
             Instrument::Sampler { sample_path, root_note, one_shot } => (sample_path.clone(), *root_note, *one_shot, true),
         };
         ViewState { name: self.project.name.clone(), status: if capped { format!("{} | View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
@@ -187,8 +201,9 @@ impl State {
             velocity:self.selected.and_then(|id|self.clip()?.notes.iter().find(|n|n.id==id)).map_or(100,|n|n.velocity as i32),
             keys:self.viewport.keys(),live_count:self.live.len(),
             mute: t.mute, solo: t.solo, audible: self.project.audible(t.id), project_beats: self.project.length_ticks as f32 / PPQ as f32, arrangement_limited,
+            synth:t.instrument.config.synth(),synth_preset:t.instrument.config.preset().cloned(),
             instrument: t.instrument.config.label().into(), sample_path, root_note, one_shot, is_sampler,
-            revision: self.revision, mix_label: if self.needs_compile || (self.mix_dirty && self.engine.telemetry().is_ok_and(|t| t.device_open == 0)) { "Ready on Play" } else if self.pending_mix || self.mix_dirty { "Applying mixer…" } else { "Mixer synchronized" }.into(),
+            revision: self.revision, mix_label: if self.needs_compile || (self.mix_dirty && self.engine.telemetry().is_ok_and(|t| t.device_open == 0)) { "Ready on Play" } else if self.pending_mix || self.mix_dirty { "Applying sound…" } else { "Sound synchronized" }.into(),
             track_id: t.id, track_index: self.track_index(t.id).unwrap(), track_name: t.name.clone(), track_color: t.color.clone(),
             clips: t.clips.iter().map(|c| ClipView { id: c.id, name: c.name.clone() }).collect(),
             clip_index: t.clips.iter().position(|c| Some(c.id) == self.clip_id), clip_start: self.clip().map_or(0, |c| c.start_tick),
@@ -306,6 +321,23 @@ impl State {
             Request::ColorTrack { track, color } => {
                 let t = self.project.track(track).ok_or("Track no longer exists")?;
                 if t.color != color { self.edit(Edit::TrackInfo { track, name: t.name.clone(), color })?; }
+            }
+            Request::SynthParameter{track,instance,field,value}=>{
+                let i=self.synth_instrument(track,instance)?;let mut parameters=i.synth().unwrap();let preset=i.preset().cloned();
+                parameters.change(field,value)?;
+                if Some(parameters)!=i.synth(){
+                    self.edit(Edit::Synth{track,instance,instrument:Instrument::Synth{parameters,preset},field:Some(field)})?;
+                }
+            }
+            Request::FactoryPreset{track,instance,index}=>self.apply_preset(track,instance,SynthPreset::factory(index)?)?,
+            Request::LoadSynthPreset{track,instance,path}=>{
+                self.synth_instrument(track,instance)?;let preset=storage::load_synth_preset(&path)?;self.apply_preset(track,instance,preset)?;
+            }
+            Request::SaveSynthPreset{track,instance,path,name}=>{
+                let parameters=self.synth_instrument(track,instance)?.synth().unwrap();
+                let preset=SynthPreset{version:1,name,source:"User".into(),parameters};
+                storage::save_synth_preset(&path,&preset)?;self.apply_preset(track,instance,preset)?;
+                self.status="Preset saved. File contains synth settings; track volume and notes are retained.".into();
             }
             Request::Tempo(bpm) => self.edit(Edit::Tempo(bpm))?,
             Request::Mix { track, gain, pan } => self.edit(Edit::Mix { track, gain, pan })?,
@@ -597,7 +629,12 @@ pub fn spawn(silent: bool) -> Connection {
             connection.sender.send(Envelope { request_id: id, epoch, request: Request::Play }).unwrap();
             let deadline = Instant::now() + Duration::from_secs(3); let mut acknowledged = false; let mut playing = false;
             while Instant::now() < deadline && !playing {
-                match connection.receiver.recv_timeout(Duration::from_millis(100)).unwrap() {
+                let response=match connection.receiver.recv_timeout(Duration::from_millis(100)) {
+                    Ok(response)=>response,
+                    Err(mpsc::RecvTimeoutError::Timeout)=>continue, // allow cold prepare within the existing 3s deadline
+                    Err(error)=>panic!("Controller disconnected: {error}"),
+                };
+                match response {
                     Response::Ack { request_id, canceled, error, .. } if request_id == id => {
                         assert!(!canceled); assert!(error.is_none()); acknowledged = true;
                     }
@@ -653,6 +690,28 @@ pub fn spawn(silent: bool) -> Connection {
             }
         }
         c.flags.fetch_or(QUIT,Ordering::Release);c.worker.join().unwrap();assert!(canceled && playing);
+    }
+
+    #[test] fn synth_edits_preserve_playback_and_reject_stale_instances_with_queue_recovery() {
+        let mut state=State::new(true).unwrap();state.compile().unwrap();state.engine.play().unwrap();state.engine.render(256).unwrap();
+        request(&mut state,Request::SelectTrack(2));
+        request(&mut state,Request::FactoryPreset{track:1,instance:3,index:2});
+        assert_eq!(state.project.track(2).unwrap().instrument.config,Instrument::Sine);assert!(!state.needs_compile);
+        state.engine.render(256).unwrap();state.poll_mix().unwrap();let meter=state.engine.telemetry().unwrap();assert_eq!(meter.playing,1);assert_eq!(meter.position,512);assert!(!state.mix_dirty);
+        let before=state.project.clone();assert!(state.request(Request::SynthParameter{track:1,instance:999,field:SynthField::Attack,value:0.9},&AtomicU32::new(0)).is_err());assert_eq!(state.project,before);
+        request(&mut state,Request::Undo);assert_eq!(state.project.track(1).unwrap().instrument.config,Instrument::Sine);request(&mut state,Request::Redo);
+        for i in 0..12 {request(&mut state,Request::SynthParameter{track:1,instance:3,field:SynthField::Shape,value:i as f32/12.0});}
+        assert!(state.pending_mix);assert!(!state.needs_compile);state.quiesce().unwrap();state.poll_mix().unwrap();assert!(!state.pending_mix);
+        state.compile().unwrap();assert_eq!(state.engine.mix_status().unwrap().submitted,0);assert_eq!(state.project.track(1).unwrap().instrument.config.synth().unwrap().shape,11.0/12.0);
+    }
+    #[test] fn preset_files_validate_before_changing_track_and_save_snapshot() {
+        let mut state=State::new(true).unwrap();let path=std::env::temp_dir().join(format!("opendaw-m34-preset-{}.json",std::process::id()));
+        request(&mut state,Request::FactoryPreset{track:1,instance:3,index:3});let expected=state.project.track(1).unwrap().instrument.config.synth();
+        request(&mut state,Request::SaveSynthPreset{track:1,instance:3,path:path.clone(),name:"My Triangle".into()});
+        request(&mut state,Request::FactoryPreset{track:1,instance:3,index:1});request(&mut state,Request::LoadSynthPreset{track:1,instance:3,path:path.clone()});
+        assert_eq!(state.project.track(1).unwrap().instrument.config.synth(),expected);
+        std::fs::write(&path,b"{broken}").unwrap();let before=state.project.clone();assert!(state.request(Request::LoadSynthPreset{track:1,instance:3,path:path.clone()},&AtomicU32::new(0)).is_err());assert_eq!(state.project,before);
+        std::fs::remove_file(path).unwrap();
     }
 
 }

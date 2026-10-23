@@ -4,23 +4,23 @@ This increment retains the uploaded C++20 audio graph/DSP and adds a native engi
 service, bounded transport/live-note control, sampling, streaming WAV export,
 a C ABI, and a Rust/Slint application implementation.
 
-**M3.3 local increment — 23 October 2026:** create, duplicate, rename, remove,
-move and resize MIDI clips, including transfers between tracks and one-step undo.
-The piano roll now has a fixed vertical keyboard with note names, highlighted Cs,
-fractional scrolling, separate X/Y zoom, Fit notes and configurable C3/C4/C5
-notation (MIDI 60 defaults to C4). Note velocity editing and token-based audition
-are included. Save/undo/export use the same clip model; native DSP, ABI, schema v2
-and dependencies are unchanged. Validation passed: 31 headless / 45 UI-enabled Rust
-tests, release binaries, four native suites and the 100/200% software UI probe.
-Physical audio and Windows still need target-host testing. Expanded synth and
-drums remain later steps. [M3.3 usage and validation](docs/M3_3_CLIPS_PIANO_ROLL.md)
-· [M3 progress](docs/M3_IMPLEMENTATION_PROGRESS.md).
+**M3.4 local increment — 23 October 2026:** independent per-track sine/saw/square
+(PWM)/triangle, shape, ADSR, factory/user preset snapshots and the inspector's
+Sound tab. Oscillator transitions take 10 ms; ADSR is captured by each new voice.
+Undo/save and native/Rust export use the same settings. Harmonic-limited tables
+passed 75 coherent FFT cases (worst spurious −78.19 dBr). Validation: 36 headless /
+52 UI-enabled Rust tests, release binaries, five native suites, allocation probe,
+ASan/UBSan, focused TSan and 100/200% software UI interaction. The v1 audio render
+is byte-identical. Physical audio/listening and Windows still need target-host
+verification. [M3.4 usage, DSP and evidence](docs/M3_4_TRACK_SYNTH.md) ·
+[M3 progress](docs/M3_IMPLEMENTATION_PROGRESS.md).
 
 **macOS update — 22 October 2026:** the Slint window sizing declaration is fixed,
 and both `scripts/validate_app.sh` and `scripts/validate_native.sh` now pass on
 macOS 15.6.1 / Apple Silicon. `app/Cargo.lock` is included in local Git history.
 The release UI also survived a five-second startup probe with `--silent`.
-Physical audio and GUI interactions remain untested. See the
+That earlier startup check did not test physical audio or GUI interactions; current
+software interaction coverage is described above. See the
 [local macOS validation record](docs/BUILD.md#local-macos-validation--22-october-2026).
 The delivery-environment statements below describe the original package.
 

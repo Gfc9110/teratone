@@ -1,8 +1,19 @@
 # Build, run, and validation
 
+## M3.4 increment — 23 October 2026
+
+Current gates: 36 headless / 52 UI-enabled Rust tests and both release binaries;
+five native CTest suites, shared ABI integration, ASan/UBSan, focused TSan,
+10,001-render C++ allocation probe and the real-controller software UI probe.
+75 coherent FFT cases pass the −50 dBr / 20 dB improvement gates, including 7040 Hz.
+The v1 audio fixture is byte-identical. See [M3.4 report](M3_4_TRACK_SYNTH.md) for
+commands, versioned ABI, presets, DSP choices, performance and `evidence/m34-*`.
+Physical audio/listening, Windows and macOS Intel remain untested. No Rust lockfile
+updates; NumPy is only used by the development/CI spectral gate.
+
 ## M3.3 increment — 23 October 2026
 
-Current gates pass: 31 headless / 45 UI-enabled Rust tests, both release binaries,
+Historical M3.3 gates: 31 headless / 45 UI-enabled Rust tests, both release binaries,
 v1 validate/render and four native suites. The real-controller software probe adds
 clip CRUD/drag/resize, vertical keyboard, notation, velocity and release on window
 exit/focus loss. Three vertical zooms and 100/200% layouts were rendered and

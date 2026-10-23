@@ -60,6 +60,28 @@ protected:
     std::span<const BlockNoteEvent> blockEvents_{};
 };
 
+enum class Waveform : uint32_t { Sine, Saw, Square, Triangle };
+struct SynthConfig {
+    Waveform waveform = Waveform::Sine;
+    float shape = 1, pulseWidth = 0.5f;
+    float attack = 0.006f, decay = 0.06f, sustain = 0.75f, release = 0.06f;
+    bool valid() const noexcept;
+};
+// Immutable, shared only within a prepared session. Construction and FFTs are control-side.
+class OscillatorBank {
+public:
+    static constexpr size_t TableSize = 8192;
+    explicit OscillatorBank(double sampleRate);
+    static std::shared_ptr<const OscillatorBank> shared(double sampleRate); // control-side cache, never audio
+    double sampleRate() const noexcept { return sampleRate_; }
+    float sample(Waveform waveform, uint8_t note, double phase, float pulseWidth) const noexcept;
+private:
+    struct Tables { std::array<float, TableSize + 1> saw{}, triangle{}; };
+    std::vector<Tables> notes_;
+    double sampleRate_;
+    static float read(const std::array<float, TableSize + 1>& table, double phase) noexcept;
+};
+
 class SynthNode final : public InstrumentNode {
 public:
     static constexpr size_t MaxVoices = 24;
@@ -70,6 +92,9 @@ public:
     void clearEvents();
     void setADSR(float attackSeconds, float decaySeconds,
                  float sustainLevel, float releaseSeconds);
+    void configure(const SynthConfig& config); // setup only; validates
+    void setBank(std::shared_ptr<const OscillatorBank> bank) { bank_ = std::move(bank); } // setup only
+    void applyConfig(const SynthConfig& config) noexcept; // AUDIO OWNER ONLY, block boundary
     void prepare(double sampleRate, uint32_t maxFrames) override;
     void reset() noexcept override;
     void process(const ProcessContext& ctx, std::span<const AudioBlock* const> inputs,
@@ -87,7 +112,15 @@ private:
         uint64_t age = 0;
         uint32_t envelopeSamples = 0;
         Phase state = Phase::Off;
+        uint32_t attack = 0, decay = 0, release = 0;
+        float sustain = 0;
+
     };
+    std::shared_ptr<const OscillatorBank> bank_;
+    SynthConfig config_{Waveform::Sine, 1, 0.5f, 0.01f, 0.05f, 0.7f, 0.1f}; // legacy standalone defaults
+    std::array<float, 4> weights_{1, 0, 0, 0}, weightSteps_{};
+    float shape_ = 1, pulseWidth_ = 0.5f, shapeStep_ = 0, pulseStep_ = 0;
+    uint32_t rampSamples_ = 480, remaining_ = 0;
     std::array<Voice, MaxVoices> voices_{};
     std::vector<NoteEvent> events_;
     size_t nextEvent_ = 0;

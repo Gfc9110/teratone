@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::synth::{SynthParameters,SynthPreset,SynthField};
 use std::collections::{HashSet, VecDeque};
 
 pub const PPQ: u64 = 960;
@@ -14,11 +15,15 @@ pub struct Note { pub id: u64, pub start: u64, pub duration: u64, pub pitch: u8,
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instrument {
-    Sine,
+    Sine, // legacy v1/v2 spelling, exact compatible defaults
+    Synth { parameters: SynthParameters, preset: Option<SynthPreset> },
     Sampler { sample_path: String, root_note: u8, one_shot: bool },
 }
 impl Instrument {
-    pub fn label(&self) -> &'static str { match self { Self::Sine => "Oscillator · Sine", Self::Sampler { .. } => "Sampler" } }
+    pub fn synth(&self)->Option<SynthParameters>{match self{Self::Sine=>Some(SynthParameters::default()),Self::Synth{parameters,..}=>Some(*parameters),_=>None}}
+    pub fn preset(&self)->Option<&SynthPreset>{match self{Self::Synth{preset,..}=>preset.as_ref(),_=>None}}
+
+    pub fn label(&self) -> &'static str { match self { Self::Sine => "Oscillator · Sine", Self::Synth { parameters, .. } => parameters.waveform.label(), Self::Sampler { .. } => "Sampler" } }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -59,6 +64,8 @@ fn validate_note(note: &Note, length: u64) -> Result<(), String> {
     Ok(())
 }
 fn validate_instrument(instrument: &Instrument) -> Result<(), String> {
+    if let Instrument::Synth{parameters,preset}=instrument {parameters.validate()?;if let Some(p)=preset{p.validate()?;}}
+
     if let Instrument::Sampler { sample_path, root_note, .. } = instrument {
         if sample_path.is_empty() || sample_path.len() > 4096 || sample_path.contains('\0') || *root_note > 127 {
             return Err("Invalid sample path/root note".into());
@@ -209,6 +216,7 @@ impl LegacyProject {
             // v1 allowed blank track names; give only those a displayable migration name.
             if t.name.len() > 120 { return Err("Invalid legacy track name".into()); }
             validate_mix(t.gain, t.pan)?; validate_instrument(&t.instrument)?;
+            if matches!(t.instrument,Instrument::Synth{..}) {return Err("Version 1 has no configurable synth".into());}
             count += t.notes.len(); if count > MAX_NOTES { return Err("Too many notes".into()); }
             for n in &t.notes { validate_note(n, self.length_ticks)?; identity(&mut ids, n.id, self.next_id)?; }
         }
@@ -231,6 +239,7 @@ pub enum Edit {
     Insert { track: u64, clip: u64, index: usize, note: Note }, Delete { track: u64, clip: u64, id: u64 },
     Replace { track: u64, clip: u64, note: Note }, Tempo(f64), Mix { track: u64, gain: f32, pan: f32 },
     Instrument { track: u64, instrument: Instrument },
+    Synth { track:u64, instance:u64, instrument:Instrument, field:Option<SynthField> },
     Audibility { track: u64, mute: bool, solo: bool },
     AddTrack { after: u64 }, DuplicateTrack { track: u64 }, InsertTrack { index: usize, track: Track }, RemoveTrack { track: u64 },
     TrackInfo { track: u64, name: String, color: String }, MoveTrack { track: u64, index: usize },
@@ -244,7 +253,7 @@ pub enum Edit {
     PlaceClip { track: u64, clip: u64, destination: u64, index: usize, start: u64, length: u64, project_length: u64 },
 }
 impl Edit {
-    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } | Self::ClipName { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } => Impact::Realtime, _ => Impact::Structural } }
+    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } | Self::ClipName { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } | Self::Synth { .. } => Impact::Realtime, _ => Impact::Structural } }
     fn apply(self, p: &mut Project) -> Result<Self, String> {
         match self {
             Self::AddNote{track,clip,start,duration,pitch,velocity} => {
@@ -350,6 +359,12 @@ impl Edit {
                 let inverse = Self::Audibility { track, mute: t.mute, solo: t.solo };
                 t.mute = mute; t.solo = solo; Ok(inverse)
             }
+            Self::Synth{track,instance,instrument,field}=>{
+                validate_instrument(&instrument)?;
+                let t=p.track_mut(track)?;
+                if t.instrument.id!=instance || t.instrument.config.synth().is_none() || instrument.synth().is_none() {return Err("Synth instance changed or no longer exists".into());}
+                Ok(Self::Synth{track,instance,instrument:std::mem::replace(&mut t.instrument.config,instrument),field})
+            }
             Self::Instrument { track, instrument } => {
                 validate_instrument(&instrument)?; let t = p.track_mut(track)?;
                 Ok(Self::Instrument { track, instrument: std::mem::replace(&mut t.instrument.config, instrument) })
@@ -397,8 +412,9 @@ impl History {
     pub fn execute(&mut self, p: &mut Project, edit: Edit) -> Result<(), String> {
         let inverse = edit.apply(p)?;
         let merge = self.merge_mix && matches!((&inverse, self.undo.back()),
-            (Edit::Mix { track: a, .. }, Some(Edit::Mix { track: b, .. })) if a == b);
-        self.merge_mix = matches!(&inverse, Edit::Mix { .. });
+            (Edit::Mix { track: a, .. }, Some(Edit::Mix { track: b, .. })) if a == b) || self.merge_mix && matches!((&inverse,self.undo.back()),
+            (Edit::Synth{track:a,instance:ia,field:Some(fa),..},Some(Edit::Synth{track:b,instance:ib,field:Some(fb),..})) if a==b && ia==ib && fa==fb);
+        self.merge_mix = matches!(&inverse, Edit::Mix { .. } | Edit::Synth{field:Some(_),..});
         if !merge { self.undo.push_back(inverse); }
         while self.undo.len() > 512 { self.undo.pop_front(); }
         self.redo.clear(); Ok(())
@@ -443,6 +459,28 @@ impl History {
         assert_eq!(p.clip(1, 4).unwrap().notes.len(), 9); h.undo(&mut p).unwrap(); assert_eq!(p.clip(1, 4).unwrap().notes.len(), 8);
         h.redo(&mut p).unwrap(); assert_eq!(p.clip(1, 4).unwrap().notes.len(), 9);
         let before = p.clone(); assert!(h.execute(&mut p, Edit::Tempo(f64::NAN)).is_err()); assert_eq!(p, before);
+    }
+    #[test] fn synth_presets_are_owned_atomic_and_undoable_with_independent_copies() {
+        let mut p=Project::demo();let mut h=History::default();let original=p.tracks[0].clone();
+        let factory=SynthPreset::factory(2).unwrap();let parameters=factory.parameters;
+        h.execute(&mut p,Edit::Synth{track:1,instance:3,instrument:Instrument::Synth{parameters,preset:Some(factory)},field:None}).unwrap();
+        assert_eq!(p.tracks[1].instrument.config,Instrument::Sine);assert_eq!(h.undo_impact(),Some(Impact::Realtime));
+        h.undo(&mut p).unwrap();assert_eq!(p.tracks[0],original);h.redo(&mut p).unwrap();
+        h.execute(&mut p,Edit::DuplicateTrack{track:1}).unwrap();let copy=p.tracks[1].clone();assert_ne!(copy.instrument.id,3);
+        let mut changed=parameters;changed.waveform=crate::synth::Waveform::Triangle;
+        h.execute(&mut p,Edit::Synth{track:copy.id,instance:copy.instrument.id,instrument:Instrument::Synth{parameters:changed,preset:None},field:Some(SynthField::Waveform)}).unwrap();
+        assert_eq!(p.tracks[0].instrument.config.synth(),Some(parameters));assert_eq!(p.tracks[1].instrument.config.synth(),Some(changed));
+        assert!(h.execute(&mut p,Edit::Synth{track:copy.id,instance:3,instrument:Instrument::Sine,field:None}).is_err());
+        assert_eq!(Project::decode(&serde_json::to_vec(&p).unwrap()).unwrap(),p);
+    }
+    #[test] fn synth_gestures_merge_only_the_same_field_and_preset_is_one_step() {
+        let mut p=Project::demo();let mut h=History::default();
+        for a in [0.1,0.2,0.3] {let mut parameters=SynthParameters::default();parameters.attack=a;
+            h.execute(&mut p,Edit::Synth{track:1,instance:3,instrument:Instrument::Synth{parameters,preset:None},field:Some(SynthField::Attack)}).unwrap();}
+        assert_eq!(h.undo.len(),1);h.finish_gesture();
+        let factory=SynthPreset::factory(1).unwrap();h.execute(&mut p,Edit::Synth{track:1,instance:3,instrument:Instrument::Synth{parameters:factory.parameters,preset:Some(factory)},field:None}).unwrap();
+        assert_eq!(h.undo.len(),2);h.undo(&mut p).unwrap();assert_eq!(p.tracks[0].instrument.config.synth().unwrap().attack,0.3);
+        h.undo(&mut p).unwrap();assert_eq!(p.tracks[0].instrument.config,Instrument::Sine);
     }
     #[test] fn mix_gestures_and_metadata_impacts() {
         let mut p = Project::demo(); let mut h = History::default(); let before = p.tracks[0].gain;

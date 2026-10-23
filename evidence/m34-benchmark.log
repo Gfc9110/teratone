@@ -1,0 +1,4 @@
+16 tracks x 8 held voices, 5000 x 256 frames @48kHz, full synth snapshots every 4 blocks
+prepare 36.0398 ms; callback p95 0.352667 ms; p99 0.374292 ms; max 0.4705 ms
+Immutable bank per sample rate 8.00098 MiB, shared by tracks/export.
+Isolated DSP benchmark; no physical device or scheduler/underrun certification.

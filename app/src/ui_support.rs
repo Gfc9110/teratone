@@ -3,7 +3,7 @@ use crate::{AppWindow, ClipVisual, MiniVisual, NoteVisual, TrackVisual, KeyVisua
 use opendaw_app::{arrangement::TrackRow, controller::ViewState};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::{rc::Rc,cell::{Cell,RefCell}};
-use opendaw_app::{controller::Request,editor::{KeyRow,Viewport},mailbox::Mailbox};
+use opendaw_app::{synth::{SynthParameters,SynthPreset,SynthField},controller::Request,editor::{KeyRow,Viewport},mailbox::Mailbox};
 
 pub fn visual(t: &TrackRow) -> TrackVisual {
     TrackVisual {
@@ -18,7 +18,7 @@ pub fn visual(t: &TrackRow) -> TrackVisual {
 }
 
 struct Inspector {
-    id: u64, name: String, color: String, gain: f32, pan: f32, sample: String, root: u8, one_shot: bool,
+    id: u64, name: String, color: String, gain: f32, pan: f32, sample: String, root: u8, one_shot: bool, synth:Option<SynthParameters>, preset:Option<SynthPreset>,
 }
 pub struct Presenter { model: Rc<VecModel<TrackVisual>>, rows: Vec<TrackRow>, inspector: Option<Inspector>, clip_info: Option<(u64,String)>, keys:Vec<KeyRow>, key_model:Rc<VecModel<KeyVisual>> }
 impl Presenter {
@@ -50,8 +50,22 @@ impl Presenter {
         if changed || prior.is_some_and(|p| p.sample != view.sample_path || p.root != view.root_note || p.one_shot != view.one_shot) {
             ui.set_sample_path(view.sample_path.clone().into()); ui.set_sample_root(view.root_note as i32); ui.set_sample_one_shot(view.one_shot);
         }
+        ui.set_is_synth(view.synth.is_some());
+        let sound=view.synth.unwrap_or_default();let old_sound=prior.and_then(|p|p.synth).unwrap_or_default();
+        let source_changed=changed || prior.is_some_and(|p|p.synth.is_some()!=view.synth.is_some());
+        if source_changed || old_sound.waveform!=sound.waveform {ui.set_synth_wave(sound.waveform.index() as i32);}
+        if source_changed || old_sound.shape!=sound.shape {ui.set_synth_shape(sound.shape);}
+        if source_changed || old_sound.pulse_width!=sound.pulse_width {ui.set_synth_duty(sound.pulse_width);}
+        if source_changed || old_sound.attack!=sound.attack {ui.set_synth_attack((sound.attack*1000.0).round() as i32);}
+        if source_changed || old_sound.decay!=sound.decay {ui.set_synth_decay((sound.decay*1000.0).round() as i32);}
+        if source_changed || old_sound.sustain!=sound.sustain {ui.set_synth_sustain((sound.sustain*100.0).round() as i32);}
+        if source_changed || old_sound.release!=sound.release {ui.set_synth_release((sound.release*1000.0).round() as i32);}
+        let label=view.synth_preset.as_ref().map(|p|format!("{}{}",p.name,if Some(p.parameters)!=view.synth{" · modified"}else{""}))
+            .unwrap_or_else(||if view.synth==Some(SynthParameters::default()){"Legacy Sine".into()}else{"Custom sound".into()});
+        ui.set_preset_label(label.into());
+        if changed || prior.is_some_and(|p|p.preset!=view.synth_preset) {ui.set_preset_name(view.synth_preset.as_ref().map_or("My sound",|p|p.name.as_str()).into());}
         self.inspector = Some(Inspector { id: view.track_id, name: view.track_name.clone(), color: view.track_color.clone(), gain: view.gain, pan: view.pan,
-            sample: view.sample_path.clone(), root: view.root_note, one_shot: view.one_shot });
+            sample: view.sample_path.clone(), root: view.root_note, one_shot: view.one_shot,synth:view.synth,preset:view.synth_preset.clone() });
         let names: Vec<SharedString> = view.clips.iter().map(|c| c.name.clone().into()).collect();
         let ids: Vec<SharedString> = view.clips.iter().map(|c| c.id.to_string().into()).collect();
         ui.set_clip_names(ModelRc::new(VecModel::from(names))); ui.set_clip_ids(ModelRc::new(VecModel::from(ids)));
@@ -92,6 +106,15 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
     macro_rules! bind {($method:ident,($($arg:ident),*)=>$request:expr)=>{{
         let m=mailbox.clone();let weak=ui.as_weak();ui.$method(move|$($arg),*|queue(&m,&weak,$request));
     }};}
+    {
+        let m=mailbox.clone();let weak=ui.as_weak();ui.on_synth_parameter(move|track,instance,field,value|{
+            match SynthField::from_index(field){Ok(field)=>queue(&m,&weak,Request::SynthParameter{track:track.parse().unwrap_or(0),instance:instance.parse().unwrap_or(0),field,value}),
+                Err(e)=>if let Some(ui)=weak.upgrade(){ui.set_action_error(e.into());}}
+        });
+    }
+    bind!(on_factory_preset,(track,instance,index)=>Request::FactoryPreset{track:track.parse().unwrap_or(0),instance:instance.parse().unwrap_or(0),index:index as usize});
+    bind!(on_save_synth_preset,(track,instance,path,name)=>Request::SaveSynthPreset{track:track.parse().unwrap_or(0),instance:instance.parse().unwrap_or(0),path:std::path::PathBuf::from(path.as_str()),name:name.into()});
+    bind!(on_load_synth_preset,(track,instance,path)=>Request::LoadSynthPreset{track:track.parse().unwrap_or(0),instance:instance.parse().unwrap_or(0),path:std::path::PathBuf::from(path.as_str())});
     bind!(on_new_clip,(track,beat)=>Request::AddClip{track:track.parse().unwrap_or(0),beat:beat as f64});
     bind!(on_duplicate_clip,(track,clip)=>Request::DuplicateClip{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0)});
     bind!(on_remove_clip,(track,clip)=>Request::RemoveClip{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0)});

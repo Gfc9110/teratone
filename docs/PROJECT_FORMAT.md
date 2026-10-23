@@ -1,9 +1,9 @@
-# Project format v2 — M3.3
+# Project format v2 — M3.4
 
 The application reads v1 and v2 and writes v2. Opening a v1 project migrates it
 in memory without rewriting its source file. The example under
 `examples/First-session.opendaw/project.json` intentionally remains v1 as a
-compatibility fixture. The original ABI v1 remains compatible; the app uses additive versioned mixer descriptors.
+compatibility fixture. The original ABI v1 remains compatible; the app uses additive v3 descriptors with synth settings. Legacy descriptor layouts remain compatible.
 
 ```text
 Song.opendaw/
@@ -57,7 +57,7 @@ Track `mute` and `solo` are optional booleans with default false when absent,
 including migrated v1 files and earlier v2 manifests. New saves write both.
 Audibility is `!mute && (!any_solo || solo)`; gain/pan retain their nominal values.
 Flags are undoable and duplicated with the independent instance. Playback and
-export derive the same gate state. A preset/synth-parameter model, drum pads and
+export derive the same gate state. The synth/preset model below is implemented in M3.4; drum pads and
 hashed asset references remain subsequent M3 increments. Unknown
 fields and unsupported versions are rejected. The decoder uses separate strict
 DTOs for v1 and v2 and rejects duplicate fields in the original JSON bytes.
@@ -113,3 +113,43 @@ independent. A failed save may leave orphan asset files, but does not intentiona
 remove the previous checkpoint. There is no lock against another local process
 racing path/symlink changes, or proof against same-size rewrites of source media.
 No asset garbage collection is introduced in this increment.
+
+## M3.4 oscillator and owned presets
+
+`kind: sine` remains an exact compatible default: sine, shape=1, pulse_width=0.5,
+attack=0.006, decay=0.06, sustain=0.75, release=0.06. New parameters use:
+
+```json
+{
+  "id": 3,
+  "config": {
+    "kind": "synth",
+    "parameters": {
+      "waveform": "square", "shape": 1.0, "pulse_width": 0.25,
+      "attack": 0.008, "decay": 0.2, "sustain": 0.5, "release": 0.15
+    },
+    "preset": {
+      "version": 1, "name": "Hollow Pulse", "source": "OpenDAW factory",
+      "parameters": {
+        "waveform": "square", "shape": 1.0, "pulse_width": 0.25,
+        "attack": 0.008, "decay": 0.2, "sustain": 0.5, "release": 0.15
+      }
+    }
+  }
+}
+```
+
+The optional preset (`null`/absent allowed) is an owned versioned snapshot, not a
+mutable reference. Parameters are authoritative; comparing them to the snapshot
+derives the modified indicator. Duplication copies both with a fresh instance ID.
+Preset files contain only the inner preset object and are limited to 4 KiB.
+They omit notes, volume/pan and routing. Save is explicit and atomically replaces
+the chosen file; Undo changes the document, not the external preset file.
+
+Waveform is sine/saw/square/triangle. Shape [0,1] is a sine→selected-wave morph;
+pulse_width [0.05,0.95] is active only for square. Attack/decay [0,10] and release
+[0,20] are seconds, sustain [0,1]. All numeric values must be finite; all parameter
+fields are required and unknown/duplicate fields are rejected. Each new voice
+captures the whole ADSR. Oscillator targets ramp for 10ms on existing voices.
+`kind: synth` is rejected in v1. Previous app versions reject this new v2 instrument
+kind explicitly; backward reading is not promised. See M3_4_TRACK_SYNTH.md.

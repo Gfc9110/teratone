@@ -173,8 +173,8 @@ The C++ graph, DSP and C ABI v1 are unchanged in this increment.
 In M3.1, the sidebar exposed track CRUD/order/properties and the editor could
 select existing MIDI clips. M3.2 replaces that presentation with arrangement rows
 and inspector, and adds persistent live mute/solo. M3.3 adds clip manipulation,
-vertical keyboard, velocity, notation and scoped audition. Expanded synth and
-multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
+vertical keyboard, velocity, notation and scoped audition. M3.4 implements the
+expanded synth described below; multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
 for exact scope, evidence and remaining limitations; PROJECT_FORMAT.md documents
 the implemented v2 fields rather than the broader proposed handoff model.
 
@@ -199,3 +199,35 @@ Stable key models keep a held key alive across unrelated ACK/views. C++ DSP and
 callback execution are unchanged; the Rust bridge uses the existing live-note ABI.
 
 See M3_3_CLIPS_PIANO_ROLL.md and evidence/m33-* for measured scope and limitations.
+
+## M3.4 per-track oscillator and parameter snapshots — 23 October 2026
+
+TrackSettings owns SynthConfig. SynthNode owns 24 fixed voices, each capturing
+its ADSR at note-on; runtime applyConfig is called only by the audio owner at a
+block boundary. Waveform weights and shape/PWM ramp for 10ms without resetting
+phase. Sine preserves the previous sin path and level. Saw and triangle use
+8192+1-point per-MIDI tables with harmonics strictly below Nyquist (cap 2047);
+PWM is a DC-corrected, nominally peak-normalized difference of two saw reads.
+Fundamentals at/above Nyquist produce silence. Static spectral gates are measured;
+arbitrary time modulation is not claimed to be strictly bandlimited.
+
+The immutable 8.001MiB bank is shared between prepared tracks/live/export. A bounded
+four-entry weak cache has a control-side mutex and FFT construction only. Rendering
+never calls the cache or changes shared_ptr ownership. Graph reset changes voices
+and ramp values only. Allocation and lifetime remain outside the callback.
+
+The eight-entry SPSC carries optional synth arrays alongside mixer data. Consumer
+coalescing retains the latest complete synth snapshot even if followed by a legacy
+mixer snapshot, then applies both before note-ons. od_load_v3 and
+od_set_parameters_v1 are additive; descriptor size/version and all ranges are
+validated. The accepted export spec is updated only on successful enqueue. The
+existing generation/submitted/applied status covers both mix and synth targets.
+Rust sends full snapshots and retries the latest document on saturation; it checks
+the compiled (track ID, instance ID) order before deriving slots.
+
+app/src/synth.rs defines strict owned parameter/preset values. Project Edit::Synth
+is realtime, preserves the previous instrument/preset for inverse history, and
+coalesces only the same field of the same instance until FinishMix. Factory/preset
+application is one history step. User preset files use atomic storage replacement.
+The Sound inspector tab and software probe share the production UI input adapter.
+See M3_4_TRACK_SYNTH.md for formulas, reproducible FFT tests, benchmarks and limits.

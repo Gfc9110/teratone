@@ -15,6 +15,7 @@ fn coalesces(a: &Request, b: &Request) -> bool {
         (Request::SetGain { track: a, .. }, Request::SetGain { track: b, .. }) |
         (Request::SetPan { track: a, .. }, Request::SetPan { track: b, .. }) |
         (Request::Mix { track: a, .. }, Request::Mix { track: b, .. }) => a == b,
+        (Request::SynthParameter{track:a,instance:ia,field:fa,..},Request::SynthParameter{track:b,instance:ib,field:fb,..})=>a==b && ia==ib && fa==fb,
         _ => false,
     }
 }

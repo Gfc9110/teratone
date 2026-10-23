@@ -45,6 +45,14 @@ fn read_manifest(path: &Path) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new(); file.take(MANIFEST_LIMIT + 1).read_to_end(&mut bytes).map_err(err)?;
     if bytes.len() as u64 > MANIFEST_LIMIT { return Err("Project manifest grew beyond its limit".into()); } Ok(bytes)
 }
+pub fn save_synth_preset(path:&Path,preset:&crate::synth::SynthPreset)->Result<(),String>{
+    preset.validate()?; atomic_write(path,&serde_json::to_vec_pretty(preset).map_err(err)?)
+}
+pub fn load_synth_preset(path:&Path)->Result<crate::synth::SynthPreset,String>{
+    let file=File::open(path).map_err(err)?;let mut bytes=Vec::new();file.take(4097).read_to_end(&mut bytes).map_err(err)?;
+    if bytes.len()>4096{return Err("Synth preset exceeds 4 KiB".into());}
+    let preset:crate::synth::SynthPreset=serde_json::from_slice(&bytes).map_err(err)?;preset.validate()?;Ok(preset)
+}
 fn resolve_samples(root: &Path, p: &mut Project) -> Result<(), String> {
     let root = root.canonicalize().map_err(err)?;
     for t in &mut p.tracks {

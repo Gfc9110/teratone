@@ -34,7 +34,9 @@ int main(int argc, char** argv) {
         }
         daw::SessionSpec spec;
         spec.lengthFrames = static_cast<uint64_t>(seconds * spec.sampleRate);
-        spec.tracks = {{0.7f, -0.2f, {}, 60, false}, {0.5f, 0.2f, {}, 60, false}};
+        spec.tracks.resize(2);
+        spec.tracks[0].gain = 0.7f; spec.tracks[0].pan = -0.2f;
+        spec.tracks[1].gain = 0.5f; spec.tracks[1].pan = 0.2f;
         if (!sample.empty()) spec.tracks[0].sample = daw::loadWav(daw::utf8Path(sample));
         constexpr uint8_t melody[]{60, 64, 67, 72, 67, 64, 62, 67};
         uint64_t id = 1;

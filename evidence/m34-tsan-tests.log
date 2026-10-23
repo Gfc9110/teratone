@@ -1,0 +1,9 @@
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m34-tsan
+    Start 2: interactive_service
+1/2 Test #2: interactive_service ..............   Passed   35.01 sec
+    Start 4: per_track_synth
+2/2 Test #4: per_track_synth ..................   Passed   11.90 sec
+
+100% tests passed out of 2
+
+Total Test time (real) =  47.00 sec

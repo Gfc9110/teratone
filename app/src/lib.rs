@@ -8,3 +8,5 @@ pub mod controller;
 
 #[cfg(feature = "ui")]
 pub mod mailbox;
+
+pub mod synth;

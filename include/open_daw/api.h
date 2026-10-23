@@ -39,7 +39,21 @@ typedef struct od_track_v2 {
     od_track base;
     uint32_t mute, solo;
 } od_track_v2;
+#define OD_SYNTH_V1_VERSION 1u
+/* waveform: 0=sine, 1=saw, 2=square/PWM, 3=triangle; seconds for A/D/R.
+ * shape [0,1], pulse_width [.05,.95], A/D [0,10], S [0,1], R [0,20]. */
+typedef struct od_synth_v1 {
+    uint32_t struct_size, version, waveform;
+    float shape, pulse_width, attack, decay, sustain, release;
+} od_synth_v1;
+#define OD_TRACK_V3_VERSION 3u
+typedef struct od_track_v3 {
+    uint32_t struct_size, version;
+    od_track_v2 base;
+    od_synth_v1 synth; /* validated also for sampler slots; ignored by sampler DSP */
+} od_track_v3;
 typedef struct od_track_mix_v1 { float gain, pan; uint32_t mute, solo; } od_track_mix_v1;
+typedef struct od_parameters_v1 { od_track_mix_v1 mix; od_synth_v1 synth; } od_parameters_v1;
 typedef struct od_mix_status_v1 { uint64_t generation, submitted, applied; } od_mix_status_v1;
 typedef struct od_telemetry {
     uint64_t position, rendered_frames, blocks, last_applied, rejected_commands, clipped_samples;
@@ -62,6 +76,13 @@ OD_API od_result od_load(od_engine*, const od_track*, size_t track_count,
 /* v2 load sets the initial gate with no audible startup ramp/leak. */
 OD_API od_result od_load_v2(od_engine*, const od_track_v2*, size_t track_count,
                             const od_note*, size_t note_count, uint64_t length_frames) OD_NOEXCEPT;
+OD_API od_result od_load_v3(od_engine*, const od_track_v3*, size_t track_count,
+                            const od_note*, size_t note_count, uint64_t length_frames) OD_NOEXCEPT;
+/* Complete mix+synth snapshot. Same bounded queue, generation and status serial as mixer.
+ * ADSR latched at note-on; oscillator controls ramp for 10ms on existing voices.
+ * Queue-full leaves export state/output serial unchanged. */
+OD_API od_result od_set_parameters_v1(od_engine*, uint64_t generation, const od_parameters_v1*,
+                                     size_t track_count, uint64_t* out_serial) OD_NOEXCEPT;
 /* Complete mixer snapshot, copied synchronously, applied coherently at a block boundary.
  * OD_QUEUE_FULL changes neither the accepted/exportable state nor out_serial.
  * Generation guards slots across successful loads; serial acknowledges acceptance only. */

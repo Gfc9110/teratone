@@ -25,6 +25,20 @@ export component AppWindow inherits Window {
     in property <string> track-name: "Sine lead";
     in-out property <string> track-name-draft: "Sine lead";
     in property <string> instrument: "Sine oscillator";
+    in property <bool> is-synth: true;
+    in-out property <bool> sound-tab: false;
+    in-out property <int> synth-wave: 0;
+    in-out property <float> synth-shape: 1;
+    in-out property <float> synth-duty: 0.5;
+    in-out property <int> synth-attack: 6;
+    in-out property <int> synth-decay: 60;
+    in-out property <int> synth-sustain: 75;
+    in-out property <int> synth-release: 60;
+    in property <string> preset-label: "Legacy Sine";
+    in-out property <int> factory-index: 0;
+    in-out property <string> preset-name: "My sound";
+    in-out property <string> preset-path: "My-sound.synth.json";
+    in-out property <length> inspector-scroll: 0px;
     in-out property <string> sample-path;
     in-out property <int> sample-root: 60;
     in-out property <bool> sample-one-shot: false;
@@ -118,6 +132,22 @@ export component AppWindow inherits Window {
     out property <float> add-track-y: add-track-button.absolute-position.y / 1px + add-track-button.height / 2px;
     out property <float> duplicate-track-x: duplicate-button.absolute-position.x / 1px + duplicate-button.width / 2px;
     out property <float> duplicate-track-y: duplicate-button.absolute-position.y / 1px + duplicate-button.height / 2px;
+    out property <float> synth-sound-tab-x: sound-tab-button.absolute-position.x / 1px + sound-tab-button.width / 2px;
+    out property <float> synth-sound-tab-y: sound-tab-button.absolute-position.y / 1px + sound-tab-button.height / 2px;
+    out property <float> synth-shape-x: shape-slider.absolute-position.x / 1px + shape-slider.width / 2px;
+    out property <float> synth-shape-y: shape-slider.absolute-position.y / 1px + shape-slider.height / 2px;
+    out property <float> synth-duty-x: duty-slider.absolute-position.x / 1px + duty-slider.width / 2px;
+    out property <float> synth-duty-y: duty-slider.absolute-position.y / 1px + duty-slider.height / 2px;
+    out property <float> synth-waveform-x: waveform-combo.absolute-position.x / 1px + waveform-combo.width / 2px;
+    out property <float> synth-waveform-y: waveform-combo.absolute-position.y / 1px + waveform-combo.height / 2px;
+    out property <float> synth-preset-apply-x: preset-apply.absolute-position.x / 1px + preset-apply.width / 2px;
+    out property <float> synth-preset-apply-y: preset-apply.absolute-position.y / 1px + preset-apply.height / 2px;
+    out property <float> synth-attack-x: attack-spin.absolute-position.x / 1px + attack-spin.width / 2px;
+    out property <float> synth-attack-y: attack-spin.absolute-position.y / 1px + attack-spin.height / 2px;
+    out property <float> synth-save-preset-x: save-preset-button.absolute-position.x / 1px + save-preset-button.width / 2px;
+    out property <float> synth-save-preset-y: save-preset-button.absolute-position.y / 1px + save-preset-button.height / 2px;
+    out property <float> synth-load-preset-x: load-preset-button.absolute-position.x / 1px + load-preset-button.width / 2px;
+    out property <float> synth-load-preset-y: load-preset-button.absolute-position.y / 1px + load-preset-button.height / 2px;
     out property <float> inspector-gain-x: gain-slider.absolute-position.x / 1px + gain-slider.width / 2px;
     out property <float> inspector-gain-y: gain-slider.absolute-position.y / 1px + gain-slider.height / 2px;
     out property <float> inspector-gain-value: gain-slider.value;
@@ -140,6 +170,10 @@ export component AppWindow inherits Window {
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
     callback down(float, float, bool); callback moved(float, float); callback up(float, float);
     callback save-project(string); callback open-project(string);
+    callback synth-parameter(string, string, int, float);
+    callback factory-preset(string, string, int);
+    callback save-synth-preset(string, string, string, string);
+    callback load-synth-preset(string, string, string);
     callback export-audio(string); callback import-sample(string, string, int, bool); callback use-sine(string);
     callback exit-confirmed();
     private property <string> clip-drag-id;
@@ -514,15 +548,17 @@ export component AppWindow inherits Window {
         visible: root.inspector-visible; background: #141e2b; border-radius: 5px;
         HorizontalLayout {
             x: 10px; y: 6px; width: parent.width - 20px; height: 30px; spacing: 5px;
-            Button { text: "Track"; checked: !root.project-tab; clicked => { root.project-tab = false; } }
-            Button { text: "Project"; checked: root.project-tab; clicked => { root.project-tab = true; } }
+            Button { text: "Track"; checked: !root.project-tab && !root.sound-tab; clicked => { root.project-tab = false; root.sound-tab = false; root.inspector-scroll = 0px; } }
+            sound-tab-button := Button { text: "Sound"; checked: root.sound-tab && !root.project-tab; clicked => { root.project-tab = false; root.sound-tab = true; root.inspector-scroll = 0px; } }
+            Button { text: "Project"; checked: root.project-tab; clicked => { root.project-tab = true; root.sound-tab = false; root.inspector-scroll = 0px; } }
         }
         ScrollView {
             x: 12px; y: 48px; width: parent.width - 24px; height: parent.height - 60px;
             horizontal-scrollbar-policy: always-off; content-width: self.visible-width;
-            content-height: root.project-tab ? 360px : 770px;
+            content-height: root.project-tab ? 360px : root.sound-tab ? 710px : 770px;
+            content-y <=> root.inspector-scroll;
             VerticalLayout {
-                visible: !root.project-tab;
+                visible: !root.project-tab && !root.sound-tab;
                 x: 0; y: 0; width: parent.width - 8px; height: 770px; spacing: 7px;
                 Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.track-index + 1); color: #7edcba; font-size: 11px; }
                 name-edit := LineEdit { height: 30px; text <=> root.track-name-draft; accepted => { root.rename-track(root.track-id, self.text); } }
@@ -555,7 +591,7 @@ export component AppWindow inherits Window {
                 }
                 Text { height: 30px; text: "Drag ≡ to reorder tracks.\nTrack / note edits stop playback."; color: #8b9eb3; font-size: 10px; }
                 Rectangle { height: 1px; background: #293747; }
-                Button { height: 30px; text: "Use sine instrument"; clicked => { root.use-sine(root.track-id); } }
+                Button { height: 30px; text: "Use oscillator instrument"; enabled: !root.is-synth; clicked => { root.use-sine(root.track-id); } }
                 sample-file := LineEdit { height: 30px; text <=> root.sample-path; placeholder-text: "Path to short WAV sample"; }
                 HorizontalLayout {
                     height: 30px;
@@ -565,6 +601,58 @@ export component AppWindow inherits Window {
                 one-shot := CheckBox { height: 26px; text: "One-shot"; checked <=> root.sample-one-shot; }
                 Button { height: 30px; text: "Load WAV into this track";
                     clicked => { root.import-sample(root.track-id, sample-file.text, root-note.value, one-shot.checked); } }
+                Rectangle { vertical-stretch: 1; }
+            }
+            VerticalLayout {
+                visible: root.sound-tab && !root.project-tab;
+                x: 0; y: 0; width: parent.width - 8px; height: 710px; spacing: 7px;
+                Text { height: 18px; text: "SOUND  ·  " + root.track-name; color: #7edcba; overflow: elide; }
+                Text { height: 18px; text: root.is-synth ? root.preset-label : "Sampler · controls in Track"; color: #c7d4e5; overflow: elide; }
+                HorizontalLayout {
+                    height: 30px; spacing: 5px;
+                    ComboBox { enabled: root.is-synth; model: ["Legacy Sine", "Warm Saw", "Hollow Pulse", "Soft Triangle", "Short Pluck"]; current-index <=> root.factory-index; }
+                    preset-apply := Button { text: "Apply"; enabled: root.is-synth;
+                        clicked => { root.factory-preset(root.track-id, root.instance-id, root.factory-index); } }
+                }
+                waveform-combo := ComboBox { height: 30px; enabled: root.is-synth; model: ["Sine", "Saw", "Square / PWM", "Triangle"]; current-index <=> root.synth-wave;
+                    selected(value) => { root.synth-parameter(root.track-id, root.instance-id, 0, self.current-index); root.finish-mix(); } }
+                Text { height: 18px; text: "Shape  " + round(root.synth-shape * 100) + "%  ·  sine → wave"; color: #c7d4e5; }
+                shape-slider := Slider { height: 26px; enabled: root.is-synth && root.synth-wave != 0; minimum: 0; maximum: 1; value <=> root.synth-shape;
+                    changed(value) => { root.synth-parameter(root.track-id, root.instance-id, 1, value); } released(value) => { root.finish-mix(); } }
+                Text { height: 18px; text: "Pulse width  " + round(root.synth-duty * 100) + "%"; color: #c7d4e5; }
+                duty-slider := Slider { height: 26px; enabled: root.is-synth && root.synth-wave == 2; minimum: 0.05; maximum: 0.95; value <=> root.synth-duty;
+                    changed(value) => { root.synth-parameter(root.track-id, root.instance-id, 2, value); } released(value) => { root.finish-mix(); } }
+                HorizontalLayout { height: 30px;
+                    Text { text: "Attack · ms"; color: #c7d4e5; vertical-alignment: center; }
+                    attack-spin := SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 10000; value <=> root.synth-attack;
+                        edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 3, value / 1000.0); root.finish-mix(); } }
+                }
+                HorizontalLayout { height: 30px;
+                    Text { text: "Decay · ms"; color: #c7d4e5; vertical-alignment: center; }
+                    SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 10000; value <=> root.synth-decay;
+                        edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 4, value / 1000.0); root.finish-mix(); } }
+                }
+                HorizontalLayout { height: 30px;
+                    Text { text: "Sustain · %"; color: #c7d4e5; vertical-alignment: center; }
+                    SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 100; value <=> root.synth-sustain;
+                        edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 5, value / 100.0); root.finish-mix(); } }
+                }
+                HorizontalLayout { height: 30px;
+                    Text { text: "Release · ms"; color: #c7d4e5; vertical-alignment: center; }
+                    SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 20000; value <=> root.synth-release;
+                        edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 6, value / 1000.0); root.finish-mix(); } }
+                }
+                Text { height: 32px; text: "ADSR applies to new notes.\nWave / shape / PWM fade in 10 ms."; color: #96abc0; font-size: 10px; }
+                Text { height: 28px; text: "Volume / pan: Track tab.\nOne oscillator · independent voices."; color: #96abc0; font-size: 10px; }
+                Rectangle { height: 1px; background: #293747; }
+                Text { height: 18px; text: "USER PRESET"; color: #8295ad; font-size: 11px; }
+                LineEdit { height: 30px; text <=> root.preset-name; placeholder-text: "Preset name"; }
+                LineEdit { height: 30px; text <=> root.preset-path; placeholder-text: "Path to .synth.json"; }
+                HorizontalLayout { height: 30px; spacing: 5px;
+                    save-preset-button := Button { text: "Save preset"; enabled: root.is-synth; clicked => { root.save-synth-preset(root.track-id, root.instance-id, root.preset-path, root.preset-name); } }
+                    load-preset-button := Button { text: "Load preset"; enabled: root.is-synth; clicked => { root.load-synth-preset(root.track-id, root.instance-id, root.preset-path); } }
+                }
+                Text { height: 28px; text: "Presets copy values into this track.\nNotes and track volume are retained."; color: #96abc0; font-size: 10px; }
                 Rectangle { vertical-stretch: 1; }
             }
             VerticalLayout {

@@ -1,10 +1,27 @@
 # OpenDAW — avanzamento M3
 
-Aggiornamento del 22 ottobre 2026 nel checkout aggiornato
+Aggiornamento del 23 ottobre 2026 nel checkout aggiornato
 `/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive`.
 La fondazione M3.1 è stata prima salvata nel commit `966a8c4`, come richiesto.
 La baseline precedente era `add95d9cfb7f9ffc38e43a6754365fac8a880a53`.
 Nessun recupero del vecchio ZIP e nessun aggiornamento delle dipendenze.
+
+## M3.4 implementato — 23 ottobre 2026
+
+Baseline `e0f33f4`. Inspector Sound con sine/saw/square-PWM/triangle, shape,
+ADSR per nuova voce, cinque preset factory e file preset utente versionati.
+Preset indipendenti, modified, undo/redo e duplicazione; controlli live senza
+rebuild. Snapshot mix+synth coerenti, coda limitata, retry e stato export aggiornato.
+Tabelle antialias immutabili condivise; niente nuova allocazione/lock nel callback.
+
+Verifica: 36 test headless / 52 UI, build release, cinque suite native, 75 casi FFT
+fino a 7040 Hz a 44,1/48/96 kHz (spuria peggiore −78,19 dBr), ASan/UBSan, TSan,
+10.001 render senza new/delete e probe UI con interazioni reali a 100/200%.
+Render v1 identico. Restano 16 tracce; M3.5 batteria e M3.6 capacità/hardware sono
+successivi. Ascolto e dispositivo fisico Mac/Windows ancora da validare.
+
+[Uso, decisioni DSP, contratti, limiti ed evidenze](M3_4_TRACK_SYNTH.md).
+Evidenze nuove `evidence/m34-*`; le sezioni sotto conservano lo storico precedente.
 
 ## M3.3 implementato — 23 ottobre 2026
 
@@ -53,8 +70,8 @@ Evidenze nuove `evidence/m33-*`; le sezioni seguenti conservano lo storico M3.2.
   un progetto caricato/export è già corretto dal primo campione.
 
 Creazione/spostamento/ridimensionamento delle clip, tastiera verticale e velocity
-sono state successivamente implementate in M3.3, come descritto sopra. Non sono stati implementati nuovi synth, pad, routing condiviso o
-asset batteria. Gli edit strutturali continuano a fermare il playback.
+sono state successivamente implementate in M3.3, come descritto sopra. I synth sono stati successivamente estesi in M3.4; pad, routing condiviso e
+asset batteria restano successivi. Gli edit strutturali continuano a fermare il playback.
 
 ## Contratti di consegna e real-time
 

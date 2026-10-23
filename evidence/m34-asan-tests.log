@@ -1,0 +1,15 @@
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m34-asan
+    Start 1: original_audio_core
+1/5 Test #1: original_audio_core ..............   Passed    1.06 sec
+    Start 2: interactive_service
+2/5 Test #2: interactive_service ..............   Passed    8.67 sec
+    Start 3: pure_c_abi
+3/5 Test #3: pure_c_abi .......................   Passed    0.44 sec
+    Start 4: per_track_synth
+4/5 Test #4: per_track_synth ..................   Passed    2.87 sec
+    Start 5: callback_cpp_allocations
+5/5 Test #5: callback_cpp_allocations .........   Passed    0.85 sec
+
+100% tests passed out of 5
+
+Total Test time (real) =  14.18 sec

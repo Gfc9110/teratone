@@ -1,10 +1,18 @@
-use crate::project::{Instrument, Project};
+use crate::{project::{Instrument, Project},synth::SynthParameters};
 use std::{ffi::{c_char, CStr, CString}, marker::PhantomData, path::Path, ptr::NonNull, rc::Rc};
 
 #[repr(C)] struct RawEngine { _private: [u8; 0] }
 #[repr(C)] struct RawNote { id: u64, start_frame: u64, end_frame: u64, track: u32, pitch: u32, velocity: u32 }
 #[repr(C)] struct RawTrack { gain: f32, pan: f32, sample_path_utf8: *const c_char, root_note: u32, one_shot: u32 }
 #[repr(C)] struct RawTrackV2 { struct_size: u32, version: u32, base: RawTrack, mute: u32, solo: u32 }
+#[repr(C)] #[derive(Clone,Copy)] struct RawSynth {
+    struct_size:u32,version:u32,waveform:u32,shape:f32,pulse_width:f32,attack:f32,decay:f32,sustain:f32,release:f32,
+}
+impl From<SynthParameters> for RawSynth {
+    fn from(p:SynthParameters)->Self{Self{struct_size:std::mem::size_of::<Self>() as u32,version:1,waveform:p.waveform.index(),shape:p.shape,pulse_width:p.pulse_width,attack:p.attack,decay:p.decay,sustain:p.sustain,release:p.release}}
+}
+#[repr(C)] struct RawTrackV3 {struct_size:u32,version:u32,base:RawTrackV2,synth:RawSynth}
+#[repr(C)] #[derive(Clone,Copy)] struct RawParameters {mix:RawTrackMix,synth:RawSynth}
 #[repr(C)] #[derive(Default, Clone, Copy)] struct RawTrackMix { gain: f32, pan: f32, mute: u32, solo: u32 }
 #[repr(C)] #[derive(Default, Debug, Clone, Copy)]
 pub struct MixStatus { pub generation: u64, pub submitted: u64, pub applied: u64 }
@@ -21,8 +29,8 @@ extern "C" {
     fn od_error_message() -> *const c_char;
     fn od_create(rate: u32, block: u32) -> *mut RawEngine;
     fn od_destroy(e: *mut RawEngine);
-    fn od_load_v2(e: *mut RawEngine, tracks: *const RawTrackV2, count: usize, notes: *const RawNote, note_count: usize, length: u64) -> i32;
-    fn od_set_mix_v1(e: *mut RawEngine, generation: u64, tracks: *const RawTrackMix, count: usize, serial: *mut u64) -> i32;
+    fn od_load_v3(e: *mut RawEngine, tracks: *const RawTrackV3, count: usize, notes: *const RawNote, note_count: usize, length: u64) -> i32;
+    fn od_set_parameters_v1(e: *mut RawEngine, generation: u64, tracks: *const RawParameters, count: usize, serial: *mut u64) -> i32;
     fn od_read_mix_status_v1(e: *const RawEngine, status: *mut MixStatus) -> i32;
     fn od_play(e: *mut RawEngine) -> i32;
     fn od_pause(e: *mut RawEngine) -> i32;
@@ -48,7 +56,7 @@ fn check(code: i32) -> Result<(), String> { if code == 0 { Ok(()) } else { Err(l
 /// Exactly one control-thread owner. Not Send/Sync; no raw pointer exposed to UI code.
 /// C++ owns the audio consumer and joins it before destroying/replacing its graph.
 pub struct Engine {
-    raw: NonNull<RawEngine>, rate: u32, generation: u64, track_ids: Vec<u64>, _single_owner: PhantomData<Rc<()>>,
+    raw: NonNull<RawEngine>, rate: u32, generation: u64, track_ids: Vec<(u64,u64)>, _single_owner: PhantomData<Rc<()>>,
 }
 impl Engine {
     pub fn new(rate: u32, block: u32) -> Result<Self, String> {
@@ -62,16 +70,16 @@ impl Engine {
     pub fn load(&mut self, project: &Project) -> Result<(), String> {
         project.validate()?;
         let paths: Vec<Option<CString>> = project.tracks.iter().map(|track| match &track.instrument.config {
-            Instrument::Sine => Ok(None),
+            Instrument::Sine | Instrument::Synth { .. } => Ok(None),
             Instrument::Sampler { sample_path, .. } => CString::new(sample_path.as_bytes()).map(Some).map_err(|e| e.to_string()),
         }).collect::<Result<_, String>>()?;
         let tracks: Vec<_> = project.tracks.iter().zip(paths.iter()).map(|(track, path)| {
             let (root_note, one_shot) = match &track.instrument.config {
-                Instrument::Sine => (60, 0), Instrument::Sampler { root_note, one_shot, .. } => (*root_note as u32, u32::from(*one_shot)),
+                Instrument::Sine | Instrument::Synth { .. } => (60, 0), Instrument::Sampler { root_note, one_shot, .. } => (*root_note as u32, u32::from(*one_shot)),
             };
-            RawTrackV2 { struct_size: std::mem::size_of::<RawTrackV2>() as u32, version: 2,
+            RawTrackV3 {struct_size:std::mem::size_of::<RawTrackV3>() as u32,version:3,synth:track.instrument.config.synth().unwrap_or_default().into(),base:RawTrackV2 { struct_size: std::mem::size_of::<RawTrackV2>() as u32, version: 2,
                 base: RawTrack { gain: track.gain, pan: track.pan, sample_path_utf8: path.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()), root_note, one_shot },
-                mute: u32::from(track.mute), solo: u32::from(track.solo) }
+                mute: u32::from(track.mute), solo: u32::from(track.solo) }}
         }).collect();
         let rate = self.rate;
         let mut notes = Vec::with_capacity(project.note_count());
@@ -88,9 +96,9 @@ impl Engine {
             }
         }
         // All arrays/C strings remain alive for this synchronous, copying call.
-        check(unsafe { od_load_v2(self.raw.as_ptr(), tracks.as_ptr(), tracks.len(), notes.as_ptr(), notes.len(), project.frame_at(project.length_ticks, self.rate)) })?;
+        check(unsafe { od_load_v3(self.raw.as_ptr(), tracks.as_ptr(), tracks.len(), notes.as_ptr(), notes.len(), project.frame_at(project.length_ticks, self.rate)) })?;
         self.generation = self.mix_status()?.generation;
-        self.track_ids = project.tracks.iter().map(|t| t.id).collect(); Ok(())
+        self.track_ids = project.tracks.iter().map(|t| (t.id,t.instrument.id)).collect(); Ok(())
     }
     pub fn play(&mut self) -> Result<(), String> { check(unsafe { od_play(self.raw.as_ptr()) }) }
     pub fn pause(&mut self) -> Result<(), String> { check(unsafe { od_pause(self.raw.as_ptr()) }) }
@@ -111,13 +119,13 @@ impl Engine {
         check(unsafe { od_gain_pan(self.raw.as_ptr(), index, gain, pan) })
     }
     pub fn try_mix(&mut self, project: &Project) -> Result<Option<u64>, String> {
-        if project.tracks.len() > 16 || !project.tracks.iter().map(|t| t.id).eq(self.track_ids.iter().copied()) {
+        if project.tracks.len() > 16 || !project.tracks.iter().map(|t| (t.id,t.instrument.id)).eq(self.track_ids.iter().copied()) {
             return Err("Mixer slots changed; compile the current project before live updates".into());
         }
-        let mut tracks = [RawTrackMix::default(); 16];
-        for (out, t) in tracks.iter_mut().zip(&project.tracks) { *out = RawTrackMix { gain: t.gain, pan: t.pan, mute: u32::from(t.mute), solo: u32::from(t.solo) }; }
+        let mut tracks = [RawParameters{mix:RawTrackMix::default(),synth:SynthParameters::default().into()}; 16];
+        for (out, t) in tracks.iter_mut().zip(&project.tracks) { *out = RawParameters{mix:RawTrackMix { gain: t.gain, pan: t.pan, mute: u32::from(t.mute), solo: u32::from(t.solo) },synth:t.instrument.config.synth().unwrap_or_default().into()}; }
         let mut serial = 0;
-        let code = unsafe { od_set_mix_v1(self.raw.as_ptr(), self.generation, tracks.as_ptr(), project.tracks.len(), &mut serial) };
+        let code = unsafe { od_set_parameters_v1(self.raw.as_ptr(), self.generation, tracks.as_ptr(), project.tracks.len(), &mut serial) };
         if code == 2 { return Ok(None); }
         check(code)?; Ok(Some(serial))
     }
@@ -214,6 +222,24 @@ impl Drop for Engine { fn drop(&mut self) { unsafe { od_destroy(self.raw.as_ptr(
         let quiet:f32=a.render(1024).unwrap().iter().map(|v|v.abs()).sum();let loud:f32=b.render(1024).unwrap().iter().map(|v|v.abs()).sum();assert!(loud>quiet*4.0);
         assert!(a.live_note_velocity(0,2,60,0,true).is_err());
         a.live_note(0,1,60,false).unwrap();let tail=a.render(4096).unwrap();assert!(tail[tail.len()-512..].iter().all(|v|*v==0.0));
+    }
+
+    #[test] fn accepted_synth_parameters_update_native_export_before_callback_consumption() {
+        let mut p=Project::demo();let mut live=Engine::new(48000,256).unwrap();live.load(&p).unwrap();
+        let preset=crate::synth::SynthPreset::factory(2).unwrap();p.tracks[0].instrument.config=Instrument::Synth{parameters:preset.parameters,preset:Some(preset)};
+        assert!(live.try_mix(&p).unwrap().is_some());let mut reference=Engine::new(48000,256).unwrap();reference.load(&p).unwrap();
+        let root=std::env::temp_dir().join(format!("opendaw-m34-export-{}",std::process::id()));std::fs::create_dir_all(&root).unwrap();
+        live.export(&root.join("accepted.wav"),24000).unwrap();reference.export(&root.join("prepared.wav"),24000).unwrap();
+        assert_eq!(std::fs::read(root.join("accepted.wav")).unwrap(),std::fs::read(root.join("prepared.wav")).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn three_synth_presets_survive_save_and_reopen_with_independent_audio() {
+        use crate::project::{Edit,History};let mut p=Project::demo();let mut h=History::default();h.execute(&mut p,Edit::DuplicateTrack{track:1}).unwrap();
+        for (index,t) in p.tracks.iter_mut().enumerate(){let preset=crate::synth::SynthPreset::factory(index+1).unwrap();t.instrument.config=Instrument::Synth{parameters:preset.parameters,preset:Some(preset)};}
+        let root=std::env::temp_dir().join(format!("opendaw-m34-project-{}",std::process::id()));crate::storage::save(&root,&p).unwrap();let saved=crate::storage::load(&root).unwrap();assert_eq!(p,saved);
+        p.tracks[0].mute=true;let mut a=Engine::new(48000,256).unwrap();a.load(&p).unwrap();a.play().unwrap();let before=a.render(24000).unwrap();
+        p.tracks[0].instrument.config=Instrument::Sine;let mut b=Engine::new(48000,256).unwrap();b.load(&p).unwrap();b.play().unwrap();assert_eq!(before,b.render(24000).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
 }

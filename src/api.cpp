@@ -36,10 +36,16 @@ od_result command(od_engine* e, daw::Command c) {
 }
 }
 namespace {
+daw::SynthConfig decodeSynth(const od_synth_v1& s) {
+    daw::SynthConfig c{static_cast<daw::Waveform>(s.waveform), s.shape, s.pulse_width, s.attack, s.decay, s.sustain, s.release};
+    if (s.struct_size != sizeof(od_synth_v1) || s.version != OD_SYNTH_V1_VERSION || !c.valid())
+        throw std::invalid_argument("Invalid synth descriptor/version/range");
+    return c;
+}
 od_result loadSession(od_engine* e, const od_track* tracks, const od_track_v2* tracksV2,
-                      size_t trackCount, const od_note* notes, size_t noteCount, uint64_t length) {
+                      size_t trackCount, const od_note* notes, size_t noteCount, uint64_t length, const od_track_v3* tracksV3 = nullptr) {
 
-        if (!e || (!tracks && !tracksV2) || !trackCount || trackCount > daw::MaxTracks || (noteCount && !notes) || noteCount > 100000)
+        if (!e || (!tracks && !tracksV2 && !tracksV3) || !trackCount || trackCount > daw::MaxTracks || (noteCount && !notes) || noteCount > 100000)
             return invalid("Invalid project arrays/limits");
         daw::SessionSpec candidate;
         candidate.sampleRate = e->spec.sampleRate; candidate.maxFrames = e->spec.maxFrames;
@@ -47,14 +53,18 @@ od_result loadSession(od_engine* e, const od_track* tracks, const od_track_v2* t
         std::unordered_map<std::string, std::shared_ptr<const daw::SampleData>> samples;
         uint64_t residentBytes = 0;
         for (size_t i = 0; i < trackCount; ++i) {
-            if (tracksV2 && (tracksV2[i].struct_size != sizeof(od_track_v2) || tracksV2[i].version != OD_TRACK_V2_VERSION ||
-                tracksV2[i].mute > 1 || tracksV2[i].solo > 1)) return invalid("Invalid v2 track descriptor");
-            const auto& t = tracksV2 ? tracksV2[i].base : tracks[i];
+            if (tracksV3 && (tracksV3[i].struct_size != sizeof(od_track_v3) || tracksV3[i].version != OD_TRACK_V3_VERSION))
+                return invalid("Invalid v3 track descriptor");
+            const od_track_v2* v2 = tracksV3 ? &tracksV3[i].base : tracksV2 ? &tracksV2[i] : nullptr;
+            if (v2 && (v2->struct_size != sizeof(od_track_v2) || v2->version != OD_TRACK_V2_VERSION ||
+                v2->mute > 1 || v2->solo > 1)) return invalid("Invalid v2 track descriptor");
+            const auto& t = v2 ? v2->base : tracks[i];
             if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.root_note > 127 || t.one_shot > 1)
                 return invalid("Invalid track parameters");
             daw::TrackSettings settings;
             settings.gain = std::clamp(t.gain, 0.0f, 2.0f); settings.pan = std::clamp(t.pan, -1.0f, 1.0f);
-            settings.mute = tracksV2 && tracksV2[i].mute; settings.solo = tracksV2 && tracksV2[i].solo;
+            settings.mute = v2 && v2->mute; settings.solo = v2 && v2->solo;
+            if (tracksV3) settings.synth = decodeSynth(tracksV3[i].synth);
             settings.rootNote = static_cast<uint8_t>(t.root_note); settings.oneShot = t.one_shot != 0;
             if (t.sample_path_utf8 && t.sample_path_utf8[0]) {
                 std::string key(t.sample_path_utf8);
@@ -85,10 +95,11 @@ od_result loadSession(od_engine* e, const od_track* tracks, const od_track_v2* t
         return OD_OK;
 
 }
-od_result setMix(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, size_t count, uint64_t* outSerial) {
+od_result setMix(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, size_t count, uint64_t* outSerial, const od_parameters_v1* params = nullptr) {
     if (!e || !mix || !outSerial || count != e->spec.tracks.size() || generation != e->generation)
         return invalid("Invalid mixer count, generation or output");
-    daw::MixSnapshot snapshot;
+    daw::MixSnapshot snapshot; snapshot.updateSynths = params != nullptr;
+    if (params) for (size_t i = 0; i < count; ++i) snapshot.synths[i] = decodeSynth(params[i].synth);
     for (size_t i = 0; i < count; ++i) {
         const auto& t = mix[i];
         if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.gain < 0 || t.gain > 2 || t.pan < -1 || t.pan > 1 || t.mute > 1 || t.solo > 1)
@@ -99,6 +110,7 @@ od_result setMix(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, 
     if (!e->service->submitMix(snapshot, serial)) { setError("Mixer queue full; retain and retry the latest snapshot"); return OD_QUEUE_FULL; }
     for (size_t i = 0; i < count; ++i) {
         auto& t = e->spec.tracks[i]; t.gain = mix[i].gain; t.pan = mix[i].pan; t.mute = mix[i].mute != 0; t.solo = mix[i].solo != 0;
+        if (params) t.synth = snapshot.synths[i];
     }
     *outSerial = serial; return OD_OK;
 }
@@ -122,6 +134,17 @@ od_result od_load(od_engine* e, const od_track* tracks, size_t count, const od_n
 }
 od_result od_load_v2(od_engine* e, const od_track_v2* tracks, size_t count, const od_note* notes, size_t noteCount, uint64_t length) noexcept {
     return protect([&] { return loadSession(e, nullptr, tracks, count, notes, noteCount, length); });
+}
+od_result od_load_v3(od_engine* e, const od_track_v3* tracks, size_t count, const od_note* notes, size_t noteCount, uint64_t length) noexcept {
+    return protect([&] { return loadSession(e, nullptr, nullptr, count, notes, noteCount, length, tracks); });
+}
+od_result od_set_parameters_v1(od_engine* e, uint64_t generation, const od_parameters_v1* params, size_t count, uint64_t* serial) noexcept {
+    return protect([&] {
+        if (!params || count > daw::MaxTracks) return invalid("Invalid parameter array");
+        std::array<od_track_mix_v1, daw::MaxTracks> mix{};
+        for (size_t i = 0; i < count; ++i) mix[i] = params[i].mix;
+        return setMix(e, generation, mix.data(), count, serial, params);
+    });
 }
 od_result od_set_mix_v1(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, size_t count, uint64_t* serial) noexcept {
     return protect([&] { return setMix(e, generation, mix, count, serial); });

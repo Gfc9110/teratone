@@ -70,7 +70,10 @@ int main() {
         if (block % 4 == 0) {
             daw::MixSnapshot mix; mix.tracks[0].gain = 0.5f; mix.tracks[1].gain = 0.7f;
             mix.tracks[0].mute = block % 8 == 0; mix.tracks[1].solo = block % 12 == 0;
-            uint64_t serial = 0; engine.submitMix(mix, serial);
+            uint64_t serial = 0; mix.updateSynths = true; mix.synths[0].waveform = static_cast<daw::Waveform>((block / 4) % 4);
+            mix.synths[0].shape = static_cast<float>(block % 100) / 100; mix.synths[0].pulseWidth = block % 8 ? .05f : .95f;
+            mix.synths[0].release = block % 12 ? 0 : 20;
+            engine.submitMix(mix, serial);
         }
         engine.render(out.data(), 256);
         (void)engine.telemetry();

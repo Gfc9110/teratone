@@ -52,6 +52,7 @@ EngineService::EngineService(const SessionSpec& spec)
     std::vector<size_t> inputs;
     inputs.reserve(trackCount_);
     const bool anySolo = std::any_of(spec.tracks.begin(), spec.tracks.end(), [](const auto& t) { return t.solo; });
+    const auto bank = OscillatorBank::shared(sampleRate_);
     for (uint32_t i = 0; i < trackCount_; ++i) {
         const auto& settings = spec.tracks[i];
         std::unique_ptr<InstrumentNode> instrument;
@@ -59,7 +60,7 @@ EngineService::EngineService(const SessionSpec& spec)
             instrument = std::make_unique<SamplerNode>(settings.sample, settings.rootNote, settings.oneShot);
         } else {
             auto synth = std::make_unique<SynthNode>();
-            synth->setADSR(0.006f, 0.06f, 0.75f, 0.06f);
+            synth->setBank(bank); synth->configure(settings.synth); synths_[i] = synth.get();
             instrument = std::move(synth);
         }
         instruments_[i] = instrument.get();
@@ -113,7 +114,8 @@ bool EngineService::setPan(uint32_t track, float pan) noexcept {
 bool EngineService::submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept {
     for (uint32_t i = 0; i < trackCount_; ++i) {
         const auto& t = snapshot.tracks[i];
-        if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.gain < 0 || t.gain > 2 || t.pan < -1 || t.pan > 1) {
+        if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.gain < 0 || t.gain > 2 || t.pan < -1 || t.pan > 1 ||
+            (snapshot.updateSynths && !snapshot.synths[i].valid())) {
             meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false;
         }
     }
@@ -125,9 +127,13 @@ bool EngineService::submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept {
     serial = ++mixSerial_; return true;
 }
 void EngineService::consumeMix() noexcept {
-    MixSnapshot next, latest; bool changed = false;
+    MixSnapshot next, latest; bool changed = false, synthChanged = false;
+    std::array<SynthConfig, MaxTracks> synths{};
     // Bounded even if the producer continues filling the queue.
-    for (size_t n = 0; n < 8 && mixQueue_.pop(next); ++n) { latest = next; changed = true; }
+    for (size_t n = 0; n < 8 && mixQueue_.pop(next); ++n) {
+        latest = next; changed = true;
+        if (next.updateSynths) { synths = next.synths; synthChanged = true; }
+    }
     if (!changed) return;
     bool anySolo = false;
     for (uint32_t i = 0; i < trackCount_; ++i) anySolo |= latest.tracks[i].solo;
@@ -135,6 +141,7 @@ void EngineService::consumeMix() noexcept {
         const auto& t = latest.tracks[i];
         gains_[i]->setGain(t.gain); gains_[i]->setPan(t.pan);
         gates_[i]->setAudible(!t.mute && (!anySolo || t.solo));
+        if (synthChanged && synths_[i]) synths_[i]->applyConfig(synths[i]);
     }
     mixApplied_.store(latest.serial, std::memory_order_release);
 }

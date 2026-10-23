@@ -19,10 +19,11 @@ struct SessionNote {
 };
 struct TrackSettings {
     float gain = 0.8f, pan = 0;
-    std::shared_ptr<const SampleData> sample; // null -> existing sine synthesizer
+    std::shared_ptr<const SampleData> sample; // null -> independent oscillator synth
     uint8_t rootNote = 60;
     bool oneShot = false;
     bool mute = false, solo = false;
+    SynthConfig synth;
 };
 struct SessionSpec {
     double sampleRate = 48000;
@@ -33,7 +34,12 @@ struct SessionSpec {
 };
 
 struct TrackMix { float gain = 0.8f, pan = 0; bool mute = false, solo = false; };
-struct MixSnapshot { std::array<TrackMix, MaxTracks> tracks{}; uint64_t serial = 0; };
+struct MixSnapshot {
+    std::array<TrackMix, MaxTracks> tracks{};
+    uint64_t serial = 0;
+    std::array<SynthConfig, MaxTracks> synths{};
+    bool updateSynths = false; // legacy mixer commands preserve the last synth snapshot
+};
 
 enum class CommandType : uint32_t { Play, Pause, Seek, Loop, NoteOn, NoteOff };
 struct Command {
@@ -76,6 +82,7 @@ private:
     struct Scheduled { uint64_t frame; uint32_t track; BlockNoteEvent event; };
     Graph graph_;
     std::array<InstrumentNode*, MaxTracks> instruments_{};
+    std::array<SynthNode*, MaxTracks> synths_{};
     std::array<GainPanNode*, MaxTracks> gains_{};
     std::array<AudibilityNode*, MaxTracks> gates_{};
     SpscQueue<MixSnapshot, 9> mixQueue_; // eight coherent snapshots, independent of note traffic

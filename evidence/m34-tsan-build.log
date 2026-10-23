@@ -1,0 +1,35 @@
+[  8%] Building CXX object CMakeFiles/open_daw_core.dir/src/engine.cpp.o
+[  8%] Building CXX object CMakeFiles/open_daw_core.dir/src/wav.cpp.o
+[ 12%] Linking CXX static library lib/libopen_daw_core.a
+[ 12%] Built target open_daw_core
+[ 20%] Building CXX object CMakeFiles/daw_demo.dir/src/main.cpp.o
+[ 20%] Building CXX object CMakeFiles/open_daw_tests.dir/tests/tests.cpp.o
+[ 24%] Building CXX object CMakeFiles/open_daw_engine.dir/src/service.cpp.o
+[ 28%] Building CXX object CMakeFiles/open_daw_engine.dir/src/media.cpp.o
+[ 32%] Linking CXX executable daw_demo
+[ 36%] Building CXX object CMakeFiles/open_daw_engine.dir/src/device.cpp.o
+[ 36%] Built target daw_demo
+[ 40%] Linking CXX executable open_daw_tests
+[ 40%] Built target open_daw_tests
+[ 44%] Linking CXX static library lib/libopen_daw_engine.a
+[ 44%] Built target open_daw_engine
+[ 48%] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[ 56%] Building CXX object CMakeFiles/open_daw_api.dir/src/api.cpp.o
+[ 56%] Building CXX object CMakeFiles/allocation_probe.dir/tests/allocation_probe.cpp.o
+[ 60%] Building CXX object CMakeFiles/daw_session.dir/src/session_main.cpp.o
+[ 64%] Linking CXX executable allocation_probe
+[ 64%] Built target allocation_probe
+[ 68%] Linking CXX executable daw_session
+[ 72%] Linking CXX static library lib/libopen_daw_api_static.a
+[ 76%] Linking CXX shared library libopen_daw_api.dylib
+[ 76%] Built target daw_session
+[ 76%] Built target open_daw_api_static
+[ 76%] Built target open_daw_api
+[ 80%] Linking CXX executable api_smoke
+[ 84%] Building CXX object CMakeFiles/service_tests.dir/tests/service_tests.cpp.o
+[ 88%] Building CXX object CMakeFiles/synth_tests.dir/tests/synth_tests.cpp.o
+[ 92%] Built target api_smoke
+[ 96%] Linking CXX executable synth_tests
+[ 96%] Built target synth_tests
+[100%] Linking CXX executable service_tests
+[100%] Built target service_tests
