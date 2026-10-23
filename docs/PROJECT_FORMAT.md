@@ -1,4 +1,4 @@
-# Project format v2 — M3.2
+# Project format v2 — M3.3
 
 The application reads v1 and v2 and writes v2. Opening a v1 project migrates it
 in memory without rewriting its source file. The example under
@@ -74,10 +74,17 @@ Clips must fit inside the project, and notes inside their clip; checked addition
 rejects integer overflow. Overlapping clips sum their events with distinct note
 IDs. The bridge compiles absolute start/end frames using the actual engine rate.
 A note duration that rounds below one frame is rejected before native loading.
-The current editor selects one existing clip at a time. New tracks and migrated
-v1 tracks receive one full-length `Main` clip. M3.2 shows existing clips in aligned
-arrangement lanes and selects them for editing. Clip creation/movement/resizing
-controls follow in M3.3.
+The editor selects one clip at a time. New tracks and migrated v1 tracks receive
+one full-length Main clip. M3.3 adds clip CRUD and transfer/resize controls. A new
+clip is four beats; duplication deep-copies notes with new IDs. Clip operations
+may extend project length up to the validated 24-hour limit; that extension is
+part of the same inverse command. Shrinking through notes is rejected. Ordinary
+removal keeps project length. Empty tracks are valid and can create clips again.
+Selected clip color follows its track; overlapping events sum with distinct IDs.
+
+Velocity remains the existing integer 1–127, now editable. Keyboard notation and
+per-clip viewport caches are session UI state, absent from project.json and undo.
+C3/C4/C5 labels never transpose saved pitches or alter the compiled event score.
 
 Limits remain 16 tracks (matching native capacity), 100,000 notes total, 4,096
 clips, 24 hours, 32 MiB manifest and a 128 MiB new-asset-copy budget per save.

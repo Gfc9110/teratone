@@ -1,0 +1,8 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `release` profile [optimized] target(s) in 6.86s
+     Running `app/target/release/examples/mixer_probe`
+16 tracks / 100000 notes: arrangement scene p95 0.753 ms; max 400 thumbnail rectangles
+M3.3 piano scene + keyboard, same 100k-note project: p95 0.021 ms; max 300 note rectangles / 25 keys
+Control-thread prepare: 15.528 ms
+5000 headless 256-frame calls, 48 kHz, periodic mixer snapshots: p95 0.111 ms, max 0.680 ms (Rust buffer allocation included)
+Not the M3.6 hardware gate: no physical device, 32/64 tracks, or fixed 8 voices/track claim.

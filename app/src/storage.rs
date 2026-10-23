@@ -204,4 +204,19 @@ pub fn export_atomic(path: &Path, project: &Project) -> Result<(), String> {
         assert!(data[44..].iter().all(|b| *b == 0)); fs::remove_dir_all(path).unwrap();
     }
 
+    #[test] fn two_clip_twenty_note_duplicate_is_independent_after_save_reopen() {
+        use crate::project::{Edit,History,PPQ};let path=directory();let mut p=Project::demo();let mut h=History::default();let clip=p.next_id;
+        h.execute(&mut p,Edit::AddClip{track:1,start:8*PPQ,length:8*PPQ}).unwrap();
+        for i in 0..12 {h.execute(&mut p,Edit::AddNote{track:1,clip,start:i*PPQ/4,duration:PPQ/4,pitch:60+(i%12) as u8,velocity:90}).unwrap();}
+        let original=p.tracks[0].clone();assert_eq!(original.clips.iter().map(|c|c.notes.len()).sum::<usize>(),20);
+        let copy=p.next_id;h.execute(&mut p,Edit::DuplicateTrack{track:1}).unwrap();let copied=p.track(copy).unwrap();assert_eq!(copied.clips.len(),2);
+        assert_ne!(copied.instrument.id,original.instrument.id);
+        let (copy_clip,note)=(copied.clips[1].id,copied.clips[1].notes[0].id);
+        h.execute(&mut p,Edit::Velocity{track:copy,clip:copy_clip,note,value:12}).unwrap();
+        h.execute(&mut p,Edit::MoveClip{track:copy,clip:copy_clip,destination:2,start:4*PPQ}).unwrap();
+        assert_eq!(p.track(1).unwrap(),&original);save(&path,&p).unwrap();let loaded=load(&path).unwrap();assert_eq!(loaded,p);
+        assert_eq!(loaded.clip(2,copy_clip).unwrap().notes[0].velocity,12);assert_eq!(loaded.track(1).unwrap(),&original);
+        fs::remove_dir_all(path).unwrap();
+    }
+
 }

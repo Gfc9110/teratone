@@ -6,19 +6,8 @@ export struct TrackVisual {
     id: string, name: string, tint: color, instrument: string, selected: bool,
     mute: bool, solo: bool, audible: bool, clips: [ClipVisual],
 }
+export struct KeyVisual { pitch: int, y: float, h: float, black: bool, c: bool, label: string }
 export struct NoteVisual { x: float, y: float, w: float, h: float, selected: bool, label: string }
-component Pad inherits Rectangle {
-    in property <string> label;
-    callback gate(bool);
-    background: touch.pressed ? #72dfb8 : #263445; border-radius: 4px;
-    Text { text: root.label; color: touch.pressed ? #0d1117 : #dce6f0; horizontal-alignment: center; vertical-alignment: center; }
-    touch := TouchArea {
-        pointer-event(event) => {
-            if event.kind == PointerEventKind.down { root.gate(true); }
-            if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { root.gate(false); }
-        }
-    }
-}
 export component AppWindow inherits Window {
     init => { Palette.color-scheme = ColorScheme.dark; }
     title: "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
@@ -59,11 +48,26 @@ export component AppWindow inherits Window {
     in property <bool> export-busy;
     in property <float> peak-left;
     in property <float> peak-right;
-    in property <float> playhead-x;
+    private property <float> playhead-x: (root.project-position - root.clip-start-beat - root.scroll-beat)*root.pixels-per-beat;
     in property <float> project-position;
     in property <float> pixels-per-beat: 64;
     in property <float> scroll-beat;
-    in property <int> top-note: 73;
+    in property <float> piano-scroll-y;
+    in property <float> piano-row-height: 16;
+    in property <[KeyVisual]> key-items;
+    in property <string> instance-id;
+    in property <string> selected-note-id: "0";
+    in-out property <int> note-velocity: 100;
+    in-out property <int> notation-index: 1;
+    in-out property <length> piano-bar-y;
+    in-out property <length> piano-bar-x;
+    in property <string> clip-id: "0";
+    in property <float> clip-length-beats;
+    in-out property <string> clip-name-draft;
+    private property <length> keyboard-width: 76px;
+    private property <int> piano-first-beat: floor(root.scroll-beat);
+    private property <int> piano-beat-count: ceil(root.canvas-width/root.pixels-per-beat)+2;
+    private property <int> piano-first-line: floor(root.scroll-beat*4);
     in property <[NoteVisual]> note-items;
     in property <float> project-beats: 16;
     in property <bool> arrangement-limited;
@@ -81,7 +85,7 @@ export component AppWindow inherits Window {
     private property <int> arrangement-first-beat: max(0, floor(-root.arrangement-x / 1px / root.arrangement-zoom));
     private property <int> arrangement-beat-count: ceil(root.lane-width / root.arrangement-zoom) + 2;
     private property <length> inspector-width: root.inspector-visible ? 280px : 0px;
-    private property <length> arrangement-height: max(152px, min(224px, root.height - 596px));
+    private property <length> arrangement-height: max(144px, min(208px, root.height - 596px));
     private property <string> drag-id;
     private property <bool> dragging;
     private property <int> drag-index: -1;
@@ -96,6 +100,14 @@ export component AppWindow inherits Window {
     out property <float> rows-height: rows.visible-height / 1px;
     out property <float> row-size: root.row-height / 1px;
     out property <float> header-size: root.header-width / 1px;
+    out property <float> keyboard-x: keyboard.absolute-position.x/1px;
+    out property <float> keyboard-y: keyboard.absolute-position.y/1px;
+    out property <float> new-clip-x: new-clip-button.absolute-position.x/1px+new-clip-button.width/2px;
+    out property <float> new-clip-y: new-clip-button.absolute-position.y/1px+new-clip-button.height/2px;
+    out property <float> duplicate-clip-x: dup-clip-button.absolute-position.x/1px+dup-clip-button.width/2px;
+    out property <float> duplicate-clip-y: dup-clip-button.absolute-position.y/1px+dup-clip-button.height/2px;
+    out property <float> remove-clip-x: remove-clip-button.absolute-position.x/1px+remove-clip-button.width/2px;
+    out property <float> remove-clip-y: remove-clip-button.absolute-position.y/1px+remove-clip-button.height/2px;
     out property <float> grid-x: grid.absolute-position.x / 1px;
     out property <float> grid-y: grid.absolute-position.y / 1px;
     out property <float> play-x: play-button.absolute-position.x / 1px + play-button.width / 2px;
@@ -121,16 +133,68 @@ export component AppWindow inherits Window {
     callback toggle-mute(string); callback toggle-solo(string);
     callback tempo(int); callback set-gain(string, float); callback set-pan(string, float); callback finish-mix();
     callback undo(); callback redo(); callback remove-note();
+    callback zoom-y(float); callback fit-notes(); callback notation(int); callback scroll-piano(float,float);
+    callback key-gate(int,bool); callback release-audition(); callback cancel-note(); callback velocity(int);
+    callback new-clip(string,float); callback duplicate-clip(string,string); callback remove-clip(string,string);
+    callback rename-clip(string,string,string); callback move-clip(string,string,string,float); callback resize-clip(string,string,float);
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
     callback down(float, float, bool); callback moved(float, float); callback up(float, float);
-    callback audition(string, int, bool); callback save-project(string); callback open-project(string);
+    callback save-project(string); callback open-project(string);
     callback export-audio(string); callback import-sample(string, string, int, bool); callback use-sine(string);
     callback exit-confirmed();
+    private property <string> clip-drag-id;
+    private property <string> clip-drag-track;
+    private property <float> clip-press-beat;
+    private property <float> clip-press-y;
+    private property <float> clip-pointer-x;
+    private property <float> clip-pointer-y;
+    private property <float> clip-base-start;
+    private property <float> clip-base-length;
+    private property <float> clip-preview-start;
+    private property <float> clip-preview-length;
+    private property <int> clip-target-index;
+    private property <bool> clip-resizing;
+    private property <bool> clip-dragging;
+    public function piano-wheel(dx:float,dy:float) {
+        root.piano-bar-y=min(0px,max(min(0px,root.canvas-height*1px - 128*root.piano-row-height*1px),root.piano-bar-y+dy*1px));
+        root.piano-bar-x=min(0px,max(min(0px,root.canvas-width*1px - root.clip-length-beats*root.pixels-per-beat*1px),root.piano-bar-x+dx*1px));
+        root.scroll-piano(-root.piano-bar-x/1px/root.pixels-per-beat,-root.piano-bar-y/1px);
+    }
+    public function cancel-interactions() {
+        root.clip-drag-id="";root.clip-dragging=false;root.drag-id="";root.dragging=false;root.drop-index=-1;
+        root.release-audition();root.cancel-note();
+    }
+    public function update-clip-drag() {
+        if root.clip-drag-id!="" {
+            let beat=(root.clip-pointer-x - root.rows-x - root.header-size - root.arrangement-x/1px)/root.arrangement-zoom;
+            let delta=round((beat - root.clip-press-beat)*4)/4;
+            if abs(delta)>0 || abs(root.clip-pointer-y - root.clip-press-y)>5 {root.clip-dragging=true;}
+            if root.clip-resizing {root.clip-preview-length=max(0.25,root.clip-base-length+delta);}
+            else {
+                root.clip-preview-start=max(0,root.clip-base-start+delta);
+                root.clip-target-index=max(0,min(root.track-items.length - 1,floor((root.clip-pointer-y - root.rows-y - root.arrangement-y/1px)/root.row-size)));
+            }
+        }
+    }
+    public function reveal-clip() {
+        let start=root.clip-start-beat*root.arrangement-zoom*1px+root.arrangement-x;
+        let end=start+root.clip-length-beats*root.arrangement-zoom*1px;
+        if root.clip-id!="0" && min(end,root.lane-width*1px) - max(start,0px)<min(100px,root.clip-length-beats*root.arrangement-zoom*1px) {
+            root.arrangement-x=-max(0,root.clip-start-beat - 1)*root.arrangement-zoom*1px;root.clamp-scroll();
+        }
+    }
     public function reveal-selected() {
         root.arrangement-y = min(0px, max(min(0px, rows.visible-height - rows.content-height),
             max(-root.track-index * root.row-height, min(root.arrangement-y, rows.visible-height - (root.track-index + 1) * root.row-height))));
     }
     public function tick-drag() {
+        if root.clip-drag-id!="" && root.clip-dragging {
+            if root.clip-pointer-y<root.rows-y+24 {root.arrangement-y=min(0px,root.arrangement-y+8px);}
+            if root.clip-pointer-y>root.rows-y+root.rows-height - 24 {root.arrangement-y=max(min(0px,rows.visible-height - rows.content-height),root.arrangement-y - 8px);}
+            if root.clip-pointer-x<root.rows-x+root.header-size+24 {root.arrangement-x=min(0px,root.arrangement-x+8px);}
+            if root.clip-pointer-x>root.rows-x+root.header-size+root.lane-width - 24 {root.arrangement-x=max(min(0px,horizontal.visible-width - horizontal.content-width),root.arrangement-x - 8px);}
+            root.update-clip-drag();
+        }
         if root.drag-id != "" && root.dragging {
             if root.drag-pointer < root.rows-y + 24 { root.arrangement-y = min(0px, root.arrangement-y + 8px); }
             if root.drag-pointer > root.rows-y + root.rows-height - 24 {
@@ -187,8 +251,11 @@ export component AppWindow inherits Window {
                 TouchArea { clicked => { root.seek-project((self.mouse-x - root.arrangement-x) / 1px / root.arrangement-zoom); } }
             }
         }
+        clip-focus := FocusScope {
+            x:0;y:64px;width:parent.width;height:root.arrangement-height;
+            focus-lost(reason) => {root.cancel-interactions();}
         rows := ScrollView {
-            x: 0; y: 64px; width: parent.width; height: root.arrangement-height;
+            x: 0; y: 0; width: parent.width; height: parent.height;
             content-width: self.visible-width; content-height: max(self.visible-height, root.track-items.length * root.row-height);
             content-y <=> root.arrangement-y;
             horizontal-scrollbar-policy: always-off; vertical-scrollbar-policy: always-on;
@@ -203,7 +270,7 @@ export component AppWindow inherits Window {
                         x: 4px; y: 0; width: 24px; height: parent.height;
                         pointer-event(event) => {
                             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                                root.drag-id = track.id; root.drag-index = index; root.drag-start = self.absolute-position.y / 1px + self.mouse-y / 1px;
+                                clip-focus.focus();root.drag-id = track.id; root.drag-index = index; root.drag-start = self.absolute-position.y / 1px + self.mouse-y / 1px;
                                 root.drag-pointer = root.drag-start; root.dragging = false;
                             }
                             if event.kind == PointerEventKind.up && root.drag-id == track.id {
@@ -244,6 +311,7 @@ export component AppWindow inherits Window {
                     }
                     TouchArea {
                         clicked => { root.select-track(track.id); }
+                        double-clicked => {root.new-clip(track.id,max(0,round((self.mouse-x - root.arrangement-x)/1px/root.arrangement-zoom*4)/4));}
                         scroll-event(event) => {
                             if event.delta-x != 0px { root.arrangement-x += event.delta-x; root.clamp-scroll(); return accept; }
                             reject
@@ -252,6 +320,7 @@ export component AppWindow inherits Window {
                     for clip in track.clips : Rectangle {
                         x: clip.start * root.arrangement-zoom * 1px + root.arrangement-x; y: 7px;
                         width: max(4px, clip.length * root.arrangement-zoom * 1px - 2px); height: parent.height - 14px;
+                        opacity: root.clip-drag-id==clip.id && root.clip-dragging ? 0.35 : 1;
                         border-radius: 4px; background: track.audible ? track.tint.with-alpha(0.30) : track.tint.with-alpha(0.12);
                         border-width: clip.selected ? 2px : 1px; border-color: clip.selected ? #d8edee : track.tint.with-alpha(0.5);
                         Text { x: 8px; y: 5px; width: parent.width - 16px; height: 15px; text: clip.name; color: #d4e6ed; font-size: 11px; overflow: elide; }
@@ -263,7 +332,34 @@ export component AppWindow inherits Window {
                                 background: track.audible ? track.tint : #6a7c88;
                             }
                         }
-                        TouchArea { clicked => { root.select-clip(track.id, clip.id); }
+                        clip-touch := TouchArea {
+                            mouse-cursor: self.mouse-x>self.width - 9px ? ew-resize : grab;
+                            pointer-event(event) => {
+                                if event.kind==PointerEventKind.down && event.button==PointerEventButton.left {
+                                    clip-focus.focus();root.clip-drag-id=clip.id;root.clip-drag-track=track.id;
+                                    root.clip-pointer-x=self.absolute-position.x/1px+self.mouse-x/1px;
+                                    root.clip-pointer-y=self.absolute-position.y/1px+self.mouse-y/1px;
+                                    root.clip-press-beat=(root.clip-pointer-x - root.rows-x - root.header-size - root.arrangement-x/1px)/root.arrangement-zoom;
+                                    root.clip-press-y=root.clip-pointer-y;root.clip-base-start=clip.start;root.clip-base-length=clip.length;
+                                    root.clip-preview-start=clip.start;root.clip-preview-length=clip.length;
+                                    root.clip-target-index=index;root.clip-resizing=self.mouse-x>self.width - 9px;root.clip-dragging=false;
+                                }
+                                if event.kind==PointerEventKind.up && root.clip-drag-id==clip.id {
+                                    if root.clip-dragging {
+                                        if root.clip-resizing {root.resize-clip(track.id,clip.id,root.clip-preview-length);}
+                                        else {root.move-clip(track.id,clip.id,root.track-items[root.clip-target-index].id,root.clip-preview-start);}
+                                    } else {root.select-clip(track.id,clip.id);}
+                                    root.clip-drag-id="";root.clip-dragging=false;
+                                }
+                                if event.kind==PointerEventKind.cancel {root.clip-drag-id="";root.clip-dragging=false;}
+                            }
+                            moved => {
+                                if self.pressed && root.clip-drag-id==clip.id {
+                                    root.clip-pointer-x=self.absolute-position.x/1px+self.mouse-x/1px;
+                                    root.clip-pointer-y=self.absolute-position.y/1px+self.mouse-y/1px;root.update-clip-drag();
+                                }
+                            }
+                            Tooltip {text:@markdown("Drag to move · right edge to resize · snap 1/16");}
                             scroll-event(event) => {
                                 if event.delta-x != 0px { root.arrangement-x += event.delta-x; root.clamp-scroll(); return accept; }
                                 reject
@@ -276,9 +372,20 @@ export component AppWindow inherits Window {
                 }
                 Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: #324254; }
             }
+            if root.clip-dragging : Rectangle {
+                x:root.header-width;y:0;width:rows.visible-width - self.x;height:rows.content-height;clip:true;
+                Rectangle {
+                    x:root.clip-preview-start*root.arrangement-zoom*1px+root.arrangement-x;
+                    y:root.clip-target-index*root.row-height+7px;
+                    width:max(4px,root.clip-preview-length*root.arrangement-zoom*1px - 2px);height:root.row-height - 14px;
+                    background:#79dfb94d;border-width:2px;border-color:#efffd8;border-radius:4px;
+                    Text {x:6px;y:4px;text:root.clip-resizing ? "Resize · "+root.clip-preview-length+" beats" : "Move · beat "+(root.clip-preview-start+1);color:#efffd8;}
+                }
+            }
             if root.dragging && root.drop-index >= 0 : Rectangle {
                 x: 0; y: (root.drop-index + (root.drop-index > root.drag-index ? 1 : 0)) * root.row-height; width: rows.visible-width; height: 3px; background: #ffe39b;
             }
+        }
         }
         horizontal := ScrollView {
             x: root.header-width; y: 64px + root.arrangement-height; width: parent.width - self.x - 12px; height: 18px;
@@ -286,73 +393,119 @@ export component AppWindow inherits Window {
             content-height: self.visible-height; content-x <=> root.arrangement-x;
             horizontal-scrollbar-policy: always-on; vertical-scrollbar-policy: always-off;
         }
+        HorizontalLayout {
+            x:0;y:86px+root.arrangement-height;width:parent.width;height:28px;spacing:5px;
+            Text {text:"CLIPS";color:#95abc2;vertical-alignment:center;font-size:10px;}
+            new-clip-button := Button {text:"+ Clip";clicked=>{root.new-clip(root.track-id,root.clip-id!="0" ? root.clip-start-beat+root.clip-length-beats : root.project-position);}}
+            dup-clip-button := Button {text:"Duplicate";enabled:root.clip-id!="0";clicked=>{root.duplicate-clip(root.track-id,root.clip-id);}}
+            remove-clip-button := Button {text:"Remove";enabled:root.clip-id!="0";clicked=>{root.remove-clip(root.track-id,root.clip-id);}}
+            LineEdit {text<=>root.clip-name-draft;enabled:root.clip-id!="0";placeholder-text:"Clip name · Enter to apply";accepted=>{root.rename-clip(root.track-id,root.clip-id,self.text);}}
+        }
         editor := Rectangle {
-            x: 0; y: 92px + root.arrangement-height; width: parent.width; height: parent.height - self.y;
+            x:0;y:122px+root.arrangement-height;width:parent.width;height:parent.height - self.y;
             HorizontalLayout {
-                x: 0; y: 0; width: parent.width; height: 30px; spacing: 4px;
-                undo-button := Button { text: "Undo"; enabled: root.can-undo; clicked => { root.undo(); } }
-                Button { text: "Redo"; enabled: root.can-redo; clicked => { root.redo(); } }
-                Button { text: "Delete note"; clicked => { root.remove-note(); } }
-                Rectangle { horizontal-stretch: 1; }
-                Button { text: "←"; clicked => { root.pan-view(-4); } }
-                Button { text: "→"; clicked => { root.pan-view(4); } }
-                Button { text: "−"; clicked => { root.zoom(0.8); } }
-                Button { text: "+"; clicked => { root.zoom(1.25); } }
-                Button { text: "Oct −"; clicked => { root.pitch-view(-12); } }
-                Button { text: "Oct +"; clicked => { root.pitch-view(12); } }
+                x:0;y:0;width:parent.width;height:28px;spacing:3px;
+                undo-button := Button {text:"Undo";enabled:root.can-undo;clicked=>{root.undo();}}
+                Button {text:"Redo";enabled:root.can-redo;clicked=>{root.redo();}}
+                Button {text:"Delete note";enabled:root.selected-note-id!="0";clicked=>{root.remove-note();}}
+                Rectangle {horizontal-stretch:1;}
+                Button {text:"X−";clicked=>{root.zoom(0.8);}}
+                Button {text:"X+";clicked=>{root.zoom(1.25);}}
+                Button {text:"Y−";clicked=>{root.zoom-y(0.8);}}
+                Button {text:"Y+";clicked=>{root.zoom-y(1.25);}}
+                Button {text:"Fit notes";clicked=>{root.fit-notes();}}
+                Button {text:"Oct−";clicked=>{root.pitch-view(-12);}}
+                Button {text:"Oct+";clicked=>{root.pitch-view(12);}}
             }
             HorizontalLayout {
-                x: 0; y: 30px; width: parent.width; height: 24px; spacing: 6px;
-                Text { text: "CLIP · " + root.track-name; color: #a6bbd2; vertical-alignment: center; }
-                ComboBox { model: root.clip-names; current-index <=> root.clip-index; enabled: root.clip-ids.length > 0;
-                    selected(value) => { if self.current-index >= 0 && self.current-index < root.clip-ids.length {
-                        root.select-clip(root.track-id, root.clip-ids[self.current-index]); } } }
-                Text { text: "Start " + (root.clip-start-beat + 1); color: #8199b2; vertical-alignment: center; }
-                Rectangle { horizontal-stretch: 1; }
+                x:0;y:33px;width:parent.width;height:26px;spacing:5px;
+                Text {text:"CLIP";color:#a6bbd2;vertical-alignment:center;font-size:10px;}
+                ComboBox {model:root.clip-names;current-index<=>root.clip-index;enabled:root.clip-id!="0";
+                    selected(value)=>{if self.current-index>=0 && self.current-index<root.clip-ids.length {root.select-clip(root.track-id,root.clip-ids[self.current-index]);}}}
+                Text {text:"Start "+(root.clip-start-beat+1)+" · "+root.clip-length-beats+" beats · 1/16";color:#8199b2;vertical-alignment:center;font-size:10px;}
+                Rectangle {horizontal-stretch:1;}
+                Text {text:"Middle C";color:#a5bbcc;vertical-alignment:center;font-size:10px;}
+                ComboBox {width:76px;model:["C3","C4","C5"];current-index<=>root.notation-index;selected(value)=>{root.notation(self.current-index - 1);}}
             }
+            Rectangle {x:0;y:64px;width:root.keyboard-width;height:20px;background:#243445;
+                Text {text:"KEY / MIDI";color:#a6bfca;font-size:9px;horizontal-alignment:center;vertical-alignment:center;}}
             Rectangle {
-                x: 0; y: 58px; height: 19px; width: parent.width; background: #1a2532; clip: true;
-                for beat in 64 : Text { x: beat * root.pixels-per-beat * 1px + 4px; y: 3px;
-                    text: root.scroll-beat + beat + 1; color: #a2b5cc; font-size: 10px; }
-                TouchArea { clicked => { root.seek(root.scroll-beat + self.mouse-x / 1px / root.pixels-per-beat); } }
+                x:root.keyboard-width;y:64px;width:parent.width - self.x - 12px;height:20px;background:#1a2532;clip:true;
+                for beat in root.piano-beat-count : Text {
+                    x:(beat+root.piano-first-beat - root.scroll-beat)*root.pixels-per-beat*1px+3px;y:3px;
+                    text:beat+root.piano-first-beat+1;color:#a2b5cc;font-size:10px;
+                }
+                TouchArea {clicked=>{root.seek(root.scroll-beat+self.mouse-x/1px/root.pixels-per-beat);}}
             }
-            grid := Rectangle {
-                x: 0; y: 78px; width: parent.width; height: max(200px, parent.height - 123px); background: #101923; clip: true;
-                for row in 128 : Rectangle {
-                    x: 0; y: row * 16px; width: parent.width; height: 16px;
-                    background: Math.mod(root.top-note - row + 120, 12) == 1 || Math.mod(root.top-note - row + 120, 12) == 3 ||
-                        Math.mod(root.top-note - row + 120, 12) == 6 || Math.mod(root.top-note - row + 120, 12) == 8 ||
-                        Math.mod(root.top-note - row + 120, 12) == 10 ? #131e2a : #172332;
-                    Rectangle { x: 0; y: parent.height - 1px; height: 1px; width: parent.width; background: #233246; }
-                }
-                for beat in 256 : Rectangle { x: beat * root.pixels-per-beat / 4 * 1px; y: 0; width: 1px; height: parent.height;
-                    background: Math.mod(beat, 4) == 0 ? #35475e : #202e40; }
-                for note in root.note-items : Rectangle {
-                    x: note.x * 1px; y: note.y * 1px; width: note.w * 1px; height: note.h * 1px;
-                    background: note.selected ? #e7c77b : #62bfa6; border-radius: 2px;
-                    Text { x: 4px; y: 0; width: parent.width - 5px; height: parent.height; text: note.label;
-                        color: #102b29; font-size: 9px; vertical-alignment: center; overflow: elide; }
-                }
-                if root.playhead-x >= 0 && root.playhead-x < root.canvas-width : Rectangle {
-                    x: root.playhead-x * 1px; y: 0; width: 2px; height: parent.height; background: #edf8ff;
-                }
-                touch := TouchArea {
-                    pointer-event(event) => {
-                        if event.kind == PointerEventKind.down { root.down(self.mouse-x / 1px, self.mouse-y / 1px, event.button == PointerEventButton.right); }
-                        if event.kind == PointerEventKind.up { root.up(self.mouse-x / 1px, self.mouse-y / 1px); }
-                        if event.kind == PointerEventKind.cancel { root.stop(); }
+            piano-focus := FocusScope {
+                x:0;y:85px;width:parent.width - 12px;height:max(160px,parent.height - 130px);
+                focus-lost(reason)=>{root.release-audition();root.cancel-note();}
+                keyboard := Rectangle {
+                    x:0;y:0;width:root.keyboard-width;height:parent.height;clip:true;background:#d2dfe5;
+                    for key in root.key-items : Rectangle {
+                        x:0;y:key.y*1px;width:parent.width;height:key.h*1px;
+                        background:key-touch.pressed ? #84deb8 : key.black ? #1b2c3c : #d7e2e8;
+                        Rectangle {x:0;y:0;width:key.c ? 4px : 0px;height:parent.height;background:#52b892;}
+                        Rectangle {x:0;y:parent.height - 1px;width:parent.width;height:1px;background:key.c ? #4d987f : #8196a7;}
+                        Text {x:7px;y:0;width:parent.width - 13px;height:parent.height;text:key.label;
+                            color:key.black ? #dae8f1 : #193343;font-size:key.h>=22 ? 12px : 10px;font-weight:key.c ? 700 : 400;vertical-alignment:center;horizontal-alignment:right;}
+                        key-touch := TouchArea {
+                            accessible-role:button;accessible-label:key.label+" · MIDI "+key.pitch;
+                            pointer-event(event)=>{
+                                if event.kind==PointerEventKind.down && event.button==PointerEventButton.left {piano-focus.focus();root.key-gate(key.pitch,true);}
+                                if event.kind==PointerEventKind.up || event.kind==PointerEventKind.cancel {root.key-gate(key.pitch,false);}
+                            }
+                            moved=>{if self.pressed && (self.mouse-x<0px || self.mouse-x>=self.width || self.mouse-y<0px || self.mouse-y>=self.height) {root.release-audition();}}
+                            scroll-event(event)=>{root.piano-wheel(event.delta-x/1px,event.delta-y/1px);accept}
+                            Tooltip {text:@markdown("\{key.label} · MIDI \{key.pitch}");}
+                        }
                     }
-                    moved => { root.moved(self.mouse-x / 1px, self.mouse-y / 1px); }
+                }
+                grid := Rectangle {
+                    x:root.keyboard-width;y:0;width:parent.width - self.x;height:parent.height;background:#101923;clip:true;
+                    for key in root.key-items : Rectangle {
+                        x:0;y:key.y*1px;width:parent.width;height:key.h*1px;background:key.black ? #131e2a : #172332;
+                        Rectangle {x:0;y:parent.height - 1px;height:1px;width:parent.width;background:key.c ? #41705c : #233246;}
+                    }
+                    for line in root.piano-beat-count*4+4 : Rectangle {
+                        x:((line+root.piano-first-line)/4 - root.scroll-beat)*root.pixels-per-beat*1px;y:0;width:1px;height:parent.height;
+                        background:Math.mod(line+root.piano-first-line,4)==0 ? #35475e : #202e40;
+                    }
+                    Rectangle {x:root.clip-length-beats*root.pixels-per-beat*1px - root.scroll-beat*root.pixels-per-beat*1px;y:0;width:max(0px,parent.width - self.x);height:parent.height;background:#070c13b0;}
+                    for note in root.note-items : Rectangle {
+                        x:note.x*1px;y:note.y*1px;width:note.w*1px;height:note.h*1px;
+                        background:note.selected ? #e7c77b : #62bfa6;border-radius:2px;
+                        Text {x:3px;y:0;width:parent.width - 5px;height:parent.height;text:note.label;color:#102b29;font-size:9px;vertical-alignment:center;overflow:elide;}
+                    }
+                    if root.playhead-x>=0 && root.playhead-x<root.canvas-width : Rectangle {x:root.playhead-x*1px;y:0;width:2px;height:parent.height;background:#edf8ff;}
+                    TouchArea {
+                        pointer-event(event)=>{
+                            if event.kind==PointerEventKind.down {piano-focus.focus();root.down(self.mouse-x/1px,self.mouse-y/1px,event.button==PointerEventButton.right);}
+                            if event.kind==PointerEventKind.up {root.up(self.mouse-x/1px,self.mouse-y/1px);}
+                            if event.kind==PointerEventKind.cancel {root.cancel-note();}
+                        }
+                        moved=>{root.moved(self.mouse-x/1px,self.mouse-y/1px);}
+                        scroll-event(event)=>{root.piano-wheel(event.delta-x/1px,event.delta-y/1px);accept}
+                    }
                 }
             }
-            Text { x: 0; y: parent.height - 39px; width: parent.width; height: 14px; text: root.selected-label;
-                color: #93a7bd; font-size: 10px; overflow: elide; }
+            ScrollView {
+                x:parent.width - 12px;y:piano-focus.y;width:12px;min-width:12px;height:piano-focus.height;
+                content-width:self.visible-width;content-height:128*root.piano-row-height*1px;content-y<=>root.piano-bar-y;
+                horizontal-scrollbar-policy:always-off;vertical-scrollbar-policy:always-on;
+                scrolled=>{root.scroll-piano(-root.piano-bar-x/1px/root.pixels-per-beat,-self.content-y/1px);}
+            }
+            ScrollView {
+                x:root.keyboard-width;y:piano-focus.y+piano-focus.height;width:parent.width - self.x - 12px;height:16px;min-height:16px;
+                content-width:max(self.visible-width,root.clip-length-beats*root.pixels-per-beat*1px);content-height:self.visible-height;content-x<=>root.piano-bar-x;
+                horizontal-scrollbar-policy:always-on;vertical-scrollbar-policy:always-off;
+                scrolled=>{root.scroll-piano(-self.content-x/1px/root.pixels-per-beat,-root.piano-bar-y/1px);}
+            }
             HorizontalLayout {
-                x: 0; y: parent.height - 22px; width: parent.width; height: 20px; spacing: 5px;
-                Text { text: "AUDITION"; color: #7e92a9; vertical-alignment: center; font-size: 10px; }
-                for pitch in [60, 62, 64, 65, 67, 69, 71, 72] : Pad {
-                    label: pitch; gate(on) => { root.audition(root.track-id, pitch, on); }
-                }
+                x:0;y:parent.height - 25px;width:parent.width;height:24px;spacing:5px;
+                Text {text:root.selected-label;color:#93a7bd;font-size:10px;overflow:elide;horizontal-stretch:1;vertical-alignment:center;}
+                Text {text:"Velocity";color:#a0b6c9;vertical-alignment:center;font-size:10px;}
+                SpinBox {width:82px;value<=>root.note-velocity;minimum:1;maximum:127;enabled:root.selected-note-id!="0";edited(value)=>{root.velocity(value);}}
             }
         }
     }

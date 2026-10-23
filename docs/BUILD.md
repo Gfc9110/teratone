@@ -1,8 +1,18 @@
 # Build, run, and validation
 
+## M3.3 increment — 23 October 2026
+
+Current gates pass: 31 headless / 45 UI-enabled Rust tests, both release binaries,
+v1 validate/render and four native suites. The real-controller software probe adds
+clip CRUD/drag/resize, vertical keyboard, notation, velocity and release on window
+exit/focus loss. Three vertical zooms and 100/200% layouts were rendered and
+inspected. The v1 WAV remains byte-identical. See [M3.3 report](M3_3_CLIPS_PIANO_ROLL.md)
+and `evidence/m33-*`. Native C++ is unchanged; the sanitizer results below describe
+M3.2. Physical audio, Windows and macOS Intel remain untested.
+
 ## M3.2 increment — 22 October 2026
 
-Current gates: 24 headless / 33 UI-enabled Rust tests, release binaries, v1
+Historical M3.2 gates: 24 headless / 33 UI-enabled Rust tests, release binaries, v1
 migration/render, four native suites (18 service checks) and shared-library checks.
 The software probe uses the real silent controller at 1280×820, 1000×760 and
 1000×760 logical at 200%; covers mixer, inspector, selection, scrolling and drag
@@ -198,6 +208,13 @@ failures and passing tests on the supported host matrix. Apply `cargo fmt --all`
 and review formatting before committing; rustfmt was not available here.
 
 ## Application interaction implemented in source
+
+The app starts with the two-track example. Use the CLIPS toolbar or double-click
+an empty lane to create a MIDI clip. Drag the body between tracks or its right edge
+to resize; clipping existing notes is refused. Clip changes and any automatic
+project extension undo together. The piano keyboard shows note names and auditions
+the track without recording. Use X/Y zoom, scrollbars, Fit notes, Middle C notation
+and the selected-note Velocity control. See the M3.3 report for exact semantics.
 
 The app starts with the two-track example. Select an arrangement header or MIDI clip. The inspector shows its instance and
 Master output. Mute/solo work in both headers and inspector; solo is cumulative

@@ -101,8 +101,11 @@ impl Engine {
         check(unsafe { od_loop(self.raw.as_ptr(), u32::from(enabled), begin, end) })
     }
     pub fn live_note(&mut self, track: u32, id: u64, pitch: u8, on: bool) -> Result<(), String> {
-        if id == 0 || id >= (1u64 << 63) { return Err("Invalid live ID".into()); }
-        check(unsafe { od_live_note(self.raw.as_ptr(), track, id | (1u64 << 63), pitch as u32, 100, u32::from(on)) })
+        self.live_note_velocity(track,id,pitch,100,on)
+    }
+    pub fn live_note_velocity(&mut self,track:u32,id:u64,pitch:u8,velocity:u8,on:bool)->Result<(),String> {
+        if id==0 || id>=(1u64<<63) || pitch>127 || !(1..=127).contains(&velocity) {return Err("Invalid live ID or MIDI value".into());}
+        check(unsafe {od_live_note(self.raw.as_ptr(),track,id | (1u64<<63),pitch as u32,velocity as u32,u32::from(on))})
     }
     pub fn mix(&mut self, index: u32, gain: f32, pan: f32) -> Result<(), String> {
         check(unsafe { od_gain_pan(self.raw.as_ptr(), index, gain, pan) })
@@ -190,6 +193,27 @@ impl Drop for Engine { fn drop(&mut self) { unsafe { od_destroy(self.raw.as_ptr(
         let serial = e.try_mix(&p).unwrap().unwrap(); e.render(256).unwrap(); assert_eq!(e.mix_status().unwrap().applied, serial);
         p.tracks.swap(0, 1); assert!(e.try_mix(&p).is_err());
         e.load(&p).unwrap(); assert!(e.try_mix(&p).unwrap().is_some());
+    }
+
+    #[test] fn overlapping_and_transferred_clips_flatten_without_lost_notes() {
+        use crate::project::{Edit,History,PPQ};let mut p=Project::demo();let mut h=History::default();let id=p.next_id;
+        h.execute(&mut p,Edit::DuplicateClip{track:1,clip:4}).unwrap();
+        h.execute(&mut p,Edit::MoveClip{track:1,clip:id,destination:2,start:PPQ}).unwrap();
+        let mut flat=p.clone();
+        for t in &mut flat.tracks {
+            let notes=t.clips.iter().flat_map(|c|c.notes.iter().map(move|n|{let mut n=n.clone();n.start+=c.start_tick;n})).collect();
+            t.clips.truncate(1);t.clips[0].start_tick=0;t.clips[0].length_ticks=p.length_ticks;t.clips[0].notes=notes;
+        }
+        let mut a=Engine::new(48000,256).unwrap();let mut b=Engine::new(48000,256).unwrap();
+        a.load(&p).unwrap();b.load(&flat).unwrap();a.play().unwrap();b.play().unwrap();
+        let frames=p.frame_at(p.length_ticks,48000) as u32;assert_eq!(a.render(frames).unwrap(),b.render(frames).unwrap());
+    }
+    #[test] fn explicit_live_velocity_changes_audio_and_rejects_zero() {
+        let mut a=Engine::new(48000,256).unwrap();let mut b=Engine::new(48000,256).unwrap();let p=Project::demo();a.load(&p).unwrap();b.load(&p).unwrap();
+        a.live_note_velocity(0,1,60,20,true).unwrap();b.live_note_velocity(0,1,60,120,true).unwrap();
+        let quiet:f32=a.render(1024).unwrap().iter().map(|v|v.abs()).sum();let loud:f32=b.render(1024).unwrap().iter().map(|v|v.abs()).sum();assert!(loud>quiet*4.0);
+        assert!(a.live_note_velocity(0,2,60,0,true).is_err());
+        a.live_note(0,1,60,false).unwrap();let tail=a.render(4096).unwrap();assert!(tail[tail.len()-512..].iter().all(|v|*v==0.0));
     }
 
 }

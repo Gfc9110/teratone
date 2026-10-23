@@ -26,7 +26,7 @@ pub fn scene(project: &Project, viewport: ArrangementViewport, selected_track: u
     let any_solo = project.tracks.iter().any(|t| t.solo);
     let mut count = 0; let mut limited = false;
     let rows = project.tracks.iter().map(|t| {
-        let clips = t.clips.iter().filter_map(|c| {
+        let mut clips:Vec<ClipPreview> = t.clips.iter().filter_map(|c| {
             let start = c.start_tick as f32 / PPQ as f32; let length = c.length_ticks as f32 / PPQ as f32;
             if start + length <= viewport.start || start >= right { return None; }
             if count == 256 { limited = true; return None; } count += 1;
@@ -46,6 +46,7 @@ pub fn scene(project: &Project, viewport: ArrangementViewport, selected_track: u
             })).collect();
             Some(ClipPreview { id: c.id, name: c.name.clone(), start, length, selected: selected_track == t.id && selected_clip == Some(c.id), notes })
         }).collect();
+        clips.sort_by_key(|c|c.selected); // the selected overlapping clip stays reachable on top
         TrackRow { id: t.id, name: t.name.clone(), color: t.color.clone(), instrument: t.instrument.config.label().into(), selected: selected_track == t.id,
             mute: t.mute, solo: t.solo, audible: !t.mute && (!any_solo || t.solo), clips }
     }).collect();

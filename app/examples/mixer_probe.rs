@@ -20,6 +20,13 @@ fn main() {
         let rects=rows.iter().flat_map(|t| &t.clips).map(|c|c.notes.len()).sum::<usize>(); max_rects=max_rects.max(rects);
     }
     println!("16 tracks / {} notes: arrangement scene p95 {:.3} ms; max {max_rects} thumbnail rectangles",p.note_count(),p95(&mut scenes));
+    let mut piano_times=Vec::new();let mut keys_max=0;let mut notes_max=0;
+    for i in 0..100 {
+        let viewport=opendaw_app::editor::Viewport{start_tick:i*PPQ/2,pixels_per_beat:48.0,scroll_y:55.0*16.0,height:400.0,..Default::default()};
+        let start=Instant::now();let (notes,capped)=viewport.scene(&p,1,4,None,None);let keys=viewport.keys();assert!(!capped);
+        piano_times.push(start.elapsed().as_secs_f64()*1000.0);notes_max=notes_max.max(notes.len());keys_max=keys_max.max(keys.len());
+    }
+    println!("M3.3 piano scene + keyboard, same 100k-note project: p95 {:.3} ms; max {notes_max} note rectangles / {keys_max} keys",p95(&mut piano_times));
     let mut e=Engine::new(48000,256).unwrap(); let start=Instant::now(); e.load(&p).unwrap();
     println!("Control-thread prepare: {:.3} ms",start.elapsed().as_secs_f64()*1000.0); e.play().unwrap();
     let mut blocks=Vec::new();

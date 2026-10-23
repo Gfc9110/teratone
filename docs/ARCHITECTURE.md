@@ -127,8 +127,9 @@ exports to a sibling temporary file and replaces the destination after success.
 
 ## Presentation
 
-Selection, viewport, drag previews, snapping and hit-testing live in editor.rs,
-not in DSP or Slint objects. Persistent edits are committed at gesture completion.
+Note selection, viewport transforms, note previews, snapping and hit-testing live
+in editor.rs. The Slint arrangement holds a transient clip-drag ghost; the
+controller/project validate the final ID/tick transaction on release. Persistent edits are committed at gesture completion.
 The first UI uses Slint primitives: viewport culling and a 3,000-visible-note cap
 avoid an object per note in the full document. The cap is displayed, not applied
 to playback. Building the scene/hit test still scans the track and creates text
@@ -171,7 +172,30 @@ The C++ graph, DSP and C ABI v1 are unchanged in this increment.
 
 In M3.1, the sidebar exposed track CRUD/order/properties and the editor could
 select existing MIDI clips. M3.2 replaces that presentation with arrangement rows
-and inspector, and adds persistent live mute/solo. Clip manipulation, the vertical
-keyboard, expanded synth and multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
+and inspector, and adds persistent live mute/solo. M3.3 adds clip manipulation,
+vertical keyboard, velocity, notation and scoped audition. Expanded synth and
+multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
 for exact scope, evidence and remaining limitations; PROJECT_FORMAT.md documents
 the implemented v2 fields rather than the broader proposed handoff model.
+
+## M3.3 clip editing and piano keyboard — 23 October 2026
+
+Clip transactions preserve content, global IDs, array order and any automatic
+project-length extension in a single undo. Resize rejects note truncation. Transfer
+keeps clip/note identities and uses the destination track's instrument. No duplicate
+mutable score is added; export flattens absolute starts with the same bridge.
+
+Viewport uses `(127-pitch)*row_height-scroll_y`; visible key rows and note rectangles
+come from this shared transform. The grid TouchArea starts after the keyboard.
+Gesture requests contain track/clip/token and the displayed viewport. A canceled
+or old gesture cannot commit into another selection. A bounded cache remembers
+viewports by clip ID; notation changes only text and remains session-local.
+
+Audition maps gesture tokens to original track/instance/pitch and native occurrence
+IDs, with explicit live velocity. RELEASE has a separate epoch from Stop and
+invalidates pending audition-ons without discarding document edits or new Play.
+Slint focus/cancel/exit and selection lifecycle release the original token.
+Stable key models keep a held key alive across unrelated ACK/views. C++ DSP and
+callback execution are unchanged; the Rust bridge uses the existing live-note ABI.
+
+See M3_3_CLIPS_PIANO_ROLL.md and evidence/m33-* for measured scope and limitations.

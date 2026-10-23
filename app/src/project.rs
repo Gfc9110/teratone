@@ -82,12 +82,16 @@ fn validate_track(track: &Track, length: u64, next: u64, ids: &mut HashSet<u64>)
     if !valid_color(&track.color) { return Err("Track color must be #RRGGBB".into()); }
     validate_mix(track.gain, track.pan)?; validate_instrument(&track.instrument.config)?;
     for clip in &track.clips {
-        identity(ids, clip.id, next)?; validate_name(&clip.name)?;
-        if clip.length_ticks == 0 || clip.start_tick.checked_add(clip.length_ticks).filter(|end| *end <= length).is_none() {
-            return Err("Clip must fit inside the project".into());
-        }
-        for note in &clip.notes { validate_note(note, clip.length_ticks)?; identity(ids, note.id, next)?; }
+        validate_clip(clip, length, next, ids)?;
     }
+    Ok(())
+}
+fn validate_clip(clip: &MidiClip, length: u64, next: u64, ids: &mut HashSet<u64>) -> Result<(), String> {
+    identity(ids, clip.id, next)?; validate_name(&clip.name)?;
+    if clip.length_ticks == 0 || clip.start_tick.checked_add(clip.length_ticks).filter(|end| *end <= length).is_none() {
+        return Err("Clip must fit inside the project".into());
+    }
+    for note in &clip.notes { validate_note(note, clip.length_ticks)?; identity(ids, note.id, next)?; }
     Ok(())
 }
 fn validate_limits(name: &str, bpm: f64, length: u64, next: u64, tracks: usize) -> Result<(), String> {
@@ -160,6 +164,24 @@ impl Project {
         }
         ids
     }
+    fn check_length(&self, length: u64, excluding: Option<u64>) -> Result<(), String> {
+        validate_limits(&self.name, self.bpm, length, self.next_id, self.tracks.len())?;
+        if self.tracks.iter().flat_map(|t| &t.clips).filter(|c| Some(c.id) != excluding)
+            .any(|c| c.start_tick.checked_add(c.length_ticks).is_none_or(|end| end > length)) {
+            return Err("Project length would cut an existing clip".into());
+        }
+        Ok(())
+    }
+    fn insert_clip(&mut self, track: u64, index: usize, clip: MidiClip, next: u64, length: u64) -> Result<Edit, String> {
+        let t = self.track(track).ok_or("Track no longer exists")?;
+        if index > t.clips.len() || self.clip_count() >= MAX_CLIPS || self.note_count() + clip.notes.len() > MAX_NOTES {
+            return Err("Invalid clip position or project clip/note limit reached".into());
+        }
+        self.check_length(length, None)?; validate_clip(&clip, length, next, &mut self.ids())?;
+        let inverse = Edit::EraseClip { track, clip: clip.id, project_length: self.length_ticks };
+        self.clip_mut_track(track)?.insert(index, clip); self.next_id = next; self.length_ticks = length; Ok(inverse)
+    }
+    fn clip_mut_track(&mut self, track: u64) -> Result<&mut Vec<MidiClip>, String> { Ok(&mut self.track_mut(track)?.clips) }
     fn insert_track(&mut self, index: usize, track: Track, next: u64) -> Result<Edit, String> {
         if self.tracks.len() >= MAX_TRACKS || index > self.tracks.len() { return Err("Track limit reached or invalid position".into()); }
         if self.note_count() + track.clips.iter().map(|c| c.notes.len()).sum::<usize>() > MAX_NOTES ||
@@ -205,17 +227,33 @@ impl LegacyProject {
 pub enum Impact { Metadata, Realtime, Structural }
 #[derive(Debug, Clone)]
 pub enum Edit {
+    AddNote { track: u64, clip: u64, start: u64, duration: u64, pitch: u8, velocity: u8 },
     Insert { track: u64, clip: u64, index: usize, note: Note }, Delete { track: u64, clip: u64, id: u64 },
     Replace { track: u64, clip: u64, note: Note }, Tempo(f64), Mix { track: u64, gain: f32, pan: f32 },
     Instrument { track: u64, instrument: Instrument },
     Audibility { track: u64, mute: bool, solo: bool },
     AddTrack { after: u64 }, DuplicateTrack { track: u64 }, InsertTrack { index: usize, track: Track }, RemoveTrack { track: u64 },
     TrackInfo { track: u64, name: String, color: String }, MoveTrack { track: u64, index: usize },
+    AddClip { track: u64, start: u64, length: u64 }, DuplicateClip { track: u64, clip: u64 },
+    RemoveClip { track: u64, clip: u64 }, ClipName { track: u64, clip: u64, name: String },
+    MoveClip { track: u64, clip: u64, destination: u64, start: u64 }, ResizeClip { track: u64, clip: u64, length: u64 },
+    Velocity { track: u64, clip: u64, note: u64, value: u8 },
+    // Inverse snapshots retain order, identities and any automatic project extension in one step.
+    RestoreClip { track: u64, index: usize, clip: MidiClip, project_length: u64 },
+    EraseClip { track: u64, clip: u64, project_length: u64 },
+    PlaceClip { track: u64, clip: u64, destination: u64, index: usize, start: u64, length: u64, project_length: u64 },
 }
 impl Edit {
-    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } => Impact::Realtime, _ => Impact::Structural } }
+    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } | Self::ClipName { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } => Impact::Realtime, _ => Impact::Structural } }
     fn apply(self, p: &mut Project) -> Result<Self, String> {
         match self {
+            Self::AddNote{track,clip,start,duration,pitch,velocity} => {
+                let c=p.clip(track,clip).ok_or("Clip no longer exists")?;
+                let mut next=p.next_id;let id=take_id(&mut next)?;let note=Note{id,start,duration,pitch,velocity};
+                validate_note(&note,c.length_ticks)?;
+                if p.note_count()>=MAX_NOTES {return Err("Project note limit reached".into());}
+                p.clip_mut(track,clip)?.notes.push(note);p.next_id=next;Ok(Self::Delete{track,clip,id})
+            }
             Self::Insert { track, clip, index, note } => {
                 let c = p.clip(track, clip).ok_or("Clip no longer exists")?;
                 validate_note(&note, c.length_ticks)?;
@@ -233,6 +271,69 @@ impl Edit {
                 validate_note(&note, p.clip(track, clip).ok_or("Clip no longer exists")?.length_ticks)?;
                 let old = p.clip_mut(track, clip)?.notes.iter_mut().find(|n| n.id == note.id).ok_or("Note not found")?;
                 Ok(Self::Replace { track, clip, note: std::mem::replace(old, note) })
+            }
+            Self::AddClip { track, start, length } => {
+                let index = p.track(track).ok_or("Track no longer exists")?.clips.len();
+                let mut next = p.next_id; let id = take_id(&mut next)?;
+                let end = start.checked_add(length).ok_or("Clip range overflow")?;
+                let clip = MidiClip { id, name: "MIDI clip".into(), start_tick: start, length_ticks: length, notes: Vec::new() };
+                p.insert_clip(track, index, clip, next, p.length_ticks.max(end))
+            }
+            Self::DuplicateClip { track, clip } => {
+                let t = p.track(track).ok_or("Track no longer exists")?;
+                let index = t.clips.iter().position(|c| c.id == clip).ok_or("Clip no longer exists")?;
+                let mut copy = t.clips[index].clone(); let mut next = p.next_id;
+                copy.start_tick = copy.start_tick.checked_add(copy.length_ticks).ok_or("Clip range overflow")?;
+                let end = copy.start_tick.checked_add(copy.length_ticks).ok_or("Clip range overflow")?;
+                copy.id = take_id(&mut next)?;
+                while copy.name.len() > 115 { copy.name.pop(); } copy.name.push_str(" copy");
+                for note in &mut copy.notes { note.id = take_id(&mut next)?; }
+                p.insert_clip(track, index + 1, copy, next, p.length_ticks.max(end))
+            }
+            Self::RemoveClip { track, clip } => Self::EraseClip { track, clip, project_length: p.length_ticks }.apply(p),
+            Self::RestoreClip { track, index, clip, project_length } => p.insert_clip(track, index, clip, p.next_id, project_length),
+            Self::EraseClip { track, clip, project_length } => {
+                let index = p.track(track).ok_or("Track no longer exists")?.clips.iter().position(|c| c.id == clip).ok_or("Clip no longer exists")?;
+                p.check_length(project_length, Some(clip))?;
+                let old_length = p.length_ticks; let removed = p.clip_mut_track(track)?.remove(index); p.length_ticks = project_length;
+                Ok(Self::RestoreClip { track, index, clip: removed, project_length: old_length })
+            }
+            Self::ClipName { track, clip, name } => {
+                validate_name(&name)?; let c = p.clip_mut(track, clip)?;
+                Ok(Self::ClipName { track, clip, name: std::mem::replace(&mut c.name, name) })
+            }
+            Self::MoveClip { track, clip, destination, start } => {
+                let c = p.clip(track, clip).ok_or("Clip no longer exists")?;
+                let index = if track == destination { p.track(track).unwrap().clips.iter().position(|c| c.id == clip).unwrap() }
+                    else { p.track(destination).ok_or("Destination track no longer exists")?.clips.len() };
+                let length = c.length_ticks; let end = start.checked_add(length).ok_or("Clip range overflow")?;
+                Self::PlaceClip { track, clip, destination, index, start, length, project_length: p.length_ticks.max(end) }.apply(p)
+            }
+            Self::ResizeClip { track, clip, length } => {
+                let c = p.clip(track, clip).ok_or("Clip no longer exists")?;
+                let index = p.track(track).unwrap().clips.iter().position(|c| c.id == clip).unwrap();
+                let start = c.start_tick; let end = start.checked_add(length).ok_or("Clip range overflow")?;
+                Self::PlaceClip { track, clip, destination: track, index, start, length, project_length: p.length_ticks.max(end) }.apply(p)
+            }
+            Self::PlaceClip { track, clip, destination, index, start, length, project_length } => {
+                let source = p.track(track).ok_or("Track no longer exists")?;
+                let old_index = source.clips.iter().position(|c| c.id == clip).ok_or("Clip no longer exists")?;
+                let c = &source.clips[old_index]; let dest = p.track(destination).ok_or("Destination track no longer exists")?;
+                if index > dest.clips.len() - usize::from(track == destination) { return Err("Invalid clip destination index".into()); }
+                if length == 0 || start.checked_add(length).is_none_or(|end| end > project_length) { return Err("Invalid clip range".into()); }
+                if c.notes.iter().any(|n| n.start.checked_add(n.duration).is_none_or(|end| end > length)) {
+                    return Err("Resize refused: it would cut notes. Move/delete those notes first.".into());
+                }
+                p.check_length(project_length, Some(clip))?;
+                let inverse = Self::PlaceClip { track: destination, clip, destination: track, index: old_index,
+                    start: c.start_tick, length: c.length_ticks, project_length: p.length_ticks };
+                let mut moved = p.clip_mut_track(track)?.remove(old_index); moved.start_tick = start; moved.length_ticks = length;
+                p.clip_mut_track(destination)?.insert(index, moved); p.length_ticks = project_length; Ok(inverse)
+            }
+            Self::Velocity { track, clip, note, value } => {
+                if !(1..=127).contains(&value) { return Err("Velocity must be 1–127".into()); }
+                let n = p.clip_mut(track, clip)?.notes.iter_mut().find(|n| n.id == note).ok_or("Note no longer exists")?;
+                Ok(Self::Velocity { track, clip, note, value: std::mem::replace(&mut n.velocity, value) })
             }
             Self::Tempo(bpm) => {
                 if !bpm.is_finite() || !(30.0..=300.0).contains(&bpm) || p.length_ticks as f64 * 60.0 / (bpm * PPQ as f64) > 86400.0 {
@@ -416,6 +517,42 @@ impl History {
         assert_eq!(p.tracks[0].gain, original.tracks[0].gain); assert_eq!(p.tracks[0].pan, original.tracks[0].pan);
         h.execute(&mut p, Edit::DuplicateTrack { track: 1 }).unwrap();
         assert!(p.tracks[1].mute && p.tracks[1].solo);
+    }
+
+    #[test] fn clip_transactions_restore_content_order_ids_and_project_extent() {
+        let mut p=Project::demo();let original=p.clone();let mut h=History::default();
+        h.execute(&mut p,Edit::DuplicateClip{track:1,clip:4}).unwrap();let copy=p.tracks[0].clips[1].clone();
+        assert_eq!(copy.start_tick,16*PPQ);assert_eq!(p.length_ticks,32*PPQ);
+        for (a,b) in copy.notes.iter().zip(&original.tracks[0].clips[0].notes) {assert_ne!(a.id,b.id);assert_eq!(a.pitch,b.pitch);assert_eq!(a.start,b.start);}
+        h.execute(&mut p,Edit::MoveClip{track:1,clip:copy.id,destination:2,start:2*PPQ}).unwrap();
+        assert!(p.clip(1,copy.id).is_none());assert_eq!(p.clip(2,copy.id).unwrap().notes,copy.notes);
+        h.execute(&mut p,Edit::ResizeClip{track:2,clip:copy.id,length:10*PPQ}).unwrap();
+        h.execute(&mut p,Edit::ClipName{track:2,clip:copy.id,name:"Verse".into()}).unwrap();
+        let note=copy.notes[0].id;h.execute(&mut p,Edit::Velocity{track:2,clip:copy.id,note,value:37}).unwrap();
+        h.execute(&mut p,Edit::RemoveClip{track:2,clip:copy.id}).unwrap();let end=p.clone();
+        while h.undo(&mut p).unwrap(){p.validate().unwrap();}let next=p.next_id;p.next_id=original.next_id;assert_eq!(p,original);p.next_id=next;
+        while h.redo(&mut p).unwrap(){p.validate().unwrap();}assert_eq!(p,end);
+        assert_eq!(Project::decode(&serde_json::to_vec(&p).unwrap()).unwrap(),p);
+    }
+    #[test] fn invalid_clip_edits_are_atomic_and_empty_tracks_can_create_clips() {
+        let mut p=Project::demo();let mut h=History::default();
+        for edit in [Edit::ResizeClip{track:1,clip:4,length:PPQ},Edit::MoveClip{track:1,clip:4,destination:99,start:0},
+            Edit::MoveClip{track:1,clip:4,destination:2,start:u64::MAX},Edit::AddClip{track:1,start:0,length:0},
+            Edit::AddClip{track:1,start:u64::MAX,length:PPQ},Edit::ResizeClip{track:1,clip:4,length:500000*PPQ},
+            Edit::ClipName{track:1,clip:4,name:"\n".into()},Edit::Velocity{track:1,clip:4,note:10,value:0},
+            Edit::AddNote{track:1,clip:4,start:16*PPQ,duration:1,pitch:60,velocity:100}] {
+            let before=p.clone();assert!(h.execute(&mut p,edit).is_err());assert_eq!(p,before);assert!(!h.can_undo());
+        }
+        h.execute(&mut p,Edit::RemoveClip{track:1,clip:4}).unwrap();assert!(p.tracks[0].clips.is_empty());
+        let id=p.next_id;h.execute(&mut p,Edit::AddClip{track:1,start:2*PPQ,length:4*PPQ}).unwrap();assert!(p.clip(1,id).is_some());
+        h.undo(&mut p).unwrap();h.undo(&mut p).unwrap();assert_eq!(p.tracks[0].clips[0].id,4);
+    }
+    #[test] fn clip_count_note_limits_and_restore_collisions_are_checked() {
+        let mut p=Project::demo();let mut h=History::default();
+        while p.clip_count()<MAX_CLIPS {h.execute(&mut p,Edit::AddClip{track:1,start:0,length:PPQ}).unwrap();}
+        let before=p.clone();assert!(h.execute(&mut p,Edit::AddClip{track:1,start:0,length:PPQ}).is_err());assert_eq!(p,before);
+        let copy=p.tracks[0].clips[0].clone();
+        let length=p.length_ticks;assert!(h.execute(&mut p,Edit::RestoreClip{track:2,index:0,clip:copy,project_length:length}).is_err());
     }
 
 }

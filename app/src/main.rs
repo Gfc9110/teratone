@@ -4,7 +4,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::atomic::Ordering, time::Du
 slint::include_modules!();
 mod ui_support;
 fn send(mailbox: &RefCell<Mailbox>, weak: &slint::Weak<AppWindow>, request: Request) {
-    let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::Move(..));
+    let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::Move{..} | Request::ScrollPiano(..));
     let result = mailbox.borrow_mut().enqueue(request);
     if let Some(ui) = weak.upgrade() {
         if let Err(error) = result { ui.set_action_error(error.into()); }
@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let ui = AppWindow::new()?;
     let connection = controller::spawn(silent);
-    let mailbox = Rc::new(RefCell::new(Mailbox::new(connection.sender.clone(), connection.flags.clone(), connection.epoch.clone())));
+    let mailbox = Rc::new(RefCell::new(Mailbox::new(connection.sender.clone(), connection.flags.clone(), connection.epoch.clone(),connection.audition_epoch.clone())));
     macro_rules! bind {
         ($method:ident, ($($arg:ident),*) => $request:expr) => {{
             let mailbox = mailbox.clone(); let weak = ui.as_weak();
@@ -46,28 +46,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     bind!(on_tempo, (value) => Request::Tempo(value as f64));
     bind!(on_undo, () => Request::Undo);
     bind!(on_redo, () => Request::Redo);
-    bind!(on_remove_note, () => Request::Delete);
     bind!(on_zoom, (factor) => Request::Zoom(factor));
     bind!(on_pan_view, (beats) => Request::Pan(beats));
     bind!(on_pitch_view, (notes) => Request::Pitch(notes));
     bind!(on_seek, (beat) => Request::Seek(beat as f64));
     bind!(on_seek_project, (beat) => Request::SeekProject(beat as f64));
-    bind!(on_down, (x, y, right) => Request::Down(x, y, right));
-    bind!(on_moved, (x, y) => Request::Move(x, y));
-    bind!(on_up, (x, y) => Request::Up(x, y));
-    bind!(on_audition, (track, pitch, on) => Request::Audition { track: track.parse().unwrap_or(0), pitch: pitch.clamp(0, 127) as u8, on });
     bind!(on_save_project, (path) => Request::Save(PathBuf::from(path.as_str())));
     bind!(on_open_project, (path) => Request::Open(PathBuf::from(path.as_str())));
     bind!(on_export_audio, (path) => Request::Export(PathBuf::from(path.as_str())));
     bind!(on_import_sample, (track, path, root, one_shot) => Request::Import { track: track.parse().unwrap_or(0), path: PathBuf::from(path.as_str()), root_note: root.clamp(0, 127) as u8, one_shot });
     bind!(on_use_sine, (track) => Request::UseSine(track.parse().unwrap_or(0)));
+    ui_support::bind_editor(&ui,mailbox.clone());
     { let mailbox = mailbox.clone(); ui.on_stop(move || mailbox.borrow_mut().stop()); }
     {
         let weak = ui.as_weak(); let mailbox = mailbox.clone();
         ui.window().on_close_requested(move || {
             if let Some(ui) = weak.upgrade() {
                 if ui.get_export_busy() { ui.set_status("An export is running. Close after it finishes.".into()); }
-                else { mailbox.borrow_mut().stop(); ui.set_confirm_close(true); }
+                else {ui.invoke_cancel_interactions(); mailbox.borrow_mut().stop(); ui.set_confirm_close(true); }
             }
             slint::CloseRequestResponse::KeepWindowShown
         });
@@ -105,7 +101,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Response::Meter(t) => {
                     let beat = t.position as f64 / 48000.0 * ui.get_bpm() as f64 / 60.0;
                     ui.set_project_position(beat as f32);
-                    ui.set_playhead_x((beat as f32 - ui.get_clip_start_beat() - ui.get_scroll_beat()) * ui.get_pixels_per_beat());
                     ui.set_transport_text(format!("{:03} : {:02}", beat as u64 / 4 + 1, beat as u64 % 4 + 1).into());
                     ui.set_playing(t.playing != 0); ui.set_looping(t.looping != 0);
                     ui.set_peak_left(t.peak_left.clamp(0.0, 1.0)); ui.set_peak_right(t.peak_right.clamp(0.0, 1.0));

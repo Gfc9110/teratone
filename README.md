@@ -4,16 +4,17 @@ This increment retains the uploaded C++20 audio graph/DSP and adds a native engi
 service, bounded transport/live-note control, sampling, streaming WAV export,
 a C ABI, and a Rust/Slint application implementation.
 
-**M3.2 local increment — 22 October 2026:** multitrack arrangement with fixed
-headers, clip previews, drag reorder and a collapsible inspector. Mute/solo work
-live and in export, preserve fader values, and participate in save/undo/redo.
-Multiple solo tracks are cumulative; mute takes precedence. The app reads v1 and
-v2, saving v2 with a v1 migration checkpoint. The original C ABI remains compatible
-through additive mixer APIs; dependencies are unchanged. Validation: 24 headless
-and 33 UI-enabled Rust tests, four native suites, software UI at 100/200%,
-ASan/UBSan and focused TSan. Physical audio and Windows still need target-host tests.
-Clip manipulation, vertical keyboard, expanded synth and drums remain later M3 steps.
-See [M3 progress, validation and usage](docs/M3_IMPLEMENTATION_PROGRESS.md).
+**M3.3 local increment — 23 October 2026:** create, duplicate, rename, remove,
+move and resize MIDI clips, including transfers between tracks and one-step undo.
+The piano roll now has a fixed vertical keyboard with note names, highlighted Cs,
+fractional scrolling, separate X/Y zoom, Fit notes and configurable C3/C4/C5
+notation (MIDI 60 defaults to C4). Note velocity editing and token-based audition
+are included. Save/undo/export use the same clip model; native DSP, ABI, schema v2
+and dependencies are unchanged. Validation passed: 31 headless / 45 UI-enabled Rust
+tests, release binaries, four native suites and the 100/200% software UI probe.
+Physical audio and Windows still need target-host testing. Expanded synth and
+drums remain later steps. [M3.3 usage and validation](docs/M3_3_CLIPS_PIANO_ROLL.md)
+· [M3 progress](docs/M3_IMPLEMENTATION_PROGRESS.md).
 
 **macOS update — 22 October 2026:** the Slint window sizing declaration is fixed,
 and both `scripts/validate_app.sh` and `scripts/validate_native.sh` now pass on

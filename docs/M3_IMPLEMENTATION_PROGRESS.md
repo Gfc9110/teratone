@@ -6,6 +6,26 @@ La fondazione M3.1 è stata prima salvata nel commit `966a8c4`, come richiesto.
 La baseline precedente era `add95d9cfb7f9ffc38e43a6754365fac8a880a53`.
 Nessun recupero del vecchio ZIP e nessun aggiornamento delle dipendenze.
 
+## M3.3 implementato — 23 ottobre 2026
+
+Baseline `9897b1f`, poi gestione clip e piano roll nello stesso checkout aggiornato.
+
+- Clip: creazione, rinomina, rimozione, duplicazione indipendente, drag tra tracce,
+  resize non distruttivo, snap 1/16, selezione e anteprima. Estensione del progetto
+  e operazione fanno un solo undo; ID e ordine conservati al redo.
+- Tastiera verticale con nomi a sinistra, Do evidenziati e tooltip MIDI;
+  scroll frazionario, scrollbar, zoom X/Y, ottave e Fit notes.
+- MIDI 60 = C4 per default; C3/C4/C5 configurano la sola notazione di sessione.
+  Velocity della nota selezionata modificabile da 1 a 127.
+- Audition con token e destinazione originale, rilascio su exit/cancel/focus/cambio
+  traccia e una via prioritaria separata dai comandi del documento.
+- Verifica: 31 test headless / 45 con UI, build release, 4 suite native, probe UI
+  100/200% con tre zoom verticali, save/reopen e confronto audio v1 identico.
+  Nessuna modifica al C++, alle dipendenze o allo schema v2.
+
+[Uso, decisioni, contratti e verifiche M3.3](M3_3_CLIPS_PIANO_ROLL.md).
+Evidenze nuove `evidence/m33-*`; le sezioni seguenti conservano lo storico M3.2.
+
 ## M3.2 implementato: arrangement, inspector e mixer
 
 - Arrangement con header e corsia nello stesso contenitore verticale: nome,
@@ -33,7 +53,7 @@ Nessun recupero del vecchio ZIP e nessun aggiornamento delle dipendenze.
   un progetto caricato/export è già corretto dal primo campione.
 
 Creazione/spostamento/ridimensionamento delle clip, tastiera verticale e velocity
-restano M3.3. Non sono stati implementati nuovi synth, pad, routing condiviso o
+sono state successivamente implementate in M3.3, come descritto sopra. Non sono stati implementati nuovi synth, pad, routing condiviso o
 asset batteria. Gli edit strutturali continuano a fermare il playback.
 
 ## Contratti di consegna e real-time
@@ -142,7 +162,7 @@ cargo run --manifest-path app/Cargo.toml --locked --no-default-features --releas
 
 ## Limiti e passi successivi
 
-M3 nel suo insieme resta aperto: M3.3 clip/piano roll, M3.4 synth e antialias,
+M3 nel suo insieme resta aperto: M3.4 synth e antialias,
 M3.5 kit/asset verificati e ascoltati, M3.6 64 tracce e matrice hardware.
 Nessuna prova di audio fisico CoreAudio/WASAPI, sleep/wake, device removal,
 Windows o macOS Intel svolta in M3.2. Il benchmark software non sostituisce
