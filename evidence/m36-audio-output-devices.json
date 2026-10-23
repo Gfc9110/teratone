@@ -1,0 +1,21 @@
+[
+  {
+    "_name": "LS27DG30X",
+    "coreaudio_device_manufacturer": "SAM",
+    "coreaudio_device_output": 2,
+    "coreaudio_device_srate": 48000,
+    "coreaudio_device_transport": "coreaudio_device_type_hdmi",
+    "coreaudio_output_source": "spaudio_default"
+  },
+  {
+    "_name": "MacBook Pro Speakers",
+    "_properties": "coreaudio_default_audio_system_device",
+    "coreaudio_default_audio_output_device": "spaudio_yes",
+    "coreaudio_default_audio_system_device": "spaudio_yes",
+    "coreaudio_device_manufacturer": "Apple Inc.",
+    "coreaudio_device_output": 2,
+    "coreaudio_device_srate": 48000,
+    "coreaudio_device_transport": "coreaudio_device_type_builtin",
+    "coreaudio_output_source": "MacBook Pro Speakers"
+  }
+]

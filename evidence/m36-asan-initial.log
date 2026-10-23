@@ -1,0 +1,93 @@
+-- The C compiler identification is AppleClang 17.0.0.17000013
+-- The CXX compiler identification is AppleClang 17.0.0.17000013
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (1.5s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m36-asan
+[  3%] Building CXX object CMakeFiles/open_daw_core.dir/src/engine.cpp.o
+[  6%] Building CXX object CMakeFiles/open_daw_core.dir/src/wav.cpp.o
+[ 10%] Linking CXX static library lib/libopen_daw_core.a
+[ 10%] Built target open_daw_core
+[ 13%] Building CXX object CMakeFiles/open_daw_tests.dir/tests/tests.cpp.o
+[ 16%] Building CXX object CMakeFiles/open_daw_engine.dir/src/service.cpp.o
+[ 20%] Building CXX object CMakeFiles/open_daw_engine.dir/src/media.cpp.o
+[ 23%] Building CXX object CMakeFiles/daw_demo.dir/src/main.cpp.o
+[ 26%] Building CXX object CMakeFiles/open_daw_engine.dir/src/drums.cpp.o
+[ 30%] Linking CXX executable open_daw_tests
+[ 33%] Linking CXX executable daw_demo
+[ 33%] Built target daw_demo
+[ 33%] Built target open_daw_tests
+[ 36%] Building CXX object CMakeFiles/open_daw_engine.dir/src/device.cpp.o
+[ 40%] Linking CXX static library lib/libopen_daw_engine.a
+[ 40%] Built target open_daw_engine
+[ 43%] Building CXX object CMakeFiles/open_daw_api.dir/src/api.cpp.o
+[ 46%] Building CXX object CMakeFiles/daw_session.dir/src/session_main.cpp.o
+[ 50%] Building CXX object CMakeFiles/allocation_probe.dir/tests/allocation_probe.cpp.o
+[ 53%] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[ 56%] Linking CXX executable allocation_probe
+[ 60%] Linking CXX executable daw_session
+[ 63%] Linking CXX shared library libopen_daw_api.dylib
+[ 66%] Linking CXX static library lib/libopen_daw_api_static.a
+[ 66%] Built target allocation_probe
+[ 66%] Built target daw_session
+[ 66%] Built target open_daw_api
+[ 66%] Built target open_daw_api_static
+[ 70%] Building CXX object CMakeFiles/service_tests.dir/tests/service_tests.cpp.o
+[ 73%] Building C object CMakeFiles/api_smoke.dir/tests/api_smoke.c.o
+[ 76%] Building CXX object CMakeFiles/capacity_tests.dir/tests/capacity_tests.cpp.o
+[ 80%] Building CXX object CMakeFiles/drum_tests.dir/tests/drum_tests.cpp.o
+[ 83%] Linking CXX executable api_smoke
+[ 83%] Built target api_smoke
+[ 86%] Building CXX object CMakeFiles/synth_tests.dir/tests/synth_tests.cpp.o
+[ 90%] Linking CXX executable capacity_tests
+[ 93%] Linking CXX executable drum_tests
+[ 93%] Built target capacity_tests
+[ 93%] Built target drum_tests
+[ 96%] Linking CXX executable service_tests
+[ 96%] Built target service_tests
+[100%] Linking CXX executable synth_tests
+[100%] Built target synth_tests
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m36-asan
+    Start 1: original_audio_core
+1/7 Test #1: original_audio_core ..............   Passed   15.15 sec
+    Start 2: interactive_service
+2/7 Test #2: interactive_service ..............***Failed   19.24 sec
+PASS constructor/setter validation consistency
+PASS overlapping note occurrence IDs
+PASS variable-block scheduling invariance
+PASS play/pause/stop/seek reset policy
+PASS loop boundaries and block invariance
+PASS bounded queue overflow and emergency note-off
+PASS live audition without moving transport
+FAIL /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/tests/service_tests.cpp:17: caught
+
+    Start 3: pure_c_abi
+3/7 Test #3: pure_c_abi .......................   Passed    2.29 sec
+    Start 4: sixty_four_track_capacity
+4/7 Test #4: sixty_four_track_capacity ........   Passed   35.02 sec
+    Start 5: internal_drum_kit
+5/7 Test #5: internal_drum_kit ................   Passed   21.53 sec
+    Start 6: per_track_synth
+6/7 Test #6: per_track_synth ..................   Passed   38.30 sec
+    Start 7: callback_cpp_allocations
+7/7 Test #7: callback_cpp_allocations .........   Passed   77.59 sec
+
+86% tests passed, 1 tests failed out of 7
+
+Total Test time (real) = 209.45 sec
+
+The following tests FAILED:
+	  2 - interactive_service (Failed)
+Errors while running CTest

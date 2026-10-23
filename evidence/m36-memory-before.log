@@ -1,0 +1,27 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `release` profile [optimized] target(s) in 6.11s
+M3.6 300 preset/duplicate/delete/undo/redo cycles, retained bounded history, 63/64 tracks incl. CC0 kit, parallel independent export; elapsed_s=8.931; (cycle,current_rss_bytes,live_malloc_bytes)=[(25, Some(169508864), Some(30013232)), (50, Some(180682752), Some(33192080)), (75, Some(118145024), Some(31753040)), (100, Some(160071680), Some(34987152)), (150, Some(206274560), Some(32776592)), (200, Some(162791424), Some(33410288)), (250, Some(181436416), Some(34166048)), (300, Some(223068160), Some(36039504))]
+Live malloc growth cycles 100..300: 1052352 bytes; gate <=8 MiB including bounded history
+RSS growth cycles 100..300: 62996480 bytes; reservation/working-set gate <=32 MiB
+
+thread 'main' (14957980) panicked at examples/capacity_probe.rs:139:9:
+RSS has not reached a practical plateau; investigate
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+        9.46 real         8.97 user         0.38 sys
+           223428608  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               27698  page reclaims
+                  11  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  12  voluntary context switches
+                4658  involuntary context switches
+        233364370770  instructions retired
+         38152197314  cycles elapsed
+            59965992  peak memory footprint

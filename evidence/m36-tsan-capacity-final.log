@@ -1,0 +1,15 @@
+[ 25%] Built target open_daw_core
+[ 66%] Built target open_daw_engine
+[ 75%] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[ 83%] Linking CXX static library lib/libopen_daw_api_static.a
+[ 83%] Built target open_daw_api_static
+[ 91%] Building CXX object CMakeFiles/capacity_tests.dir/tests/capacity_tests.cpp.o
+[100%] Linking CXX executable capacity_tests
+[100%] Built target capacity_tests
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/m36-tsan
+    Start 4: sixty_four_track_capacity
+1/1 Test #4: sixty_four_track_capacity ........   Passed   98.05 sec
+
+100% tests passed out of 1
+
+Total Test time (real) =  98.06 sec

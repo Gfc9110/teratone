@@ -1,0 +1,3 @@
+PASS 32 mixed tracks / 8 voices per synth / 48kHz / 256 frames / continuous 10-minute DSP timing gate.
+PASS CoreAudio default output: no reported device errors or processor-overload notifications during this run.
+Driver underruns beyond the exposed observations, listening and other platforms still require separate validation.

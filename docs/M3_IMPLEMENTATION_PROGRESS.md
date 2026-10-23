@@ -6,6 +6,31 @@ La fondazione M3.1 è stata prima salvata nel commit `966a8c4`, come richiesto.
 La baseline precedente era `add95d9cfb7f9ffc38e43a6754365fac8a880a53`.
 Nessun recupero del vecchio ZIP e nessun aggiornamento delle dipendenze.
 
+## M3.6 implementato — 23 ottobre 2026
+
+Baseline `50de0cf`; codice salvato in `c4a8242`. Capacità coordinata a **64 tracce**
+in Rust/UI/C ABI/C++, con rifiuto transazionale della 65ª, controlli dell'ultimo
+slot e fixture pubblica. Storage eventi e coda mix preparati sullo heap; nessuna
+allocazione/lock aggiunta al callback. Restituzione periodica delle pagine libere
+sul solo controllo macOS dopo prepare; verificata con 300 cicli e zero leak.
+Hash factory deduplicati senza saltare la verifica di ogni sorgente File.
+
+Verifica: 36 unit + 9 integration headless, 55 unit + 9 integration con UI;
+otto suite native, audit runtime heap/lock, ASan/UBSan e TSan rieseguiti,
+75 casi FFT e v1 byte-identico. UI software a 64 tracce / 100.000 note / 1.490
+visibili, 100/200%, selezione/scroll/zoom/riordino/undo e limiti dei pulsanti;
+risposta p95 massima 16,192 ms, draw p95 massimo 5,378 ms su questo host.
+CoreAudio reale, 32 tracce / dieci minuti continui: p99 1,573 ms, massimo
+3,014 ms, zero blocchi fuori budget e notifiche di sovraccarico; gate passato.
+Tutte le misure e i gate prestazionali sono registrati nel
+[rapporto M3.6](M3_6_64_TRACKS_VALIDATION.md), con i tentativi preliminari separati.
+
+Il kit corrente è accettato provvisoriamente dall'utente **senza ascolto**.
+Il DoD globale resta aperto per Windows, Intel Mac, GUI nativa/manuale e le prove
+hardware mancanti. I limiti a 16 e i controlli ancora futuri nelle sezioni seguenti
+sono lo storico delle milestone precedenti, superato da questo stato.
+Evidenze nuove `evidence/m36-*`; dipendenze e lockfile invariati.
+
 ## M3.5 implementato — 23 ottobre 2026
 
 Baseline `ebc0e83`. Drum machine interna 16 pad (12 suoni CC0 verificati + quattro
@@ -202,10 +227,10 @@ cargo run --manifest-path app/Cargo.toml --locked --no-default-features --releas
 
 ## Limiti e passi successivi
 
-M3 nel suo insieme resta aperto: M3.4 synth e M3.5 drum machine sono implementati;
-ascolto del kit e M3.6 capacità 32/64 tracce/matrice hardware sono ancora da chiudere.
-Nessuna prova di audio fisico CoreAudio/WASAPI, sleep/wake, device removal,
-Windows o macOS Intel svolta in M3.2. Il benchmark software non sostituisce
+M3 nel suo insieme resta aperto per i gate target/manuali elencati nel rapporto
+M3.6. M3.4 synth, M3.5 drum machine e M3.6 capacità 64 sono implementati.
+CoreAudio viene ora misurato in M3.6; WASAPI, sleep/wake, device removal,
+Windows e macOS Intel richiedono ancora le prove dedicate. Il benchmark software non sostituisce
 accessibilità completa, tastiera/drag nativi, multi-monitor o touch.
 I thumbnail aggregano al massimo 32 rettangoli per clip e 256 clip visibili;
 la limitazione è mostrata e non tronca playback/export. I righelli arrangement
@@ -214,6 +239,7 @@ sono generati dal viewport, anche oltre i primi 256 beat.
 Gli asset referenziati solo dalla storia undo mantengono il precedente limite:
 non sono raccolti in un archivio persistente; mantenere le sorgenti durante la
 sessione. Non è stata introdotta pulizia automatica degli asset.
-Il confronto antialias M3.0 resta da chiudere prima dei nuovi DSP M3.4.
+Il confronto antialias statico è stato eseguito in M3.4 e rieseguito in M3.6;
+l’ascolto di sweep/PWM resta aperto.
 
 Specifica finale: [handoff M3](handoff/M3_TRACKS_PIANOROLL_DRUMS_SYNTH.md).

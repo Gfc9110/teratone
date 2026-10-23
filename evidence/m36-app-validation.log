@@ -1,0 +1,189 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.46s
+     Running unittests src/lib.rs (target/debug/deps/opendaw_app-c288a07d621cbf8a)
+
+running 36 tests
+test bridge::tests::abi_layout_on_64_bit_targets ... ok
+test arrangement::tests::culling_never_removes_headers_and_previews_are_bounded ... ok
+test editor::tests::hit_cull_snap_drag_and_centered_zoom ... ok
+test arrangement::tests::preview_and_model_agree_on_audibility ... ok
+test editor::tests::key_note_hit_and_insertion_use_one_transform ... ok
+test editor::tests::notation_only_changes_labels_and_invalid_values_are_rejected ... ok
+test project::tests::clip_bounds_and_instance_identity_are_validated ... ok
+test project::tests::clip_transactions_restore_content_order_ids_and_project_extent ... ok
+test project::tests::audibility_flags_default_persist_and_undo_without_changing_faders ... ok
+test project::tests::duplicate_track_is_deep_and_restores_ids_on_redo ... ok
+test project::tests::mix_gestures_and_metadata_impacts ... ok
+test project::tests::invalid_clip_edits_are_atomic_and_empty_tracks_can_create_clips ... ok
+test project::tests::sample_rate_independent_score ... ok
+test project::tests::legacy_migration_preserves_score_and_rejects_bad_ids ... ok
+test project::tests::synth_gestures_merge_only_the_same_field_and_preset_is_one_step ... ok
+test project::tests::synth_presets_are_owned_atomic_and_undoable_with_independent_copies ... ok
+test project::tests::undo_redo_and_invalid_edit ... ok
+test project::tests::track_limits_and_invalid_commands_are_atomic ... ok
+test bridge::tests::native_bridge_roundtrip ... ok
+test bridge::tests::mix_queue_backpressure_retains_latest_document_and_rejects_stale_order ... ok
+test bridge::tests::explicit_live_velocity_changes_audio_and_rejects_zero ... ok
+test bridge::tests::mixer_masks_equal_rendering_only_audible_tracks ... ok
+test project::tests::track_history_sequences_keep_identity_and_order ... ok
+test bridge::tests::clip_offsets_and_track_order_match_flat_score ... ok
+test storage::tests::reject_escape_path ... ok
+test synth::tests::strict_parameters_and_presets ... ok
+test storage::tests::reject_escape_recovery_symlink ... ok
+test bridge::tests::three_synth_presets_survive_save_and_reopen_with_independent_audio ... ok
+test storage::tests::two_clip_twenty_note_duplicate_is_independent_after_save_reopen ... ok
+test bridge::tests::overlapping_and_transferred_clips_flatten_without_lost_notes ... ok
+test storage::tests::duplicated_sampler_assets_survive_portable_save ... ok
+test bridge::tests::accepted_synth_parameters_update_native_export_before_callback_consumption ... ok
+test storage::tests::roundtrip_backup_and_version_rejection ... ok
+test storage::tests::migration_keeps_original_v1_across_repeated_saves ... ok
+test storage::tests::audibility_roundtrip_and_all_muted_export ... ok
+test project::tests::clip_count_note_limits_and_restore_collisions_are_checked ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.41s
+
+     Running unittests src/project_cli.rs (target/debug/deps/opendaw_project-03d785fe5222245c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capacity.rs (target/debug/deps/capacity-392fb3bbfb487ccf)
+
+running 3 tests
+test sixty_four_tracks_round_trip_last_slot_mix_reorder_undo_and_export ... ok
+test factory_dedup_never_skips_a_file_claiming_the_same_hash ... ok
+test one_hundred_thousand_notes_with_sixty_four_tracks_are_valid_without_truncation ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+     Running tests/drums.rs (target/debug/deps/drums-9b028d616547dc14)
+
+running 6 tests
+test strict_kit_metadata_and_hash_checks_reject_bad_data ... ok
+test pad_identities_parameters_and_atomic_undo_are_independent ... ok
+test sixty_four_kits_share_immutable_decoded_data_within_the_media_budget ... ok
+test all_twelve_factory_assets_verify_and_sound_through_v4 ... ok
+test live_pad_mix_queue_recovers_and_export_uses_accepted_controls ... ok
+test immutable_import_undo_and_portable_save_include_every_pad ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+   Doc-tests opendaw_app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.23s
+     Running unittests src/lib.rs (target/debug/deps/opendaw_app-c148d63455ae3e44)
+
+running 55 tests
+test bridge::tests::abi_layout_on_64_bit_targets ... ok
+test arrangement::tests::culling_never_removes_headers_and_previews_are_bounded ... ok
+test arrangement::tests::preview_and_model_agree_on_audibility ... ok
+test bridge::tests::native_bridge_roundtrip ... ok
+test bridge::tests::mix_queue_backpressure_retains_latest_document_and_rejects_stale_order ... ok
+test controller::tests::delayed_mix_targets_original_track_and_history_repairs_selection ... ok
+test controller::tests::clip_crud_selection_and_viewport_memory_survive_history ... ok
+test bridge::tests::explicit_live_velocity_changes_audio_and_rejects_zero ... ok
+test bridge::tests::mixer_masks_equal_rendering_only_audible_tracks ... ok
+test controller::tests::full_native_mix_queue_recovers_latest_flags_after_stop_and_recompile ... ok
+test bridge::tests::clip_offsets_and_track_order_match_flat_score ... ok
+test controller::tests::identity_selection_survives_duplicate_reorder_delete_and_history ... ok
+test controller::tests::metadata_and_undo_preserve_running_engine ... ok
+test controller::tests::live_mute_solo_and_axes_do_not_rebuild_reset_or_overwrite_faders ... ok
+test controller::tests::stale_note_gestures_cannot_commit_into_another_clip ... ok
+test controller::tests::synth_edits_preserve_playback_and_reject_stale_instances_with_queue_recovery ... ok
+test editor::tests::hit_cull_snap_drag_and_centered_zoom ... ok
+test editor::tests::key_note_hit_and_insertion_use_one_transform ... ok
+test editor::tests::notation_only_changes_labels_and_invalid_values_are_rejected ... ok
+test controller::tests::token_audition_releases_original_target_and_independent_same_pitch ... ok
+test mailbox::tests::focus_release_invalidates_audition_epoch_and_preserves_durable_clip_commands ... ok
+test mailbox::tests::full_channel_retries_and_full_outbox_rejects_only_new_action ... ok
+test mailbox::tests::slider_burst_coalesces_but_gesture_boundaries_and_edits_survive_stop ... ok
+test project::tests::clip_bounds_and_instance_identity_are_validated ... ok
+test controller::tests::preset_files_validate_before_changing_track_and_save_snapshot ... ok
+test project::tests::audibility_flags_default_persist_and_undo_without_changing_faders ... ok
+test project::tests::duplicate_track_is_deep_and_restores_ids_on_redo ... ok
+test project::tests::clip_transactions_restore_content_order_ids_and_project_extent ... ok
+test project::tests::invalid_clip_edits_are_atomic_and_empty_tracks_can_create_clips ... ok
+test project::tests::mix_gestures_and_metadata_impacts ... ok
+test project::tests::sample_rate_independent_score ... ok
+test project::tests::synth_gestures_merge_only_the_same_field_and_preset_is_one_step ... ok
+test project::tests::legacy_migration_preserves_score_and_rejects_bad_ids ... ok
+test bridge::tests::three_synth_presets_survive_save_and_reopen_with_independent_audio ... ok
+test project::tests::synth_presets_are_owned_atomic_and_undoable_with_independent_copies ... ok
+test project::tests::undo_redo_and_invalid_edit ... ok
+test bridge::tests::accepted_synth_parameters_update_native_export_before_callback_consumption ... ok
+test project::tests::track_limits_and_invalid_commands_are_atomic ... ok
+test controller::tests::worker_acknowledges_durable_edits_even_when_stop_invalidates_pending_transport ... ok
+test storage::tests::reject_escape_path ... ok
+test controller::tests::focus_release_cancels_queued_audition_without_canceling_new_play ... ok
+test project::tests::track_history_sequences_keep_identity_and_order ... ok
+test storage::tests::reject_escape_recovery_symlink ... ok
+test synth::tests::strict_parameters_and_presets ... ok
+test storage::tests::duplicated_sampler_assets_survive_portable_save ... ok
+test bridge::tests::overlapping_and_transferred_clips_flatten_without_lost_notes ... ok
+test storage::tests::two_clip_twenty_note_duplicate_is_independent_after_save_reopen ... ok
+test storage::tests::roundtrip_backup_and_version_rejection ... ok
+test storage::tests::migration_keeps_original_v1_across_repeated_saves ... ok
+test storage::tests::audibility_roundtrip_and_all_muted_export ... ok
+test controller::tests::pad_preview_uses_identity_velocity_and_focus_cancellation_keeps_score_running ... ok
+test controller::tests::drum_parameters_are_live_undoable_and_stale_pad_edits_are_rejected ... ok
+test controller::tests::new_play_after_priority_stop_is_not_lost ... ok
+test controller::tests::invalid_pad_replacement_preserves_running_document_and_does_not_fill_staging ... ok
+test project::tests::clip_count_note_limits_and_restore_collisions_are_checked ... ok
+
+test result: ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.45s
+
+     Running unittests src/main.rs (target/debug/deps/opendaw-c214d945c0a3c2cd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/project_cli.rs (target/debug/deps/opendaw_project-02e7a5454fcdac59)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capacity.rs (target/debug/deps/capacity-1b22b317ca1f19e7)
+
+running 3 tests
+test sixty_four_tracks_round_trip_last_slot_mix_reorder_undo_and_export ... ok
+test factory_dedup_never_skips_a_file_claiming_the_same_hash ... ok
+test one_hundred_thousand_notes_with_sixty_four_tracks_are_valid_without_truncation ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running tests/drums.rs (target/debug/deps/drums-acc02fe8422556a2)
+
+running 6 tests
+test strict_kit_metadata_and_hash_checks_reject_bad_data ... ok
+test pad_identities_parameters_and_atomic_undo_are_independent ... ok
+test sixty_four_kits_share_immutable_decoded_data_within_the_media_budget ... ok
+test all_twelve_factory_assets_verify_and_sound_through_v4 ... ok
+test live_pad_mix_queue_recovers_and_export_uses_accepted_controls ... ok
+test immutable_import_undo_and_portable_save_include_every_pad ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+   Doc-tests opendaw_app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `release` profile [optimized] target(s) in 36.25s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running `target/debug/opendaw-project validate ../examples/First-session.opendaw`
+Valid project: 2 tracks, 10 notes
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/opendaw-project render ../examples/First-session.opendaw target/project-demo.wav`
+Rendered target/project-demo.wav
+
+Validate the UI and native audio on hardware; preserve Cargo.lock after successful validation.

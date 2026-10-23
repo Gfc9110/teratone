@@ -1,4 +1,4 @@
-# Project format v2 — M3.5
+# Project format v2 — M3.6
 
 The application reads v1 and v2 and writes v2. Opening a v1 project migrates it
 in memory without rewriting its source file. The example under
@@ -86,10 +86,14 @@ Velocity remains the existing integer 1–127, now editable. Keyboard notation a
 per-clip viewport caches are session UI state, absent from project.json and undo.
 C3/C4/C5 labels never transpose saved pitches or alter the compiled event score.
 
-Limits remain 16 tracks (matching native capacity), 100,000 notes total, 4,096
+M3.6 supports 64 tracks (matching native capacity), 100,000 notes total, 4,096
 clips, 24 hours, 32 MiB manifest and a 128 MiB new-asset-copy budget per save.
 The native loader separately caps decoded sample storage at 128 MiB. Memory for
 history, old/new prepared sessions and simultaneous export is additional.
+No schema version change is required for the capacity increase. Older application
+builds with a 16-track limit may reject larger v2 projects. A 65th track is rejected
+transactionally; tracks are never silently truncated. The additive C ABI query
+`od_track_capacity()` lets the Rust bridge reject a mismatched backend.
 
 ## Migration and persistence
 

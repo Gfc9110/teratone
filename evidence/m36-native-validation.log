@@ -1,0 +1,56 @@
+-- Configuring done (0.1s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+[  6%] Built target rt_heap_audit
+[ 15%] Built target open_daw_core
+[ 28%] Built target daw_demo
+[ 28%] Built target open_daw_tests
+[ 43%] Built target open_daw_engine
+[ 59%] Building CXX object CMakeFiles/open_daw_api_static.dir/src/api.cpp.o
+[ 62%] Built target daw_session
+[ 62%] Building CXX object CMakeFiles/open_daw_api.dir/src/api.cpp.o
+[ 62%] Built target allocation_probe
+[ 68%] Linking CXX shared library libopen_daw_api.dylib
+[ 68%] Linking CXX static library lib/libopen_daw_api_static.a
+[ 68%] Built target open_daw_api_static
+[ 68%] Built target open_daw_api
+[ 71%] Linking CXX executable api_smoke
+[ 75%] Building CXX object CMakeFiles/capacity_tests.dir/tests/capacity_tests.cpp.o
+[ 78%] Linking CXX executable service_tests
+[ 81%] Linking CXX executable drum_tests
+[ 84%] Built target api_smoke
+[ 90%] Built target drum_tests
+[ 90%] Built target service_tests
+[ 93%] Linking CXX executable synth_tests
+[ 96%] Built target synth_tests
+[100%] Linking CXX executable capacity_tests
+[100%] Built target capacity_tests
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+    Start 1: original_audio_core
+1/8 Test #1: original_audio_core ..............   Passed    0.25 sec
+    Start 2: interactive_service
+2/8 Test #2: interactive_service ..............   Passed    2.71 sec
+    Start 3: pure_c_abi
+3/8 Test #3: pure_c_abi .......................   Passed    0.36 sec
+    Start 4: sixty_four_track_capacity
+4/8 Test #4: sixty_four_track_capacity ........   Passed    2.39 sec
+    Start 5: internal_drum_kit
+5/8 Test #5: internal_drum_kit ................   Passed    0.61 sec
+    Start 6: per_track_synth
+6/8 Test #6: per_track_synth ..................   Passed    1.05 sec
+    Start 7: callback_cpp_allocations
+7/8 Test #7: callback_cpp_allocations .........   Passed    4.79 sec
+    Start 8: callback_runtime_audit
+8/8 Test #8: callback_runtime_audit ...........   Passed    4.87 sec
+
+100% tests passed out of 8
+
+Total Test time (real) =  17.59 sec
+Exported 384000 stereo frames to build/macos-validation/native-demo.wav
+PASS: 8 WAV variants through the shared C ABI
+PASS: non-finite media rejected without replacing the active session
+PASS: 25 randomized callback partitions are bit-identical
+PASS: Unicode export path, WAV metadata, and independent export state
+PASS: explicit silent device excludes a second render consumer
+PASS: additive v4/v2 64-bit layouts, descriptor/WAV validation, borrowed-byte ownership, generation guards, full queue recovery, drum telemetry and preview cancellation through shared ABI
+Shared-library integration checks passed (not a Rust/UI or hardware test).

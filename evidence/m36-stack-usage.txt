@@ -1,0 +1,20 @@
+Clang -fstack-usage, Release/arm64, OD_MEASURE_RENDER=ON
+build/m36-measure/CMakeFiles/open_daw_engine.dir/src/service.cpp.su
+src/service.cpp:17:_ZN3daw13EngineServiceC2ERKNS_11SessionSpecE	480	static
+src/service.cpp:17:_ZN3daw13EngineServiceC1ERKNS_11SessionSpecE	0	static
+src/service.cpp:86:_ZN3daw13EngineService6submitENS_7CommandE	0	static
+src/service.cpp:124:_ZN3daw13EngineService5panicEv	0	static
+src/service.cpp:111:_ZNK3daw13EngineService10drumStatusEjRNS_10DrumStatusE	176	static
+src/service.cpp:114:_ZN3daw13EngineService10cancelLiveEv	0	static
+src/service.cpp:118:_ZN3daw13EngineService13syncLiveEpochEy	64	static
+src/service.cpp:123:_ZN3daw13EngineService4stopEv	0	static
+src/service.cpp:125:_ZN3daw13EngineService7setGainEjf	32	static
+src/service.cpp:129:_ZN3daw13EngineService6setPanEjf	32	static
+src/service.cpp:134:_ZN3daw13EngineService9submitMixENS_11MixSnapshotERy	128	static
+src/service.cpp:150:_ZN3daw13EngineService10consumeMixEv	68496	static
+src/service.cpp:173:_ZN3daw13EngineService13discontinuityEy	48	static
+src/service.cpp:180:_ZN3daw13EngineService15consumeCommandsEv	144	static
+src/service.cpp:223:_ZN3daw13EngineService5blockEPfj	176	static
+src/service.cpp:282:_ZN3daw13EngineService6renderEPfj	64	static
+src/service.cpp:290:_ZNK3daw13EngineService9telemetryEv	0	static
+src/service.cpp:304:_ZN3daw18renderSessionToWavERKNS_11SessionSpecERKNSt3__14__fs10filesystem4pathEy	62400	static

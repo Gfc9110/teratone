@@ -1,0 +1,14 @@
+ProductName:		macOS
+ProductVersion:		15.6.1
+BuildVersion:		24G90
+arm64
+Apple M4 Pro
+cargo 1.99.1 (5f94df478 2026-08-27)
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: arm64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+cmake version 4.4.4
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).

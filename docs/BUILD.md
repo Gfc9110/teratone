@@ -1,5 +1,39 @@
 # Build, run, and validation
 
+## M3.6 local verification — 23 October 2026
+
+Implementation `c4a8242`, baseline M3.5 `50de0cf`; same macOS arm64 toolchain and
+locked dependencies. Capacity is 64 throughout the model, UI, bridge and engine.
+Current gates: 45 headless / 64 UI-enabled Rust tests (including integrations),
+release binaries, eight native suites on macOS (seven without the Mac interposer),
+shared C ABI, callback allocation/lock audit, sanitizer reruns, 75 FFT cases,
+100,000-note/64-track software UI stress and byte-identical v1 audio.
+Memory is checked over 300 rebuild/edit/export cycles plus a separate macOS leaks
+run. The [M3.6 report](M3_6_64_TRACKS_VALIDATION.md) records exact results and limits.
+
+Normal builds contain no render profiling clocks. To build the separate probe:
+
+```sh
+cmake -S . -B build/m36-measure -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF -DOD_MEASURE_RENDER=ON
+cmake --build build/m36-measure --config Release --target performance_probe --parallel 4
+# macOS default output; measured internal DSP blocks, no hardware-buffer change:
+caffeinate -i build/m36-measure/performance_probe 32 600 --native > /tmp/m36-32.jsonl
+python3 scripts/verify_m36_performance.py --require-coreaudio /tmp/m36-32.jsonl
+build/m36-measure/performance_probe 64 60 --native
+build/m36-measure/performance_probe --lifecycle
+```
+
+Keep the host awake and avoid other stress tests during measurement. The strict
+32-track gate checks a continuous 600-second window, eight voices per synth,
+48 kHz/256-frame internal blocks, p99 <3.2 ms and no DSP block over budget;
+CoreAudio mode also requires zero reported processor-overload notifications.
+This does not certify a physical 256-frame I/O buffer, listening or every possible
+driver underrun. Windows uses the Release/performance_probe.exe target without
+caffeinate or the CoreAudio-only flag. CI compiles this target on its OS matrix;
+no remote CI run or Windows/Intel validation is claimed here.
+The dated records below retain their original results.
+
 ## M3.5 local verification — 23 October 2026
 
 Updated checkout baseline `ebc0e83`; same macOS arm64 toolchain as M3.4. Added

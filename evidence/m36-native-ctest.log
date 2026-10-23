@@ -1,0 +1,169 @@
+Start testing: Oct 23 12:30 CEST
+----------------------------------------------------------
+1/8 Testing: original_audio_core
+1/8 Test: original_audio_core
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/open_daw_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"original_audio_core" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS graph routing
+PASS graph cycle
+PASS graph invalid connection
+PASS sample-accurate MIDI and block invariance
+PASS 440 Hz frequency
+PASS ADSR and voice stealing
+PASS atomic gain/pan updates
+PASS offline demo and WAV export
+<end of output>
+Test time =   0.25 sec
+----------------------------------------------------------
+Test Passed.
+"original_audio_core" end time: Oct 23 12:30 CEST
+"original_audio_core" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/8 Testing: interactive_service
+2/8 Test: interactive_service
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/service_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"interactive_service" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS constructor/setter validation consistency
+PASS overlapping note occurrence IDs
+PASS variable-block scheduling invariance
+PASS play/pause/stop/seek reset policy
+PASS loop boundaries and block invariance
+PASS bounded queue overflow and emergency note-off
+PASS live audition without moving transport
+PASS session and event-density validation
+PASS SPSC two-thread ordering stress
+PASS streaming export and waveform peaks
+PASS malformed WAV bounds and fuzz smoke
+PASS sampler pitch/release and engine integration
+PASS C ABI transactional load/export/lifecycle
+PASS concurrent controls, telemetry, device stop
+PASS mute gate reaches silence with a 5 ms ramp
+PASS all 64 mute/solo states and initial silence
+PASS mixer backpressure, Stop and voice continuity
+PASS versioned mixer ABI, generation and export
+18 interactive checks passed
+<end of output>
+Test time =   2.71 sec
+----------------------------------------------------------
+Test Passed.
+"interactive_service" end time: Oct 23 12:30 CEST
+"interactive_service" time elapsed: 00:00:02
+----------------------------------------------------------
+
+3/8 Testing: pure_c_abi
+3/8 Test: pure_c_abi
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/api_smoke"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"pure_c_abi" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS pure C ABI client
+<end of output>
+Test time =   0.36 sec
+----------------------------------------------------------
+Test Passed.
+"pure_c_abi" end time: Oct 23 12:30 CEST
+"pure_c_abi" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/8 Testing: sixty_four_track_capacity
+4/8 Test: sixty_four_track_capacity
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/capacity_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"sixty_four_track_capacity" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS 64 mixed tracks / 512 voices, 25 bit-identical partitions; full note queue Stop in one block retains mix
+PASS concurrent 64-track full parameter snapshots, last-slot notes, preview cancellation and Stop
+PASS old ABI layouts support track 64; track 65 rejected without replacing playback
+EngineService stack bytes=61568; event heap bytes=327680; mixer queue heap bytes=207680
+<end of output>
+Test time =   2.39 sec
+----------------------------------------------------------
+Test Passed.
+"sixty_four_track_capacity" end time: Oct 23 12:30 CEST
+"sixty_four_track_capacity" time elapsed: 00:00:02
+----------------------------------------------------------
+
+5/8 Testing: internal_drum_kit
+5/8 Test: internal_drum_kit
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/drum_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"internal_drum_kit" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS MIDI lookup, empty/unmapped silence, exact event offset, velocity and no MIDI pitch transposition
+PASS captured gated/one-shot modes, 5ms local choke, simultaneous event ordering, independent kits
+PASS realtime pad mute/pan, exact silence, 64-slot deterministic stealing/declick, bounded retrigger storm
+PASS priority one-shot preview cancellation, stale/fresh epochs, score continuity and fixed/random partition parity
+PASS concurrent drum controls, live cancellation and trigger/voice meters
+<end of output>
+Test time =   0.61 sec
+----------------------------------------------------------
+Test Passed.
+"internal_drum_kit" end time: Oct 23 12:30 CEST
+"internal_drum_kit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/8 Testing: per_track_synth
+6/8 Test: per_track_synth
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/synth_tests"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"per_track_synth" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS ADSR captured per voice, release during attack, exact 10ms waveform/shape/PWM ramps, reset
+PASS MIDI 0..127, all waveforms/duty limits, 8/44.1/48/96kHz, Nyquist silence and envelope limits
+PASS additive ABI sizes, strict validation, generations, overflow, Stop and legacy mix preserve synth
+PASS 3 independent synths, overlapping IDs, 5 fixed +25 random export partitions, muted instance isolation
+PASS concurrent POD synth snapshots / telemetry
+<end of output>
+Test time =   1.05 sec
+----------------------------------------------------------
+Test Passed.
+"per_track_synth" end time: Oct 23 12:30 CEST
+"per_track_synth" time elapsed: 00:00:01
+----------------------------------------------------------
+
+7/8 Testing: callback_cpp_allocations
+7/8 Test: callback_cpp_allocations
+Command: "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/allocation_probe"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"callback_cpp_allocations" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+Monitored 10001 renders: new=0 delete=0
+<end of output>
+Test time =   4.79 sec
+----------------------------------------------------------
+Test Passed.
+"callback_cpp_allocations" end time: Oct 23 12:30 CEST
+"callback_cpp_allocations" time elapsed: 00:00:04
+----------------------------------------------------------
+
+8/8 Testing: callback_runtime_audit
+8/8 Test: callback_runtime_audit
+Command: "/opt/homebrew/bin/cmake" "-E" "env" "DYLD_INSERT_LIBRARIES=/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/librt_heap_audit.dylib" "OD_REQUIRE_RT_AUDIT=1" "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation/allocation_probe"
+Directory: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+"callback_runtime_audit" start time: Oct 23 12:30 CEST
+Output:
+----------------------------------------------------------
+PASS malloc/free/pthread-lock interposer positive control
+Runtime audit: allocation_calls=0 free_calls=0 blocking_lock_calls=0
+Monitored 10001 renders: new=0 delete=0
+<end of output>
+Test time =   4.87 sec
+----------------------------------------------------------
+Test Passed.
+"callback_runtime_audit" end time: Oct 23 12:30 CEST
+"callback_runtime_audit" time elapsed: 00:00:04
+----------------------------------------------------------
+
+End testing: Oct 23 12:30 CEST

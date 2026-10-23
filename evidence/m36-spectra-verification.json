@@ -1,0 +1,8 @@
+{
+  "cases": 75,
+  "worst_spurious_dbr": -78.19415031756081,
+  "minimum_improvement_db": 42.42088847723657,
+  "worst_reference_error_dbr": -70.42614390283389,
+  "gate": "<= -50 dBr and >= 20 dB improvement, including 7040 Hz",
+  "method": "One-second coherent captures; exact MIDI pitches 110/440/1760/3520/7040Hz at exactly 44.1/48/96kHz; no window, no excluded guard bins; independent additive reference, DC included as spurious"
+}

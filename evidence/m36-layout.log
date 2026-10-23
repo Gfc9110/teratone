@@ -1,0 +1,17 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `release` profile [optimized] target(s) in 40.41s
+     Running `app/target/release/examples/layout_probe`
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1280×820, scale 1
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1000×760, scale 1
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1000×760, scale 2
+PASS M3.3: pointer clip CRUD/transfer/resize, one-step undo/redo, extension, empty-lane creation, stable IDs and portable save
+PASS M3.3: fixed keyboard, C3/C4/C5 notation, MIDI 60 insertion, velocity, fractional scroll, three vertical zooms, 100/200% alignment
+PASS M3.3: keyboard audition never records; hold/release, window exit, focus loss and track change release the original token
+PASS M3.4: pointer preset/shape/PWM/ADSR, waveform combo, modified indicator, one-step undo, independent duplicate, preset save/load at 1280/1000 logical pixels and 100/200% scaling
+PASS M3.5: pointer pads/preview/focus cancellation, gain gesture undo, mute/mode/map, naming, WAV replacement/clear/undo, independent duplicate and portable save at 1280/1000 logical pixels and 100/200% scaling
+PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected
+M3.6 UI 1280x820 scale=1: 64 tracks/100000 notes, max_visible=1490, n=120 response_to_paint_p95_ms=15.092 max_ms=15.745; software_frame_p95_ms=4.200 max_ms=6.717
+M3.6 UI 1000x760 scale=1: 64 tracks/100000 notes, max_visible=1490, n=120 response_to_paint_p95_ms=14.376 max_ms=15.352; software_frame_p95_ms=3.474 max_ms=5.047
+M3.6 UI 1000x760 scale=2: 64 tracks/100000 notes, max_visible=1490, n=120 response_to_paint_p95_ms=16.192 max_ms=18.032; software_frame_p95_ms=5.378 max_ms=7.134
+PASS M3.6: 1000 UI slider updates on track 64 coalesce to the last target and synchronize with native audio; Stop retains edits
+PASS M3.6: 64 headers/lanes aligned <=1 logical pixel at top/bottom/reorder/undo, limit controls, selection reveal, 100k-note portable round trip at 100/200%

@@ -6,6 +6,31 @@
 
 **Obiettivo:** rendere riconoscibile e utilizzabile una sessione multitraccia, con istanze indipendenti dello stesso strumento, editor delle note leggibile, kit di percussioni interno e synth configurabile per traccia, conservando backend C++20 e frontend Rust/Slint.
 
+## Stato di esecuzione aggiornato — 23 ottobre 2026
+
+La specifica e l'audit sotto conservano la baseline del 22 ottobre. Nel repository
+aggiornato sono poi implementate M3.1–M3.5 e **M3.6, capacità fino a 64 tracce**
+(codice `c4a8242`, baseline M3.5 `50de0cf`). I limiti correnti e i risultati misurati
+sono nel [rapporto M3.6](../M3_6_64_TRACKS_VALIDATION.md) e nell'
+[avanzamento M3](../M3_IMPLEMENTATION_PROGRESS.md); non dedurli dalle descrizioni
+storiche «attuale» della sezione 2.
+
+Il software verifica 64 tracce indipendenti, 100.000 note, UI software 100/200%,
+save/undo/export, code, allocazioni/lock intercettati, sanitizers e regressioni FFT/v1.
+Il rapporto distingue le misure audio native dai tentativi preliminari, il blocco
+DSP interno dal buffer hardware e RSS da heap attivo/budget media. Nessuna soglia
+prestazionale è considerata soddisfatta sulla sola compilazione.
+
+L'utente accetta per questa iterazione il kit di 12 suoni CC0 già verificati,
+**senza averlo ascoltato** e con possibilità di sostituzione. Il manifest registra
+la scelta provvisoria; il gate di ascolto non è segnato come eseguito.
+
+**Il DoD complessivo resta aperto**: Windows x64/WASAPI, Mac Intel, GUI nativa
+(menu/focus/Tab/accessibilità), ascolto, I/O hardware a 256, 44,1 kHz reale,
+sleep/wake e cambio/rimozione device richiedono ancora i rispettivi test.
+Le checkbox originali sono criteri di specifica, non un'attestazione automatica
+di chiusura. Proseguire in piccoli step e conservare le evidenze già raccolte.
+
 ## 1. Come usare questo handoff
 
 Il coding agent deve partire dal repository aggiornato, leggere le istruzioni locali e confrontare il commit e gli hash di `M3_BASELINE_AUDIT.json` con i file effettivi. Se il repository non è accessibile, richiedere quello aggiornato; non ricostruire la baseline dal precedente archivio. Se ci sono modifiche successive, ispezionarle e adattare questa specifica senza sovrascriverle.

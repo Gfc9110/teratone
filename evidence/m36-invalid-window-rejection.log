@@ -1,0 +1,9 @@
+Expected rejection of the preliminary discontinuous run, exit 1
+Traceback (most recent call last):
+  File "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/scripts/verify_m36_performance.py", line 31, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/scripts/verify_m36_performance.py", line 21, in main
+    assert r['valid_continuous_window'] and 600<=r['seconds']<=601 and r['audio_seconds']>=599.8
+           ~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'valid_continuous_window'

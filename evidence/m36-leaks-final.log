@@ -1,0 +1,29 @@
+M3.6 300 preset/duplicate/delete/undo/redo cycles, retained bounded history, 63/64 tracks incl. CC0 kit, parallel independent export; elapsed_s=9.085; (cycle,current_rss_bytes,live_malloc_bytes)=[(25, Some(164036608), Some(26271280)), (50, Some(121815040), Some(28525424)), (75, Some(159924224), Some(29142768)), (100, Some(133005312), Some(27241024)), (150, Some(143163392), Some(30416816)), (200, Some(134070272), Some(32690752)), (250, Some(145473536), Some(34998880)), (300, Some(134758400), Some(31204896))]
+Live malloc growth cycles 100..300: 3963872 bytes; gate <=8 MiB including bounded history
+RSS growth cycles 100..300: 1753088 bytes; reservation/working-set gate <=32 MiB
+Process 51666 is not debuggable. Due to security restrictions, leaks can only show or save contents of readonly memory of restricted processes.
+
+Process:         capacity_probe [51666]
+Path:            /Users/USER/Downloads/*/capacity_probe
+Load Address:    0x102fd0000
+Identifier:      capacity_probe
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  leaks [50801]
+Target Type:     live task
+
+Date/Time:       2026-10-23 12:28:31.086 +0200
+Launch Time:     2026-10-23 12:28:21.739 +0200
+OS Version:      macOS 15.6.1 (24G90)
+Report Version:  7
+Analysis Tool:   /usr/bin/leaks
+
+Physical footprint:         15.4M
+Physical footprint (peak):  56.9M
+Idle exit:                  untracked
+----
+
+leaks Report Version: 4.0, multi-line stacks
+Process 51666: 735 nodes malloced for 58 KB
+Process 51666: 0 leaks for 0 total leaked bytes.

@@ -1,9 +1,10 @@
 # Remaining acceptance gates
 
-Current local increment (23 October 2026): [M3.5 internal drums](M3_5_DRUM_MACHINE.md)
+Current local increment (23 October 2026): [M3.6 — 64 tracks and validation](M3_6_64_TRACKS_VALIDATION.md)
 and [M3 progress](M3_IMPLEMENTATION_PROGRESS.md) record the updated implementation
-and tests. The original delivery assessment below is historical; Mac software
-builds now pass. Listening, physical audio and the target-device matrix remain open.
+and measured scope. The original delivery assessment below is historical; Mac
+software builds and CoreAudio probes now run. Windows/Intel, human listening,
+native GUI and the remaining hardware checks still require validation.
 
 
 These are remaining work, not background tasks or promises of completion.

@@ -4,6 +4,18 @@ This increment retains the uploaded C++20 audio graph/DSP and adds a native engi
 service, bounded transport/live-note control, sampling, streaming WAV export,
 a C ABI, and a Rust/Slint application implementation.
 
+**M3.6 local increment — 23 October 2026:** up to **64 independent tracks**,
+coordinated model/UI/native capacity checks, 64-track example, 100,000-note UI
+stress and repeated save/undo/export/memory checks. Current local gates pass:
+45 headless / 64 UI-enabled Rust tests, eight native suites, sanitizer reruns,
+callback allocation/lock audit and byte-identical v1 audio. The 32-track, ten-minute
+CoreAudio gate passes (DSP p99 1.573 ms, maximum 3.014 ms, no block over budget or
+reported processor overload). Performance scope and remaining target/manual gates are in the
+[M3.6 validation report](docs/M3_6_64_TRACKS_VALIDATION.md).
+The kit is provisionally accepted by the user without listening. Windows, Intel
+Mac and the remaining hardware/manual checks still require validation.
+The dated sections below retain the earlier milestones' results.
+
 **M3.5 local increment — 23 October 2026:** internal 16-pad drum kit, 12 verified
 unmodified VCSL CC0 sounds plus four empty pads, GM percussion mapping, WAV
 replacement/import, per-pad mixer/tuning/mode/choke and independent track instances.
@@ -74,7 +86,8 @@ its lead instrument with the sampler.
 
 Requires Rust stable, CMake, a native C++ toolchain, dependency download access,
 and platform GUI development libraries. See [BUILD.md](docs/BUILD.md).
-The frontend is delivered as unvalidated source, not a prebuilt application.
+The frontend builds locally on macOS arm64; this repository contains source,
+not a signed or packaged application release.
 
 ```sh
 ./scripts/validate_app.sh
@@ -84,14 +97,13 @@ cargo run --locked --release --bin opendaw
 cargo run --locked --release --bin opendaw -- --silent
 ```
 
-There is deliberately **no fabricated Cargo.lock**. The validation script resolves
-it on a connected host. Preserve and commit the lockfile only after validation;
-the supplied source is not a reproducible locked Rust release yet.
+The validated `app/Cargo.lock` is tracked. Use `--locked` and preserve it when
+reproducing the current build; M3.6 does not change dependencies.
 
 ## Implemented boundaries
 
 - C++: `EngineService`, per-block sequencing, transport, note IDs, bounded controls,
-  fixed-voice sine/sampler instruments, device ownership, offline export.
+  fixed-voice configurable synth/sampler/drum instruments, device ownership, offline export.
 - C ABI: opaque engine handle, checked arguments, explicit lifetime and single
   control-thread contract. Audio does not call back into Rust or the UI.
 - Rust source: versioned project document, command/inverse undo, independent editor
@@ -104,12 +116,13 @@ the supplied source is not a reproducible locked Rust release yet.
 Structural score edits stop audio. Live gain/pan controls do not rebuild the graph.
 This is intentional: stop/prepare/restart is the initial safe lifecycle, not live
 lock-free topology swapping. The UI uses visible note primitives, not a custom
-WGPU renderer. View construction still scans the selected track; it is not a
-finished large-project performance solution.
+WGPU renderer. View construction still scans the selected track; measured 64-track/100,000-note
+software-renderer results and their scope are in the M3.6 report.
 
 ## Important limits
 
-Native output is provided as **unvalidated source for macOS and Windows**. Linux
+Native output has been exercised through CoreAudio on this Apple Silicon Mac;
+Windows output still requires target-host validation. Linux
 currently supports offline processing and explicit silent-clock testing only.
 Seek/loop boundaries reset voices; there is no sustained-note chasing. Project end
 cuts tails. Sampling uses linear interpolation, not high-quality time-stretching.

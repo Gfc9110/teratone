@@ -261,3 +261,35 @@ Structural drum edits decode a candidate before stopping/mutating the active
 project; failed imports roll back their new staging file. Export uses an
 independent engine from the captured document, as before. See
 [M3.5 contracts, DSP, evidence and limitations](M3_5_DRUM_MACHINE.md).
+
+## M3.6 capacity, prepared storage and measurement
+
+The Rust document and native service support 64 independent tracks. The UI gets
+the limit from the presenter; the bridge checks additive `od_track_capacity()`
+before creating a backend handle. Legacy ABI layouts and project schema v2 are
+unchanged. Pad arrays still have 16 entries. The loader rejects excess tracks
+transactionally, preserving the existing service.
+
+Fixed 320-event rows are allocated as a vector during prepare; the bounded mix
+queue is owned by a unique_ptr. Neither grows or changes ownership in render.
+On the measured arm64 build EngineService is 61,568 bytes; the 64-track event
+storage is 327,680 bytes and mix queue 207,680 bytes on the prepared heap.
+Old/new graphs and independent export can overlap on the control side.
+
+After successful preparation and old-owner release, macOS returns unused malloc
+pages every 16 preparations through `malloc_zone_pressure_relief`. The cadence
+is thread-local so recreating handles does not bypass it. This is control-only,
+not callback cleanup or a new cross-platform allocator requirement. Active media,
+history and export owners are preserved. See the M3.6 memory experiment.
+
+Factory bytes embedded immutably are hashed once per unique content per prepare.
+Every File reference is still checked before deduplication, even when its claimed
+hash matches an already loaded Factory or another path. Instance parameters,
+voices and choke groups are never shared with the immutable sample data.
+
+`OD_MEASURE_RENDER` is an opt-in build used only by performance_probe. It
+preallocates a bounded measurement vector and records internal block durations;
+normal app and library builds have no profiling clocks or vector. A separate
+Mac test-only interposer audits heap and pthread lock calls with a positive
+control. Neither tool is a production audio dependency. Results, scope and the
+remaining device/OS gates are in [M3.6 validation](M3_6_64_TRACKS_VALIDATION.md).
