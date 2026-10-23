@@ -7,7 +7,7 @@
 #include <filesystem>
 
 namespace daw {
-inline constexpr uint32_t MaxTracks = 16;
+inline constexpr uint32_t MaxTracks = 64;
 inline constexpr uint32_t MaxBlockFrames = 4096;
 inline constexpr size_t ScheduledEventsPerTrack = 256;
 inline constexpr size_t CommandsPerBlock = 64;
@@ -86,8 +86,18 @@ public:
     uint32_t maxFrames() const noexcept { return maxFrames_; }
     uint32_t trackCount() const noexcept { return trackCount_; }
     uint64_t lengthFrames() const noexcept { return length_; }
+#ifdef OD_MEASURE_RENDER
+    struct Measurement {uint64_t nanoseconds;uint32_t frames;};
+    // Control only, with the audio consumer quiescent. No clock calls in normal builds.
+    void measureBlocks(size_t capacity) { measurements_.assign(capacity,{}); measurementCount_=0; }
+    std::span<const Measurement> measurements() const noexcept {return {measurements_.data(),measurementCount_};}
+#endif
 private:
     struct Scheduled { uint64_t frame; uint32_t track; BlockNoteEvent event; };
+#ifdef OD_MEASURE_RENDER
+    std::vector<Measurement> measurements_;
+    size_t measurementCount_=0;
+#endif
     Graph graph_;
     std::array<InstrumentNode*, MaxTracks> instruments_{};
     std::array<SynthNode*, MaxTracks> synths_{};
@@ -95,10 +105,10 @@ private:
     std::array<size_t, MaxTracks> padCounts_{};
     std::array<GainPanNode*, MaxTracks> gains_{};
     std::array<AudibilityNode*, MaxTracks> gates_{};
-    SpscQueue<MixSnapshot, 9> mixQueue_; // eight coherent snapshots, independent of note traffic
+    std::unique_ptr<SpscQueue<MixSnapshot, 9>> mixQueue_; // eight coherent snapshots, independent of note traffic
     uint64_t mixSerial_ = 0;
     std::atomic<uint64_t> mixApplied_{0};
-    std::array<std::array<BlockNoteEvent, BlockEventCapacity>, MaxTracks> events_{};
+    std::vector<std::array<BlockNoteEvent, BlockEventCapacity>> events_; // prepared heap storage, never resized in render
     std::array<size_t, MaxTracks> counts_{};
     std::vector<Scheduled> schedule_;
     SpscQueue<Command, 1025> commands_;

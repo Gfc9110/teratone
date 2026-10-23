@@ -20,6 +20,7 @@ extern "C" {
 #define OD_NOEXCEPT
 #endif
 #define OD_ABI_VERSION 1u
+#define OD_MAX_TRACKS 64u
 #define OD_LIVE_ID_BIT (UINT64_C(1) << 63)
 typedef struct od_engine od_engine;
 typedef enum od_result { OD_OK=0, OD_INVALID=1, OD_QUEUE_FULL=2, OD_BUSY=3, OD_ERROR=4 } od_result;
@@ -93,6 +94,7 @@ typedef struct od_telemetry {
  * render is headless only and returns OD_BUSY while a device is open.
  */
 OD_API uint32_t od_abi_version(void) OD_NOEXCEPT;
+OD_API uint32_t od_track_capacity(void) OD_NOEXCEPT;
 OD_API const char* od_error_message(void) OD_NOEXCEPT;
 OD_API od_engine* od_create(uint32_t sample_rate, uint32_t max_frames) OD_NOEXCEPT;
 OD_API void od_destroy(od_engine*) OD_NOEXCEPT;

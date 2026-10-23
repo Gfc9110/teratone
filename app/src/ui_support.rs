@@ -26,6 +26,7 @@ pub struct Presenter {
     model: Rc<VecModel<TrackVisual>>, rows: Vec<TrackRow>, inspector: Option<Inspector>, clip_info: Option<(u64,String)>, keys:Vec<KeyRow>, key_model:Rc<VecModel<KeyVisual>> }
 impl Presenter {
     pub fn new(ui: &AppWindow) -> Self {
+        ui.set_track_limit(opendaw_app::project::MAX_TRACKS as i32);
         let model = Rc::new(VecModel::default()); ui.set_track_items(model.clone().into());
         let key_model=Rc::new(VecModel::default());ui.set_key_items(key_model.clone().into());
         let pads=Rc::new(VecModel::default());ui.set_drum_pads(pads.clone().into());

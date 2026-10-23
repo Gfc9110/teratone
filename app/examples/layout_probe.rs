@@ -20,7 +20,7 @@ fn snapshot(window: &MinimalSoftwareWindow, path: &str, width: u32, height: u32)
 fn check_alignment(pixels: &SharedPixelBuffer<slint::Rgb8Pixel>, ui: &AppWindow, scale: f32) {
     let x_header=((ui.get_rows_x()+60.0)*scale) as usize;
     let x_lane=((ui.get_rows_x()+ui.get_header_size()+80.0)*scale) as usize;
-    for index in 0..16 {
+    for index in 0..ui.get_track_items().row_count() {
         let y=ui.get_rows_y()+ui.get_arrangement_y()+(index+1) as f32*ui.get_row_size()-1.0;
         if y <= ui.get_rows_y()+1.0 || y >= ui.get_rows_y()+ui.get_rows_height()-1.0 { continue; }
         let expected=(y*scale).floor() as i32;
@@ -93,7 +93,7 @@ fn clip_piano_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&Ref
     let x=ui.get_rows_x()+ui.get_header_size()+16.0*ui.get_arrangement_zoom()+ui.get_arrangement_x()+30.0;
     let y=ui.get_rows_y()+25.0;
     pointer(window,x,y,0);pointer(window,x+ui.get_arrangement_zoom(),y+ui.get_row_size(),1);
-    snapshot(window,"../evidence/m35-clip-drag-preview.ppm",1280,820);
+    snapshot(window,"../evidence/m36-clip-drag-preview.ppm",1280,820);
     pointer(window,x+ui.get_arrangement_zoom(),y+ui.get_row_size(),2);pump!();
     assert_eq!(last.as_ref().unwrap().track_id,2);assert_eq!(last.as_ref().unwrap().clip_id,new);assert_eq!(last.as_ref().unwrap().clip_start,17*960);
     ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().track_id,1);assert_eq!(last.as_ref().unwrap().clip_start,16*960);
@@ -130,11 +130,11 @@ fn clip_piano_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&Ref
         command!(Request::ZoomY(rh/last.as_ref().unwrap().viewport.row_height));command!(Request::ScrollPiano(0.0,(127.0-64.0)*rh+0.375));
         let v=last.as_ref().unwrap();let key=v.keys.iter().find(|k|k.pitch==60).unwrap();let note=&v.notes[0];
         assert!((key.y+key.height/2.0-note.y-note.height/2.0).abs()<1.0,"Key and note centers align at every zoom/scale");
-        snapshot(window,&format!("../evidence/m35-piano-{width}-{}x-row{}.ppm",scale as u32,rh as u32),pw,ph);
+        snapshot(window,&format!("../evidence/m36-piano-{width}-{}x-row{}.ppm",scale as u32,rh as u32),pw,ph);
         let old_y=ui.get_keyboard_y();let old_scroll=ui.get_piano_scroll_y();wheel(window,ui.get_keyboard_x()+35.0,old_y+50.0,0.0,-21.5);pump!();assert!(ui.get_piano_scroll_y()>old_scroll);
     }
     // Save and reopen through the real persistence layer: notation did not change MIDI 60.
-    let path=std::env::temp_dir().join(format!("opendaw-m35-ui-{}",std::process::id()));command!(Request::Save(path.clone()));
+    let path=std::env::temp_dir().join(format!("opendaw-m36-ui-{}",std::process::id()));command!(Request::Save(path.clone()));
     let saved=opendaw_app::storage::load(&path).unwrap();let c=saved.clip(1,clip).unwrap();assert_eq!(c.notes.len(),1);assert_eq!(c.notes[0].pitch,60);assert_eq!(c.notes[0].velocity,37);assert_eq!(c.start_tick,3*960);assert_eq!(c.name,"Verse");std::fs::remove_dir_all(path).unwrap();
     window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:1.0});window.set_size(slint::PhysicalSize::new(1280,820));command!(Request::FitNotes);
     println!("PASS M3.3: pointer clip CRUD/transfer/resize, one-step undo/redo, extension, empty-lane creation, stable IDs and portable save");
@@ -163,8 +163,8 @@ fn synth_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<
             let text:slint::SharedString=key.into();window.dispatch_event(WindowEvent::KeyPressed{text:text.clone()});window.dispatch_event(WindowEvent::KeyReleased{text});
         }pump!();assert_eq!(last.as_ref().unwrap().synth.unwrap().waveform,Waveform::Triangle);
         let attack=last.as_ref().unwrap().synth.unwrap().attack;click(window,ui.get_synth_attack_x()+10.0,ui.get_synth_attack_y());pump!();assert!(last.as_ref().unwrap().synth.unwrap().attack>attack);
-        snapshot(window,&format!("../evidence/m35-synth-{width}-{}x.ppm",scale as u32),pw,ph);
-        let path=std::env::temp_dir().join(format!("opendaw-m35-ui-preset-{}-{}.json",std::process::id(),scale));
+        snapshot(window,&format!("../evidence/m36-synth-{width}-{}x.ppm",scale as u32),pw,ph);
+        let path=std::env::temp_dir().join(format!("opendaw-m36-ui-preset-{}-{}.json",std::process::id(),scale));
         ui.set_preset_path(path.to_str().unwrap().into());ui.set_preset_name("UI Triangle".into());
         wheel(window,ui.get_synth_save_preset_x(),height as f32-130.0,0.0,-500.0);pump!();
         let y=ui.get_synth_save_preset_y();assert!(y>130.0 && y<height as f32-55.0,"Preset controls reachable by scroll: {y}");
@@ -172,7 +172,7 @@ fn synth_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<
         let saved=opendaw_app::storage::load_synth_preset(&path).unwrap();let instance=last.as_ref().unwrap().instance_id;
         command!(Request::SynthParameter{track:1,instance,field:SynthField::Attack,value:0.7});
         click(window,ui.get_synth_load_preset_x(),ui.get_synth_load_preset_y());pump!();assert_eq!(last.as_ref().unwrap().synth,Some(saved.parameters));
-        snapshot(window,&format!("../evidence/m35-synth-presets-{width}-{}x.ppm",scale as u32),pw,ph);std::fs::remove_file(path).unwrap();
+        snapshot(window,&format!("../evidence/m36-synth-presets-{width}-{}x.ppm",scale as u32),pw,ph);std::fs::remove_file(path).unwrap();
         ui.set_sound_tab(false);ui.set_inspector_scroll(0.0);pump!();
     }
     let instance=last.as_ref().unwrap().instance_id;command!(Request::SynthParameter{track:1,instance,field:SynthField::Waveform,value:0.0});
@@ -193,7 +193,7 @@ fn drum_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<M
     macro_rules! command {($r:expr)=>{{mailbox.borrow_mut().enqueue($r).unwrap();pump!();}}}
     click(window,ui.get_drums_add_x(),ui.get_drums_add_y());pump!();let track=last.as_ref().unwrap().track_id;let instance=last.as_ref().unwrap().instance_id;
     assert_eq!(last.as_ref().unwrap().drum_kit.as_ref().unwrap().pads.len(),16);
-    let source=std::env::temp_dir().join(format!("opendaw-m35-ui-import-{}.wav",std::process::id()));std::fs::write(&source,FACTORY_ASSETS[1].bytes).unwrap();
+    let source=std::env::temp_dir().join(format!("opendaw-m36-ui-import-{}.wav",std::process::id()));std::fs::write(&source,FACTORY_ASSETS[1].bytes).unwrap();
     for (width,height,scale) in [(1280,820,1.0),(1000,760,1.0),(1000,760,2.0)]{
         window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:scale});let pw=(width as f32*scale) as u32;let ph=(height as f32*scale) as u32;window.set_size(slint::PhysicalSize::new(pw,ph));
         ui.set_sound_tab(true);ui.set_inspector_scroll(0.0);pump!();
@@ -208,7 +208,7 @@ fn drum_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<M
         let cx=ui.get_drums_grid_x()+ui.get_drums_grid_width()*0.375;let cy=ui.get_drums_grid_y()+27.0;
         pointer(window,cx,cy,0);pump!();assert_eq!(last.as_ref().unwrap().live_count,1,"Preview survives vertical scroll to a distant pad");
         assert!(last.as_ref().unwrap().keys.iter().any(|k|k.pitch==75));pointer(window,cx,cy,2);pump!();click(window,x,y);pump!();
-        snapshot(window,&format!("../evidence/m35-drums-pads-{width}-{}x.ppm",scale as u32),pw,ph);
+        snapshot(window,&format!("../evidence/m36-drums-pads-{width}-{}x.ppm",scale as u32),pw,ph);
         wheel(window,x,height as f32-140.0,0.0,-280.0);pump!();
         assert!(ui.get_drums_mute_y()>140.0 && ui.get_drums_gain_y()<height as f32-50.0,"Pad controls reachable by scroll");
         click(window,ui.get_drums_mute_x(),ui.get_drums_mute_y());pump!();assert!(last.as_ref().unwrap().drum_kit.as_ref().unwrap().pads[0].parameters.mute);
@@ -223,15 +223,61 @@ fn drum_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<M
         let iy=ui.get_drums_import_y();assert!(iy>140.0 && iy<height as f32-50.0,"Import reachable: {iy}");
         click(window,ui.get_drums_import_x(),iy);pump!();assert_eq!(ui.get_pad_import_path().as_str(),source.to_str().unwrap());assert!(matches!(last.as_ref().unwrap().drum_kit.as_ref().unwrap().pads[0].sample,Some(opendaw_app::drums::DrumSample::File{..})));
         click(window,ui.get_drums_clear_x(),ui.get_drums_clear_y());pump!();assert!(last.as_ref().unwrap().drum_kit.as_ref().unwrap().pads[0].sample.is_none());ui.invoke_undo();pump!();assert!(last.as_ref().unwrap().drum_kit.as_ref().unwrap().pads[0].sample.is_some());
-        snapshot(window,&format!("../evidence/m35-drums-import-{width}-{}x.ppm",scale as u32),pw,ph);ui.invoke_undo();pump!();
+        snapshot(window,&format!("../evidence/m36-drums-import-{width}-{}x.ppm",scale as u32),pw,ph);ui.invoke_undo();pump!();
     }
     command!(Request::DuplicateTrack(track));let copy=last.as_ref().unwrap().track_id;let other=last.as_ref().unwrap().drum_kit.clone().unwrap();
     command!(Request::SelectTrack(track));assert!(last.as_ref().unwrap().drum_kit.as_ref().unwrap().pads.iter().all(|p|other.pads.iter().all(|q|p.id!=q.id)));
-    let path=std::env::temp_dir().join(format!("opendaw-m35-ui-drums-{}",std::process::id()));command!(Request::Save(path.clone()));let p=opendaw_app::storage::load(&path).unwrap();assert!(p.track(track).unwrap().instrument.config.drums().is_some());std::fs::remove_dir_all(path).unwrap();
+    let path=std::env::temp_dir().join(format!("opendaw-m36-ui-drums-{}",std::process::id()));command!(Request::Save(path.clone()));let p=opendaw_app::storage::load(&path).unwrap();assert!(p.track(track).unwrap().instrument.config.drums().is_some());std::fs::remove_dir_all(path).unwrap();
     command!(Request::RemoveTrack(copy));command!(Request::RemoveTrack(track));command!(Request::SelectTrack(1));
     assert_ne!(last.as_ref().unwrap().instance_id,instance);std::fs::remove_file(source).unwrap();ui.set_sound_tab(false);ui.set_inspector_scroll(0.0);
     window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:1.0});window.set_size(slint::PhysicalSize::new(1280,820));pump!();
     println!("PASS M3.5: pointer pads/preview/focus cancellation, gain gesture undo, mute/mode/map, naming, WAV replacement/clear/undo, independent duplicate and portable save at 1280/1000 logical pixels and 100/200% scaling");
+}
+
+fn fast_pump(ui:&AppWindow,mailbox:&RefCell<Mailbox>,connection:&controller::Connection,presenter:&mut ui_support::Presenter,last:&mut Option<ViewState>){
+    let deadline=Instant::now()+Duration::from_secs(4);let mut viewed=false;
+    loop{mailbox.borrow_mut().flush().unwrap();while let Ok(response)=connection.receiver.try_recv(){match response{
+        Response::View(v)=>{presenter.apply(ui,(*v).clone());*last=Some(*v);viewed=true;},
+        Response::Ack{request_id,error,..}=>{assert!(error.is_none(),"{error:?}");mailbox.borrow_mut().acknowledge(request_id);},
+        Response::DrumMeter{track,instance,status}=>presenter.drum_meter(ui,track,instance,status),Response::Fatal(e)=>panic!("{e}"),_=>{}
+    }}if viewed&&mailbox.borrow().pending_count()==0{return;}assert!(Instant::now()<deadline,"Large-project request timed out");std::thread::sleep(Duration::from_micros(100));}
+}
+fn large_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<Mailbox>,connection:&controller::Connection,presenter:&mut ui_support::Presenter,last:&mut Option<ViewState>){
+    #[path="support/stress_project.rs"] mod fixture;
+    macro_rules! pump{()=>{settle(ui,mailbox,connection,presenter,last)}}
+    macro_rules! command{($r:expr)=>{{mailbox.borrow_mut().enqueue($r).unwrap();pump!();}}}
+    let root=std::env::temp_dir().join(format!("opendaw-m36-large-ui-{}",std::process::id()));let previous=root.join("previous");let large=root.join("large");std::fs::create_dir_all(&large).unwrap();
+    command!(Request::Save(previous));let p=fixture::project(100_000);std::fs::write(large.join("project.json"),serde_json::to_vec_pretty(&p).unwrap()).unwrap();command!(Request::Open(large.clone()));
+    assert_eq!(last.as_ref().unwrap().tracks.len(),64);assert_eq!(ui.get_track_limit(),64);
+    let pending=mailbox.borrow().pending_count();click(window,ui.get_add_track_x(),ui.get_add_track_y());click(window,ui.get_drums_add_x(),ui.get_drums_add_y());click(window,ui.get_duplicate_track_x(),ui.get_duplicate_track_y());assert_eq!(mailbox.borrow().pending_count(),pending,"Creation controls disabled at 64");
+    let ids:Vec<_>=p.tracks.iter().map(|t|t.id).collect();
+    for(width,height,scale)in[(1280,820,1.0),(1000,760,1.0),(1000,760,2.0)]{
+        window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:scale});let pw=(width as f32*scale)as u32;let ph=(height as f32*scale)as u32;window.set_size(slint::PhysicalSize::new(pw,ph));pump!();
+        ui.set_arrangement_y(0.0);let top=snapshot(window,&format!("../evidence/m36-64-top-{width}-{}x.ppm",scale as u32),pw,ph);check_alignment(&top,ui,scale);
+        command!(Request::SelectTrack(ids[63]));ui.invoke_reveal_selected();assert!(ui.get_arrangement_y()< -60.0*ui.get_row_size());
+        let bottom=snapshot(window,&format!("../evidence/m36-64-bottom-{width}-{}x.ppm",scale as u32),pw,ph);check_alignment(&bottom,ui,scale);
+        command!(Request::ReorderTrack{track:ids[63],index:0});assert_eq!(last.as_ref().unwrap().tracks[0].id,ids[63]);ui.invoke_reveal_selected();let reordered=snapshot(window,&format!("../evidence/m36-64-reordered-{width}-{}x.ppm",scale as u32),pw,ph);check_alignment(&reordered,ui,scale);
+        ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().tracks[63].id,ids[63]);ui.invoke_reveal_selected();
+        for id in [ids[0],ids[63]]{command!(Request::SelectTrack(id));command!(Request::ZoomY(16.0/last.as_ref().unwrap().viewport.row_height));command!(Request::ScrollPiano(0.0,55.0*16.0));}
+        let mut pixels=SharedPixelBuffer::<slint::Rgb8Pixel>::new(pw,ph);let mut responses=Vec::new();let mut frames=Vec::new();let mut max_notes=0;
+        for i in 0..120{let action=match i%3{0=>Request::SelectTrack(ids[if i%2==0{0}else{63}]),1=>Request::ScrollPiano((i%8)as f64/8.0,55.0*16.0),_=>Request::Zoom(if i%2==0{1.01}else{1.0/1.01})};
+            let begin=Instant::now();mailbox.borrow_mut().enqueue(action).unwrap();fast_pump(ui,mailbox,connection,presenter,last);let frame=Instant::now();window.request_redraw();assert!(window.draw_if_needed(|r|{r.render(pixels.make_mut_slice(),pw as usize);}));frames.push(frame.elapsed().as_secs_f64()*1000.0);responses.push(begin.elapsed().as_secs_f64()*1000.0);
+            let count=last.as_ref().unwrap().notes.len();max_notes=max_notes.max(count);assert!(count<=1500);
+        }
+        frames.sort_by(f64::total_cmp);responses.sort_by(f64::total_cmp);println!("M3.6 UI {width}x{height} scale={scale}: 64 tracks/100000 notes, max_visible={max_notes}, n=120 response_to_paint_p95_ms={:.3} max_ms={:.3}; software_frame_p95_ms={:.3} max_ms={:.3}",responses[113],responses[119],frames[113],frames[119]);
+        assert!(responses[113]<=50.0 && responses[119]<=100.0 && frames[113]<=16.7,"Declared software UI performance gates");
+        assert!(max_notes>=1400,"Exercise close to 1500 visible notes, not just an empty viewport");
+    }
+    command!(Request::SelectTrack(ids[63]));command!(Request::Play);
+    for i in 0..1000{ui.invoke_set_gain(ids[63].to_string().into(),i as f32/10000.0);}
+    assert_eq!(mailbox.borrow().pending_count(),1,"1000 UI slider updates coalesce for track 64");ui.invoke_finish_mix();pump!();
+    assert!((last.as_ref().unwrap().gain-0.0999).abs()<0.00001);assert_eq!(last.as_ref().unwrap().mix_label,"Sound synchronized");
+    mailbox.borrow_mut().stop();pump!();assert!((last.as_ref().unwrap().gain-0.0999).abs()<0.00001,"Stop retains the latest persistent target");
+    command!(Request::SetGain{track:ids[63],value:0.003});command!(Request::FinishMix);
+    println!("PASS M3.6: 1000 UI slider updates on track 64 coalesce to the last target and synchronize with native audio; Stop retains edits");
+    command!(Request::Save(large.clone()));let saved=opendaw_app::storage::load(&large).unwrap();assert_eq!(saved.tracks.len(),64);assert_eq!(saved.note_count(),100_000);std::fs::remove_dir_all(root).unwrap();
+    window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:1.0});window.set_size(slint::PhysicalSize::new(1280,820));pump!();
+    println!("PASS M3.6: 64 headers/lanes aligned <=1 logical pixel at top/bottom/reorder/undo, limit controls, selection reveal, 100k-note portable round trip at 100/200%");
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -264,7 +310,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.set_size(slint::PhysicalSize::new(physical_width,physical_height));
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(ui.get_canvas_height() >= 180.0, "Grid must show all demo notes: {}",ui.get_canvas_height());
-        let pixels=snapshot(&window,&format!("../evidence/m35-arrangement-{width}-{}x.ppm",scale as u32),physical_width,physical_height);
+        let pixels=snapshot(&window,&format!("../evidence/m36-arrangement-{width}-{}x.ppm",scale as u32),physical_width,physical_height);
         check_alignment(&pixels,&ui,scale);
         click(&window,ui.get_play_x(),ui.get_play_y()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         ui.invoke_stop(); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
@@ -312,7 +358,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last); assert_eq!(ui.get_arrangement_y(),scroll, "Model update must preserve scroll");
     wheel(&window,x+ui.get_header_size()+80.0,y+45.0,-120.0,0.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     assert!(ui.get_arrangement_x() < 0.0, "Timeline must scroll independently of fixed headers");
-    let pixels=snapshot(&window,"../evidence/m35-scrolled-12-tracks.ppm",1280,820); check_alignment(&pixels,&ui,1.0);
+    let pixels=snapshot(&window,"../evidence/m36-scrolled-12-tracks.ppm",1280,820); check_alignment(&pixels,&ui,1.0);
     ui.set_arrangement_y(0.0); ui.set_arrangement_x(0.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     let first=last.as_ref().unwrap().tracks[0].id;
     pointer(&window,x+14.0,y+20.0,0); pointer(&window,x+14.0,y+ui.get_rows_height()-5.0,1);
@@ -328,11 +374,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mailbox.borrow_mut().enqueue(Request::SelectTrack(2)).unwrap();
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     ui.invoke_reveal_selected(); assert!(ui.get_arrangement_y() < -500.0);
-    snapshot(&window,"../evidence/m35-selected-track-revealed.ppm",1280,820);
+    snapshot(&window,"../evidence/m36-selected-track-revealed.ppm",1280,820);
     println!("PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected");
+    large_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
     click(&window,22.0,20.0); click(&window,80.0,60.0);
     assert!(ui.get_about_visible(), "Help opens About OpenDAW");
-    snapshot(&window,"../evidence/m35-about.ppm",1280,820);
+    snapshot(&window,"../evidence/m36-about.ppm",1280,820);
     let count=mailbox.borrow().pending_count(); click(&window,ui.get_play_x(),ui.get_play_y()); assert_eq!(mailbox.borrow().pending_count(),count,"About blocks transport");
     connection.flags.fetch_or(QUIT,Ordering::Release); connection.worker.join().unwrap();
     Ok(())

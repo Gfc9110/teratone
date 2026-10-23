@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 int main(void) {
+    if(od_track_capacity()!=OD_MAX_TRACKS)return 5;
     od_engine* e = od_create(48000, 128);
     const od_track track = {0.5f, 0.0f, NULL, 60, 0};
     const od_note note = {1, 0, 900, 0, 69, 100};

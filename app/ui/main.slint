@@ -10,6 +10,7 @@ export struct PadVisual {id:string,name:string,midi:int,filled:bool,muted:bool}
 export struct KeyVisual { pitch: int, y: float, h: float, black: bool, c: bool, label: string }
 export struct NoteVisual { x: float, y: float, w: float, h: float, selected: bool, label: string }
 export component AppWindow inherits Window {
+    in property <int> track-limit;
     init => { Palette.color-scheme = ColorScheme.dark; }
     title: "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
     preferred-width: 1280px; preferred-height: 820px; min-width: 1000px; min-height: 760px;
@@ -305,10 +306,10 @@ export component AppWindow inherits Window {
         x: 12px; y: 74px; width: root.width - root.inspector-width - 32px; height: root.height - 124px;
         HorizontalLayout {
             x: 0; y: 0; width: parent.width; height: 30px; spacing: 5px;
-            Text { text: "TRACKS  " + root.track-items.length + " / 16"; color: #a6bdd4; vertical-alignment: center; }
-            add-track-button := Button { text: "+ Track"; enabled: root.track-items.length < 16; clicked => { root.add-track(root.track-id); } }
-            add-drums-button := Button {text:"+ Drums";enabled:root.track-items.length<16;clicked=>{root.add-drums(root.track-id);root.sound-tab=true;root.project-tab=false;root.inspector-scroll=0px;}}
-            duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < 16; clicked => { root.duplicate-track(root.track-id); } }
+            Text { text: "TRACKS  " + root.track-items.length + " / " + root.track-limit; color: #a6bdd4; vertical-alignment: center; }
+            add-track-button := Button { text: "+ Track"; enabled: root.track-items.length < root.track-limit; clicked => { root.add-track(root.track-id); } }
+            add-drums-button := Button {text:"+ Drums";enabled:root.track-items.length<root.track-limit;clicked=>{root.add-drums(root.track-id);root.sound-tab=true;root.project-tab=false;root.inspector-scroll=0px;}}
+            duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < root.track-limit; clicked => { root.duplicate-track(root.track-id); } }
             Button { text: root.width < 1100px ? "Show" : "Show selected";accessible-label:"Show selected track"; clicked => { root.reveal-selected(); } }
             Rectangle { horizontal-stretch: 1; }
             Button { text: "−"; clicked => { root.arrangement-zoom = max(12, root.arrangement-zoom * 0.8); root.clamp-scroll(); } }

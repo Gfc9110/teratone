@@ -226,16 +226,16 @@ fn immutable_import_undo_and_portable_save_include_every_pad() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
-fn sixteen_kits_share_immutable_decoded_data_within_the_media_budget() {
+fn sixty_four_kits_share_immutable_decoded_data_within_the_media_budget() {
     let mut p = kit_project();
     let mut h = History::default();
-    for _ in 1..16 {
+    for _ in 1..opendaw_app::project::MAX_TRACKS {
         h.execute(&mut p, Edit::AddDrumTrack { after: 1 }).unwrap();
     }
     p.validate().unwrap();
     let mut engine = Engine::new(48000, 256).unwrap();
     engine.load(&p).unwrap();
-    for i in 0..16 {
+    for i in 0..opendaw_app::project::MAX_TRACKS as u32 {
         engine.live_note(i, i as u64 + 1, 35, true).unwrap();
     }
     assert!(engine.render(4096).unwrap().iter().any(|x| x.abs() > 0.001));

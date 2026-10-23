@@ -106,7 +106,7 @@ void validation() {
     s = score(); s.notes.clear();
     for (uint64_t id = 1; id <= 257; ++id) s.notes.push_back({id, 0, 1000, 0, 60, 100});
     throws([&] { daw::EngineService e(s); });
-    s = score(); s.tracks.resize(17); throws([&] { daw::EngineService e(s); });
+    s = score(); s.tracks.resize(daw::MaxTracks+1); throws([&] { daw::EngineService e(s); });
 }
 void queueStress() {
     daw::SpscQueue<uint64_t, 67> q; constexpr uint64_t total = 100000;

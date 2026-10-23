@@ -9,6 +9,9 @@
 #include <array>
 #include <unordered_map>
 #include <map>
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#endif
 
 struct od_engine {
     daw::SessionSpec spec;
@@ -17,6 +20,15 @@ struct od_engine {
     daw::OutputDevice device; // destroyed first, before service
 };
 namespace {
+// macOS may retain large freed graph/event/queue blocks after many preparations.
+// Release unused allocator pages periodically on the CONTROL thread, after old owners drop.
+// A thread-local cadence also covers replacements made with a fresh opaque handle.
+void releaseUnusedControlMemory() noexcept {
+#if defined(__APPLE__)
+    static thread_local unsigned preparations=0;
+    if(++preparations%16==0)(void)malloc_zone_pressure_relief(nullptr,0);
+#endif
+}
 thread_local std::array<char, 512> error{};
 void setError(const char* text) noexcept {
     if (!text) text = "Native error";
@@ -120,6 +132,7 @@ od_result loadSession(od_engine* e, const od_track* tracks, const od_track_v2* t
         e->device.stop(); // callback quiescence before old graph/resource destruction
         e->service = std::move(prepared);
         e->spec = std::move(candidate); ++e->generation;
+        releaseUnusedControlMemory();
         return OD_OK;
 
 }
@@ -153,6 +166,7 @@ od_result setMix(od_engine* e, uint64_t generation, const od_track_mix_v1* mix, 
 }
 extern "C" {
 uint32_t od_abi_version() noexcept { return OD_ABI_VERSION; }
+uint32_t od_track_capacity(void) noexcept { return daw::MaxTracks; }
 const char* od_error_message() noexcept { return error.data(); }
 od_engine* od_create(uint32_t rate, uint32_t block) noexcept {
     od_engine* result = nullptr;

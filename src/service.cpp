@@ -4,6 +4,9 @@
 #include <cmath>
 #include <limits>
 #include <unordered_set>
+#ifdef OD_MEASURE_RENDER
+#include <chrono>
+#endif
 
 namespace daw {
 static_assert(std::atomic<uint64_t>::is_always_lock_free,
@@ -18,8 +21,10 @@ EngineService::EngineService(const SessionSpec& spec)
         maxFrames_ == 0 || maxFrames_ > MaxBlockFrames || spec.tracks.empty() ||
         spec.tracks.size() > MaxTracks || length_ == 0 ||
         length_ > static_cast<uint64_t>(sampleRate_ * 60 * 60 * 24) || spec.notes.size() > 100000) {
-        throw std::invalid_argument("Invalid session limits: 1-16 tracks, 1-4096 block frames, <=24 hours, <=100000 notes");
+        throw std::invalid_argument("Invalid session limits: 1-64 tracks, 1-4096 block frames, <=24 hours, <=100000 notes");
     }
+    events_.resize(trackCount_);
+    mixQueue_=std::make_unique<SpscQueue<MixSnapshot,9>>();
     std::unordered_set<uint64_t> ids;
     ids.reserve(spec.notes.size());
     schedule_.reserve(spec.notes.size() * 2);
@@ -139,7 +144,7 @@ bool EngineService::submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept {
         meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false;
     }
     snapshot.serial = mixSerial_ + 1;
-    if (!mixQueue_.push(snapshot)) { meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false; }
+    if (!mixQueue_->push(snapshot)) { meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false; }
     serial = ++mixSerial_; return true;
 }
 void EngineService::consumeMix() noexcept {
@@ -147,7 +152,7 @@ void EngineService::consumeMix() noexcept {
     std::array<DrumControls, MaxTracks> drums{};
     std::array<SynthConfig, MaxTracks> synths{};
     // Bounded even if the producer continues filling the queue.
-    for (size_t n = 0; n < 8 && mixQueue_.pop(next); ++n) {
+    for (size_t n = 0; n < 8 && mixQueue_->pop(next); ++n) {
         latest = next; changed = true;
         if (next.updateSynths) { synths = next.synths; synthChanged = true; }
         if(next.updateDrums){drums=next.drums;drumsChanged=true;}
@@ -216,6 +221,9 @@ void EngineService::consumeCommands() noexcept {
 }
 
 void EngineService::block(float* stereo, uint32_t frames) noexcept {
+#ifdef OD_MEASURE_RENDER
+    const auto measuredStart=std::chrono::steady_clock::now();
+#endif
     consumeMix(); // Stop/panic cancels note commands, never the desired mixer state.
     consumeCommands();
     uint32_t done = 0;
@@ -267,6 +275,9 @@ void EngineService::block(float* stereo, uint32_t frames) noexcept {
     meter_.peakR.store(peakR, std::memory_order_relaxed);
     meter_.playing.store(playing_, std::memory_order_relaxed);
     meter_.looping.store(looping_, std::memory_order_relaxed);
+#ifdef OD_MEASURE_RENDER
+    if(measurementCount_<measurements_.size())measurements_[measurementCount_++]={static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-measuredStart).count()),frames};
+#endif
 }
 void EngineService::render(float* stereo, uint32_t frames) noexcept {
     assert(stereo || frames == 0);

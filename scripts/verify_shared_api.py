@@ -34,6 +34,7 @@ def configure(path: Path):
     dll = C.CDLL(str(path.resolve()))
     signatures = {
         "od_abi_version": (C.c_uint32, []),
+        "od_track_capacity": (C.c_uint32, []),
         "od_error_message": (C.c_char_p, []),
         "od_create": (C.c_void_p, [C.c_uint32, C.c_uint32]),
         "od_destroy": (None, [C.c_void_p]),
@@ -139,6 +140,7 @@ def main():
     args = parser.parse_args()
     dll = configure(args.library)
     assert dll.od_abi_version() == 1
+    assert dll.od_track_capacity() == 64
     assert (C.sizeof(Track), C.sizeof(Note), C.sizeof(Telemetry)) == (24, 40, 72), "64-bit ABI layout mismatch"
 
     def ok(result):

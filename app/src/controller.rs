@@ -324,11 +324,11 @@ impl State {
                 self.edit(Edit::Velocity{track,clip,note,value:value as u8})?;
             }
             Request::AddTrack { after } => {
-                self.track_index(after)?; if self.project.tracks.len() >= MAX_TRACKS { return Err("This increment supports up to 16 tracks.".into()); }
+                self.track_index(after)?; if self.project.tracks.len() >= MAX_TRACKS { return Err("This increment supports up to 64 tracks.".into()); }
                 let new_id = self.project.next_id; self.edit(Edit::AddTrack { after })?; self.select_track(new_id)?;
             }
             Request::DuplicateTrack(id) => {
-                self.track_index(id)?; if self.project.tracks.len() >= MAX_TRACKS { return Err("This increment supports up to 16 tracks.".into()); }
+                self.track_index(id)?; if self.project.tracks.len() >= MAX_TRACKS { return Err("This increment supports up to 64 tracks.".into()); }
                 let new_id = self.project.next_id; self.edit(Edit::DuplicateTrack { track: id })?; self.select_track(new_id)?;
             }
             Request::RemoveTrack(id) => {

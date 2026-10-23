@@ -1,4 +1,4 @@
-use crate::{project::{Instrument, Project},drums::{PadParameters,MAX_PADS},synth::SynthParameters};
+use crate::{project::{Instrument, Project, MAX_TRACKS},drums::{PadParameters,MAX_PADS},synth::SynthParameters};
 use std::{ffi::{c_char, CStr, CString}, marker::PhantomData, path::Path, ptr::NonNull, rc::Rc};
 
 #[repr(C)] struct RawEngine { _private: [u8; 0] }
@@ -32,6 +32,7 @@ pub struct Telemetry {
 #[repr(C)] #[derive(Debug,Clone,Copy,Default)] pub struct DrumStatus {pub generation:u64,pub pad_count:u32,pub active_voices:u32,pub triggers:[u64;MAX_PADS]}
 extern "C" {
     fn od_abi_version() -> u32;
+    fn od_track_capacity() -> u32;
     fn od_error_message() -> *const c_char;
     fn od_create(rate: u32, block: u32) -> *mut RawEngine;
     fn od_destroy(e: *mut RawEngine);
@@ -71,6 +72,7 @@ impl Engine {
         // No Rust callbacks cross the audio boundary.
         unsafe {
             if od_abi_version() != 1 { return Err("Native ABI version mismatch".into()); }
+            if od_track_capacity() as usize != MAX_TRACKS {return Err("Native track capacity mismatch".into());}
             let raw = NonNull::new(od_create(rate, block)).ok_or_else(|| last_error(4))?;
             Ok(Self { raw, rate, generation: 1, track_ids: Vec::new(), pad_ids:Vec::new(), _single_owner: PhantomData })
         }
@@ -83,6 +85,9 @@ impl Engine {
         }).collect::<Result<_, String>>()?;
         let mut assets=std::collections::HashMap::new();let mut byte_count=0;
         for t in &project.tracks{if let Some(kit)=t.instrument.config.drums(){for p in &kit.pads{if let Some(sample)=&p.sample{
+            // Factory byte slices are immutable: hash each distinct asset once per prepare.
+            // File sources are still checked before dedup, including different paths claiming one hash.
+            if matches!(sample,crate::drums::DrumSample::Factory{..}) && assets.contains_key(sample.hash()){continue;}
             let bytes=sample.bytes()?;if !assets.contains_key(sample.hash()){byte_count+=bytes.len();if byte_count>crate::drums::ASSET_BYTE_LIMIT{return Err("Drum WAV byte budget exceeds 128 MiB".into());}assets.insert(sample.hash().to_string(),bytes);}
         }}}}
         let pads:Vec<Vec<RawDrumPad>>=project.tracks.iter().map(|t|t.instrument.config.drums().map_or(Vec::new(),|kit|kit.pads.iter().map(|p|{
@@ -138,10 +143,10 @@ impl Engine {
         check(unsafe { od_gain_pan(self.raw.as_ptr(), index, gain, pan) })
     }
     pub fn try_mix(&mut self, project: &Project) -> Result<Option<u64>, String> {
-        if project.tracks.len() > 16 || !project.tracks.iter().map(|t| (t.id,t.instrument.id)).eq(self.track_ids.iter().copied()) {
+        if project.tracks.len() > MAX_TRACKS || !project.tracks.iter().map(|t| (t.id,t.instrument.id)).eq(self.track_ids.iter().copied()) {
             return Err("Mixer slots changed; compile the current project before live updates".into());
         }
-        let mut tracks=[RawParametersV2{struct_size:std::mem::size_of::<RawParametersV2>() as u32,version:2,base:RawParameters{mix:RawTrackMix::default(),synth:SynthParameters::default().into()},pad_count:0,pads:[RawPadParameters::default();MAX_PADS]};16];
+        let mut tracks=[RawParametersV2{struct_size:std::mem::size_of::<RawParametersV2>() as u32,version:2,base:RawParameters{mix:RawTrackMix::default(),synth:SynthParameters::default().into()},pad_count:0,pads:[RawPadParameters::default();MAX_PADS]};MAX_TRACKS];
         for (i,(out,t)) in tracks.iter_mut().zip(&project.tracks).enumerate(){
             out.base=RawParameters{mix:RawTrackMix{gain:t.gain,pan:t.pan,mute:t.mute.into(),solo:t.solo.into()},synth:t.instrument.config.synth().unwrap_or_default().into()};
             if let Some(kit)=t.instrument.config.drums(){

@@ -5,7 +5,7 @@ use std::collections::{HashSet, VecDeque};
 
 pub const PPQ: u64 = 960;
 pub const SCHEMA_VERSION: u32 = 2;
-pub const MAX_TRACKS: usize = 16; // Raised with the native capacity in M3.6.
+pub const MAX_TRACKS: usize = 64;
 pub const MAX_NOTES: usize = 100_000;
 pub const MAX_CLIPS: usize = 4096;
 pub const TRACK_COLORS: [&str; 6] = ["#62BFA6", "#729FE8", "#D9AC64", "#B591DF", "#DD8398", "#76BCCB"];
@@ -109,7 +109,7 @@ fn validate_clip(clip: &MidiClip, length: u64, next: u64, ids: &mut HashSet<u64>
 fn validate_limits(name: &str, bpm: f64, length: u64, next: u64, tracks: usize) -> Result<(), String> {
     if name.len() > 200 || !bpm.is_finite() || !(30.0..=300.0).contains(&bpm) || length == 0 ||
        length > 24 * 60 * 60 * 5 * PPQ || tracks == 0 || tracks > MAX_TRACKS || !valid_id(next) {
-        return Err("Invalid project limits (1–16 tracks)".into());
+        return Err("Invalid project limits (1–64 tracks)".into());
     }
     if length as f64 * 60.0 / (bpm * PPQ as f64) > 86400.0 { return Err("Project exceeds 24 hours".into()); }
     Ok(())

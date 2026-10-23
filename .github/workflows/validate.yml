@@ -14,6 +14,8 @@ jobs:
       - run: cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - run: cmake --build build/native --config Release --parallel 4
       - run: ctest --test-dir build/native -C Release --output-on-failure
+      - run: cmake -S . -B build/measurement -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DOD_MEASURE_RENDER=ON
+      - run: cmake --build build/measurement --config Release --target performance_probe --parallel 4
       - uses: actions/setup-python@v5
         if: runner.os == 'Linux'
         with:
@@ -37,8 +39,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1
   frontend-candidate:
-    # Source supplied without a Rust toolchain in the authoring environment.
-    # This job is a required VALIDATION gate, not evidence that it already passes.
+    # Locked software validation; physical audio, native menus and listening are separate gates.
     strategy:
       fail-fast: false
       matrix:

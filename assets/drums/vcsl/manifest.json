@@ -488,5 +488,11 @@
       "sha256": "bcabe27330761309eb4b4f6207e6e3b4be59815df86449ac05bfb9b81f19efc9",
       "ancestor_license_exceptions": []
     }
-  ]
+  ],
+  "user_selection_approval": {
+    "on": "2026-10-23",
+    "scope": "Current kit provisionally accepted for this iteration; sounds may be replaced later",
+    "listened": false,
+    "human_listening_approval": "pending"
+  }
 }
