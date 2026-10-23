@@ -6,6 +6,29 @@ La fondazione M3.1 è stata prima salvata nel commit `966a8c4`, come richiesto.
 La baseline precedente era `add95d9cfb7f9ffc38e43a6754365fac8a880a53`.
 Nessun recupero del vecchio ZIP e nessun aggiornamento delle dipendenze.
 
+## M3.5 implementato — 23 ottobre 2026
+
+Baseline `ebc0e83`. Drum machine interna 16 pad (12 suoni CC0 verificati + quattro
+vuoti), mapping percussion GM, preview/velocity, nomi nel piano roll, import e
+sostituzione WAV, gain/pan/mute/tuning/mode/choke per pad. Istanza e voci indipendenti
+per traccia; solo i campioni immutabili sono condivisi. Snapshot live a blocchi,
+import preparato prima del commit, copie per Undo, save portabile con SHA-256 e
+provenienza/licenza, export coerente. Aggiunta sha2 0.10.9 fissata; dipendenze
+preesistenti conservate. Layout ABI originali mantenuti, API v4/v2 additive.
+
+Verifica: 36 unit headless + 6 integration / 55 con UI + gli stessi 6 integration;
+sei suite native, ASan/UBSan e TSan service/drums, allocation probe 10.001 render
+zero new/delete C++, v1 identico,
+probe Slint a 100/200%, controllo ufficiale online di tutti gli originali CC0.
+Performance headless 16 tracce × 8 voci: p99 0,222 ms su blocchi 256/48 kHz.
+Ascolto umano dei campioni e audio fisico/matrice hardware restano da chiudere;
+M3 nel suo complesso non è ancora una release validata. Limite 16 tracce invariato.
+
+[Uso, manifest CC0, decisioni DSP e limiti M3.5](M3_5_DRUM_MACHINE.md).
+Evidenze nuove `evidence/m35-*`; le sezioni seguenti conservano lo storico.
+La cancellazione audition M3.5 è scoped e prioritaria anche per one-shot; il solo
+fallback overflow del vecchio NoteOff nativo rimane Panic globale.
+
 ## M3.4 implementato — 23 ottobre 2026
 
 Baseline `e0f33f4`. Inspector Sound con sine/saw/square-PWM/triangle, shape,
@@ -179,8 +202,8 @@ cargo run --manifest-path app/Cargo.toml --locked --no-default-features --releas
 
 ## Limiti e passi successivi
 
-M3 nel suo insieme resta aperto: M3.4 synth e antialias,
-M3.5 kit/asset verificati e ascoltati, M3.6 64 tracce e matrice hardware.
+M3 nel suo insieme resta aperto: M3.4 synth e M3.5 drum machine sono implementati;
+ascolto del kit e M3.6 capacità 32/64 tracce/matrice hardware sono ancora da chiudere.
 Nessuna prova di audio fisico CoreAudio/WASAPI, sleep/wake, device removal,
 Windows o macOS Intel svolta in M3.2. Il benchmark software non sostituisce
 accessibilità completa, tastiera/drag nativi, multi-monitor o touch.

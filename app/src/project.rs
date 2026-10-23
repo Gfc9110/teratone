@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::drums::{DrumKit,DrumPad,PadField};
 use crate::synth::{SynthParameters,SynthPreset,SynthField};
 use std::collections::{HashSet, VecDeque};
 
@@ -17,13 +18,15 @@ pub struct Note { pub id: u64, pub start: u64, pub duration: u64, pub pitch: u8,
 pub enum Instrument {
     Sine, // legacy v1/v2 spelling, exact compatible defaults
     Synth { parameters: SynthParameters, preset: Option<SynthPreset> },
+    DrumKit { kit:DrumKit },
     Sampler { sample_path: String, root_note: u8, one_shot: bool },
 }
 impl Instrument {
+    pub fn drums(&self)->Option<&DrumKit>{match self{Self::DrumKit{kit}=>Some(kit),_=>None}}
     pub fn synth(&self)->Option<SynthParameters>{match self{Self::Sine=>Some(SynthParameters::default()),Self::Synth{parameters,..}=>Some(*parameters),_=>None}}
     pub fn preset(&self)->Option<&SynthPreset>{match self{Self::Synth{preset,..}=>preset.as_ref(),_=>None}}
 
-    pub fn label(&self) -> &'static str { match self { Self::Sine => "Oscillator · Sine", Self::Synth { parameters, .. } => parameters.waveform.label(), Self::Sampler { .. } => "Sampler" } }
+    pub fn label(&self) -> &'static str { match self { Self::Sine => "Oscillator · Sine", Self::Synth { parameters, .. } => parameters.waveform.label(), Self::DrumKit{..}=>"Drum Kit", Self::Sampler { .. } => "Sampler" } }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +67,7 @@ fn validate_note(note: &Note, length: u64) -> Result<(), String> {
     Ok(())
 }
 fn validate_instrument(instrument: &Instrument) -> Result<(), String> {
+    if let Instrument::DrumKit{kit}=instrument{kit.validate()?;}
     if let Instrument::Synth{parameters,preset}=instrument {parameters.validate()?;if let Some(p)=preset{p.validate()?;}}
 
     if let Instrument::Sampler { sample_path, root_note, .. } = instrument {
@@ -85,6 +89,7 @@ fn validate_name(name: &str) -> Result<(), String> {
 fn valid_color(color: &str) -> bool { color.len() == 7 && color.starts_with('#') && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit) }
 fn validate_track(track: &Track, length: u64, next: u64, ids: &mut HashSet<u64>) -> Result<(), String> {
     identity(ids, track.id, next)?; identity(ids, track.instrument.id, next)?;
+    if let Some(kit)=track.instrument.config.drums(){for p in &kit.pads{identity(ids,p.id,next)?;}}
     validate_name(&track.name)?;
     if !valid_color(&track.color) { return Err("Track color must be #RRGGBB".into()); }
     validate_mix(track.gain, track.pan)?; validate_instrument(&track.instrument.config)?;
@@ -167,6 +172,7 @@ impl Project {
         let mut ids = HashSet::new();
         for t in &self.tracks {
             ids.insert(t.id); ids.insert(t.instrument.id);
+            if let Some(kit)=t.instrument.config.drums(){ids.extend(kit.pads.iter().map(|p|p.id));}
             for c in &t.clips { ids.insert(c.id); ids.extend(c.notes.iter().map(|n| n.id)); }
         }
         ids
@@ -216,7 +222,7 @@ impl LegacyProject {
             // v1 allowed blank track names; give only those a displayable migration name.
             if t.name.len() > 120 { return Err("Invalid legacy track name".into()); }
             validate_mix(t.gain, t.pan)?; validate_instrument(&t.instrument)?;
-            if matches!(t.instrument,Instrument::Synth{..}) {return Err("Version 1 has no configurable synth".into());}
+            if matches!(t.instrument,Instrument::Synth{..}|Instrument::DrumKit{..}) {return Err("Version 1 has no configurable synth or drum kit".into());}
             count += t.notes.len(); if count > MAX_NOTES { return Err("Too many notes".into()); }
             for n in &t.notes { validate_note(n, self.length_ticks)?; identity(&mut ids, n.id, self.next_id)?; }
         }
@@ -241,6 +247,8 @@ pub enum Edit {
     Instrument { track: u64, instrument: Instrument },
     Synth { track:u64, instance:u64, instrument:Instrument, field:Option<SynthField> },
     Audibility { track: u64, mute: bool, solo: bool },
+    AddDrumTrack {after:u64}, UseDrumKit {track:u64},
+    Pad {track:u64,instance:u64,pad:DrumPad,field:PadField},
     AddTrack { after: u64 }, DuplicateTrack { track: u64 }, InsertTrack { index: usize, track: Track }, RemoveTrack { track: u64 },
     TrackInfo { track: u64, name: String, color: String }, MoveTrack { track: u64, index: usize },
     AddClip { track: u64, start: u64, length: u64 }, DuplicateClip { track: u64, clip: u64 },
@@ -253,7 +261,7 @@ pub enum Edit {
     PlaceClip { track: u64, clip: u64, destination: u64, index: usize, start: u64, length: u64, project_length: u64 },
 }
 impl Edit {
-    pub fn impact(&self) -> Impact { match self { Self::TrackInfo { .. } | Self::ClipName { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } | Self::Synth { .. } => Impact::Realtime, _ => Impact::Structural } }
+    pub fn impact(&self) -> Impact { match self { Self::Pad{field,..}=>if field.realtime(){Impact::Realtime}else if *field==PadField::Name{Impact::Metadata}else{Impact::Structural}, Self::TrackInfo { .. } | Self::ClipName { .. } => Impact::Metadata, Self::Mix { .. } | Self::Audibility { .. } | Self::Synth { .. } => Impact::Realtime, _ => Impact::Structural } }
     fn apply(self, p: &mut Project) -> Result<Self, String> {
         match self {
             Self::AddNote{track,clip,start,duration,pitch,velocity} => {
@@ -365,8 +373,29 @@ impl Edit {
                 if t.instrument.id!=instance || t.instrument.config.synth().is_none() || instrument.synth().is_none() {return Err("Synth instance changed or no longer exists".into());}
                 Ok(Self::Synth{track,instance,instrument:std::mem::replace(&mut t.instrument.config,instrument),field})
             }
+            Self::Pad{track,instance,pad,field}=>{
+                let t=p.track_mut(track)?;if t.instrument.id!=instance{return Err("Stale drum instance".into());}
+                let Instrument::DrumKit{kit}=&mut t.instrument.config else{return Err("Track is not a drum kit".into())};
+                let index=kit.pads.iter().position(|p|p.id==pad.id).ok_or("Pad no longer exists")?;
+                let mut candidate=kit.clone();candidate.pads[index]=pad.clone();candidate.validate()?;
+                let previous=std::mem::replace(&mut kit.pads[index],pad);Ok(Self::Pad{track,instance,pad:previous,field})
+            }
+            Self::UseDrumKit{track}=>{
+                let mut next=p.next_id;let kit=DrumKit::factory(||take_id(&mut next))?;
+                let t=p.track_mut(track)?;let old=std::mem::replace(&mut t.instrument.config,Instrument::DrumKit{kit});p.next_id=next;
+                Ok(Self::Instrument{track,instrument:old})
+            }
+            Self::AddDrumTrack{after}=>{
+                let index=p.tracks.iter().position(|t|t.id==after).ok_or("Track no longer exists")?+1;let mut next=p.next_id;
+                let track=Track{id:take_id(&mut next)?,name:format!("Drums {}",p.tracks.len()+1),color:TRACK_COLORS[p.tracks.len()%TRACK_COLORS.len()].into(),gain:0.8,pan:0.,mute:false,solo:false,
+                    instrument:InstrumentInstance{id:take_id(&mut next)?,config:Instrument::DrumKit{kit:DrumKit::factory(||take_id(&mut next))?}},
+                    clips:vec![MidiClip{id:take_id(&mut next)?,name:"Beat".into(),start_tick:0,length_ticks:p.length_ticks,notes:Vec::new()}]};p.insert_track(index,track,next)
+            }
             Self::Instrument { track, instrument } => {
-                validate_instrument(&instrument)?; let t = p.track_mut(track)?;
+                validate_instrument(&instrument)?;
+                let mut ids=p.ids();if let Some(old)=p.track(track).ok_or("Track no longer exists")?.instrument.config.drums(){for pad in &old.pads{ids.remove(&pad.id);}}
+                if let Some(kit)=instrument.drums(){for pad in &kit.pads{identity(&mut ids,pad.id,p.next_id)?;}}
+                let t = p.track_mut(track)?;
                 Ok(Self::Instrument { track, instrument: std::mem::replace(&mut t.instrument.config, instrument) })
             }
             Self::AddTrack { after } => {
@@ -383,6 +412,7 @@ impl Edit {
                 let mut copy = p.tracks[index].clone(); let mut next = p.next_id;
                 let mut name = copy.name.clone(); while name.len() > 115 { name.pop(); } copy.name = format!("{name} copy");
                 copy.id = take_id(&mut next)?; copy.instrument.id = take_id(&mut next)?;
+                if let Instrument::DrumKit{kit}=&mut copy.instrument.config{for pad in &mut kit.pads{pad.id=take_id(&mut next)?;}}
                 for clip in &mut copy.clips { clip.id = take_id(&mut next)?; for note in &mut clip.notes { note.id = take_id(&mut next)?; } }
                 p.insert_track(index + 1, copy, next)
             }
@@ -413,8 +443,9 @@ impl History {
         let inverse = edit.apply(p)?;
         let merge = self.merge_mix && matches!((&inverse, self.undo.back()),
             (Edit::Mix { track: a, .. }, Some(Edit::Mix { track: b, .. })) if a == b) || self.merge_mix && matches!((&inverse,self.undo.back()),
-            (Edit::Synth{track:a,instance:ia,field:Some(fa),..},Some(Edit::Synth{track:b,instance:ib,field:Some(fb),..})) if a==b && ia==ib && fa==fb);
-        self.merge_mix = matches!(&inverse, Edit::Mix { .. } | Edit::Synth{field:Some(_),..});
+            (Edit::Synth{track:a,instance:ia,field:Some(fa),..},Some(Edit::Synth{track:b,instance:ib,field:Some(fb),..})) if a==b && ia==ib && fa==fb) || self.merge_mix && matches!((&inverse,self.undo.back()),
+            (Edit::Pad{track:a,instance:ia,pad:pa,field:fa},Some(Edit::Pad{track:b,instance:ib,pad:pb,field:fb})) if a==b && ia==ib && pa.id==pb.id && fa==fb && fa.realtime());
+        self.merge_mix = matches!(&inverse, Edit::Mix { .. } | Edit::Synth{field:Some(_),..}) || matches!(&inverse,Edit::Pad{field,..} if field.realtime());
         if !merge { self.undo.push_back(inverse); }
         while self.undo.len() > 512 { self.undo.pop_front(); }
         self.redo.clear(); Ok(())

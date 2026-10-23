@@ -1,5 +1,11 @@
 # Remaining acceptance gates
 
+Current local increment (23 October 2026): [M3.5 internal drums](M3_5_DRUM_MACHINE.md)
+and [M3 progress](M3_IMPLEMENTATION_PROGRESS.md) record the updated implementation
+and tests. The original delivery assessment below is historical; Mac software
+builds now pass. Listening, physical audio and the target-device matrix remain open.
+
+
 These are remaining work, not background tasks or promises of completion.
 
 ## 1. Prove the application build on the target Mac

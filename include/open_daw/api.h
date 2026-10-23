@@ -53,8 +53,33 @@ typedef struct od_track_v3 {
     od_synth_v1 synth; /* validated also for sampler slots; ignored by sampler DSP */
 } od_track_v3;
 typedef struct od_track_mix_v1 { float gain, pan; uint32_t mute, solo; } od_track_mix_v1;
+#define OD_DRUM_PAD_V1_VERSION 1u
+#define OD_MAX_DRUM_PADS 16u
+typedef struct od_pad_parameters_v1 {
+    float gain, pan, tune_semitones; /* [0,4], [-1,1], [-24,24]; tuning captured at note-on */
+    uint32_t mute, one_shot, choke_group; /* 0=no choke, 1..16 local to kit */
+} od_pad_parameters_v1;
+typedef struct od_drum_pad_v1 {
+    uint32_t struct_size, version, midi_note;
+    od_pad_parameters_v1 parameters;
+    const uint8_t* wav_bytes; size_t wav_size; /* NULL + 0 = empty pad; borrowed/copied synchronously */
+} od_drum_pad_v1;
+#define OD_TRACK_V4_VERSION 4u
+typedef struct od_track_v4 {
+    uint32_t struct_size, version;
+    od_track_v3 base;
+    uint32_t instrument_kind, pad_count; /* 0=oscillator, 1=sampler, 2=drum kit */
+    const od_drum_pad_v1* pads;
+} od_track_v4;
 typedef struct od_parameters_v1 { od_track_mix_v1 mix; od_synth_v1 synth; } od_parameters_v1;
+typedef struct od_parameters_v2 {
+    uint32_t struct_size, version;
+    od_parameters_v1 base;
+    uint32_t pad_count;
+    od_pad_parameters_v1 pads[OD_MAX_DRUM_PADS];
+} od_parameters_v2;
 typedef struct od_mix_status_v1 { uint64_t generation, submitted, applied; } od_mix_status_v1;
+typedef struct od_drum_status_v1 {uint64_t generation;uint32_t pad_count,active_voices;uint64_t triggers[OD_MAX_DRUM_PADS];} od_drum_status_v1;
 typedef struct od_telemetry {
     uint64_t position, rendered_frames, blocks, last_applied, rejected_commands, clipped_samples;
     float peak_left, peak_right;
@@ -78,6 +103,15 @@ OD_API od_result od_load_v2(od_engine*, const od_track_v2*, size_t track_count,
                             const od_note*, size_t note_count, uint64_t length_frames) OD_NOEXCEPT;
 OD_API od_result od_load_v3(od_engine*, const od_track_v3*, size_t track_count,
                             const od_note*, size_t note_count, uint64_t length_frames) OD_NOEXCEPT;
+OD_API od_result od_load_v4(od_engine*, const od_track_v4*, size_t track_count,
+                            const od_note*, size_t note_count, uint64_t length_frames) OD_NOEXCEPT;
+/* Complete mixer/synth/pad targets, same bounded queue and receipt as v1 parameters. */
+OD_API od_result od_set_parameters_v2(od_engine*, uint64_t generation, const od_parameters_v2*,
+                                     size_t track_count, uint64_t* out_serial) OD_NOEXCEPT;
+/* Preview-only priority cancellation, including one-shots already released by the UI.
+ * Invalidates older queued live-note commands, leaves transport/score/parameters intact. */
+OD_API od_result od_cancel_live(od_engine*) OD_NOEXCEPT;
+OD_API od_result od_read_drum_status_v1(const od_engine*, uint64_t generation,uint32_t track,od_drum_status_v1*) OD_NOEXCEPT;
 /* Complete mix+synth snapshot. Same bounded queue, generation and status serial as mixer.
  * ADSR latched at note-on; oscillator controls ramp for 10ms on existing voices.
  * Queue-full leaves export state/output serial unchanged. */

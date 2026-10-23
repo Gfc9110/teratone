@@ -1,4 +1,4 @@
-use crate::{project::{Instrument, Project},synth::SynthParameters};
+use crate::{project::{Instrument, Project},drums::{PadParameters,MAX_PADS},synth::SynthParameters};
 use std::{ffi::{c_char, CStr, CString}, marker::PhantomData, path::Path, ptr::NonNull, rc::Rc};
 
 #[repr(C)] struct RawEngine { _private: [u8; 0] }
@@ -12,6 +12,11 @@ impl From<SynthParameters> for RawSynth {
     fn from(p:SynthParameters)->Self{Self{struct_size:std::mem::size_of::<Self>() as u32,version:1,waveform:p.waveform.index(),shape:p.shape,pulse_width:p.pulse_width,attack:p.attack,decay:p.decay,sustain:p.sustain,release:p.release}}
 }
 #[repr(C)] struct RawTrackV3 {struct_size:u32,version:u32,base:RawTrackV2,synth:RawSynth}
+#[repr(C)] #[derive(Default,Clone,Copy)] struct RawPadParameters {gain:f32,pan:f32,tune_semitones:f32,mute:u32,one_shot:u32,choke_group:u32}
+impl From<PadParameters> for RawPadParameters{fn from(p:PadParameters)->Self{Self{gain:p.gain,pan:p.pan,tune_semitones:p.tune_semitones,mute:p.mute.into(),one_shot:p.one_shot.into(),choke_group:p.choke_group as u32}}}
+#[repr(C)] struct RawDrumPad {struct_size:u32,version:u32,midi_note:u32,parameters:RawPadParameters,wav_bytes:*const u8,wav_size:usize}
+#[repr(C)] struct RawTrackV4 {struct_size:u32,version:u32,base:RawTrackV3,instrument_kind:u32,pad_count:u32,pads:*const RawDrumPad}
+#[repr(C)] #[derive(Clone,Copy)] struct RawParametersV2 {struct_size:u32,version:u32,base:RawParameters,pad_count:u32,pads:[RawPadParameters;MAX_PADS]}
 #[repr(C)] #[derive(Clone,Copy)] struct RawParameters {mix:RawTrackMix,synth:RawSynth}
 #[repr(C)] #[derive(Default, Clone, Copy)] struct RawTrackMix { gain: f32, pan: f32, mute: u32, solo: u32 }
 #[repr(C)] #[derive(Default, Debug, Clone, Copy)]
@@ -24,17 +29,20 @@ pub struct Telemetry {
     pub peak_left: f32, pub peak_right: f32,
     pub playing: u32, pub looping: u32, pub device_open: u32, pub device_error: u32,
 }
+#[repr(C)] #[derive(Debug,Clone,Copy,Default)] pub struct DrumStatus {pub generation:u64,pub pad_count:u32,pub active_voices:u32,pub triggers:[u64;MAX_PADS]}
 extern "C" {
     fn od_abi_version() -> u32;
     fn od_error_message() -> *const c_char;
     fn od_create(rate: u32, block: u32) -> *mut RawEngine;
     fn od_destroy(e: *mut RawEngine);
-    fn od_load_v3(e: *mut RawEngine, tracks: *const RawTrackV3, count: usize, notes: *const RawNote, note_count: usize, length: u64) -> i32;
-    fn od_set_parameters_v1(e: *mut RawEngine, generation: u64, tracks: *const RawParameters, count: usize, serial: *mut u64) -> i32;
+    fn od_load_v4(e: *mut RawEngine, tracks: *const RawTrackV4, count: usize, notes: *const RawNote, note_count: usize, length: u64) -> i32;
+    fn od_set_parameters_v2(e: *mut RawEngine, generation: u64, tracks: *const RawParametersV2, count: usize, serial: *mut u64) -> i32;
     fn od_read_mix_status_v1(e: *const RawEngine, status: *mut MixStatus) -> i32;
     fn od_play(e: *mut RawEngine) -> i32;
     fn od_pause(e: *mut RawEngine) -> i32;
     fn od_stop(e: *mut RawEngine) -> i32;
+    fn od_read_drum_status_v1(e:*const RawEngine,generation:u64,track:u32,out:*mut DrumStatus)->i32;
+    fn od_cancel_live(e:*mut RawEngine)->i32;
     fn od_panic(e: *mut RawEngine) -> i32;
     fn od_seek(e: *mut RawEngine, frame: u64) -> i32;
     fn od_loop(e: *mut RawEngine, enabled: u32, begin: u64, end: u64) -> i32;
@@ -56,7 +64,7 @@ fn check(code: i32) -> Result<(), String> { if code == 0 { Ok(()) } else { Err(l
 /// Exactly one control-thread owner. Not Send/Sync; no raw pointer exposed to UI code.
 /// C++ owns the audio consumer and joins it before destroying/replacing its graph.
 pub struct Engine {
-    raw: NonNull<RawEngine>, rate: u32, generation: u64, track_ids: Vec<(u64,u64)>, _single_owner: PhantomData<Rc<()>>,
+    raw: NonNull<RawEngine>, rate: u32, generation: u64, track_ids: Vec<(u64,u64)>, pad_ids:Vec<Vec<u64>>, _single_owner: PhantomData<Rc<()>>,
 }
 impl Engine {
     pub fn new(rate: u32, block: u32) -> Result<Self, String> {
@@ -64,22 +72,30 @@ impl Engine {
         unsafe {
             if od_abi_version() != 1 { return Err("Native ABI version mismatch".into()); }
             let raw = NonNull::new(od_create(rate, block)).ok_or_else(|| last_error(4))?;
-            Ok(Self { raw, rate, generation: 1, track_ids: Vec::new(), _single_owner: PhantomData })
+            Ok(Self { raw, rate, generation: 1, track_ids: Vec::new(), pad_ids:Vec::new(), _single_owner: PhantomData })
         }
     }
     pub fn load(&mut self, project: &Project) -> Result<(), String> {
         project.validate()?;
         let paths: Vec<Option<CString>> = project.tracks.iter().map(|track| match &track.instrument.config {
-            Instrument::Sine | Instrument::Synth { .. } => Ok(None),
+            Instrument::Sine | Instrument::Synth { .. } | Instrument::DrumKit{..} => Ok(None),
             Instrument::Sampler { sample_path, .. } => CString::new(sample_path.as_bytes()).map(Some).map_err(|e| e.to_string()),
         }).collect::<Result<_, String>>()?;
-        let tracks: Vec<_> = project.tracks.iter().zip(paths.iter()).map(|(track, path)| {
+        let mut assets=std::collections::HashMap::new();let mut byte_count=0;
+        for t in &project.tracks{if let Some(kit)=t.instrument.config.drums(){for p in &kit.pads{if let Some(sample)=&p.sample{
+            let bytes=sample.bytes()?;if !assets.contains_key(sample.hash()){byte_count+=bytes.len();if byte_count>crate::drums::ASSET_BYTE_LIMIT{return Err("Drum WAV byte budget exceeds 128 MiB".into());}assets.insert(sample.hash().to_string(),bytes);}
+        }}}}
+        let pads:Vec<Vec<RawDrumPad>>=project.tracks.iter().map(|t|t.instrument.config.drums().map_or(Vec::new(),|kit|kit.pads.iter().map(|p|{
+            let bytes=p.sample.as_ref().map(|s|assets.get(s.hash()).expect("verified asset"));
+            RawDrumPad{struct_size:std::mem::size_of::<RawDrumPad>() as u32,version:1,midi_note:p.midi_note.into(),parameters:p.parameters.into(),wav_bytes:bytes.map_or(std::ptr::null(),|b|b.as_ptr()),wav_size:bytes.map_or(0,|b|b.len())}
+        }).collect())).collect();
+        let tracks: Vec<_> = project.tracks.iter().zip(paths.iter()).zip(&pads).map(|((track, path),pads)| {
             let (root_note, one_shot) = match &track.instrument.config {
-                Instrument::Sine | Instrument::Synth { .. } => (60, 0), Instrument::Sampler { root_note, one_shot, .. } => (*root_note as u32, u32::from(*one_shot)),
+                Instrument::Sine | Instrument::Synth { .. } | Instrument::DrumKit{..} => (60, 0), Instrument::Sampler { root_note, one_shot, .. } => (*root_note as u32, u32::from(*one_shot)),
             };
-            RawTrackV3 {struct_size:std::mem::size_of::<RawTrackV3>() as u32,version:3,synth:track.instrument.config.synth().unwrap_or_default().into(),base:RawTrackV2 { struct_size: std::mem::size_of::<RawTrackV2>() as u32, version: 2,
+            RawTrackV4{struct_size:std::mem::size_of::<RawTrackV4>() as u32,version:4,instrument_kind:match &track.instrument.config{Instrument::Sampler{..}=>1,Instrument::DrumKit{..}=>2,_=>0},pad_count:pads.len() as u32,pads:if pads.is_empty(){std::ptr::null()}else{pads.as_ptr()},base:RawTrackV3 {struct_size:std::mem::size_of::<RawTrackV3>() as u32,version:3,synth:track.instrument.config.synth().unwrap_or_default().into(),base:RawTrackV2 { struct_size: std::mem::size_of::<RawTrackV2>() as u32, version: 2,
                 base: RawTrack { gain: track.gain, pan: track.pan, sample_path_utf8: path.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()), root_note, one_shot },
-                mute: u32::from(track.mute), solo: u32::from(track.solo) }}
+                mute: u32::from(track.mute), solo: u32::from(track.solo) }}}
         }).collect();
         let rate = self.rate;
         let mut notes = Vec::with_capacity(project.note_count());
@@ -96,13 +112,16 @@ impl Engine {
             }
         }
         // All arrays/C strings remain alive for this synchronous, copying call.
-        check(unsafe { od_load_v3(self.raw.as_ptr(), tracks.as_ptr(), tracks.len(), notes.as_ptr(), notes.len(), project.frame_at(project.length_ticks, self.rate)) })?;
+        check(unsafe { od_load_v4(self.raw.as_ptr(), tracks.as_ptr(), tracks.len(), notes.as_ptr(), notes.len(), project.frame_at(project.length_ticks, self.rate)) })?;
         self.generation = self.mix_status()?.generation;
-        self.track_ids = project.tracks.iter().map(|t| (t.id,t.instrument.id)).collect(); Ok(())
+        self.track_ids = project.tracks.iter().map(|t| (t.id,t.instrument.id)).collect();
+        self.pad_ids=project.tracks.iter().map(|t|t.instrument.config.drums().map_or(Vec::new(),|k|k.pads.iter().map(|p|p.id).collect())).collect();Ok(())
     }
     pub fn play(&mut self) -> Result<(), String> { check(unsafe { od_play(self.raw.as_ptr()) }) }
     pub fn pause(&mut self) -> Result<(), String> { check(unsafe { od_pause(self.raw.as_ptr()) }) }
     pub fn stop(&mut self) -> Result<(), String> { check(unsafe { od_stop(self.raw.as_ptr()) }) }
+    pub fn drum_status(&self,track:u32)->Result<DrumStatus,String>{let mut s=DrumStatus::default();check(unsafe{od_read_drum_status_v1(self.raw.as_ptr(),self.generation,track,&mut s)})?;Ok(s)}
+    pub fn cancel_live(&mut self)->Result<(),String>{check(unsafe{od_cancel_live(self.raw.as_ptr())})}
     pub fn panic(&mut self) -> Result<(), String> { check(unsafe { od_panic(self.raw.as_ptr()) }) }
     pub fn seek(&mut self, frame: u64) -> Result<(), String> { check(unsafe { od_seek(self.raw.as_ptr(), frame) }) }
     pub fn set_loop(&mut self, enabled: bool, begin: u64, end: u64) -> Result<(), String> {
@@ -122,10 +141,16 @@ impl Engine {
         if project.tracks.len() > 16 || !project.tracks.iter().map(|t| (t.id,t.instrument.id)).eq(self.track_ids.iter().copied()) {
             return Err("Mixer slots changed; compile the current project before live updates".into());
         }
-        let mut tracks = [RawParameters{mix:RawTrackMix::default(),synth:SynthParameters::default().into()}; 16];
-        for (out, t) in tracks.iter_mut().zip(&project.tracks) { *out = RawParameters{mix:RawTrackMix { gain: t.gain, pan: t.pan, mute: u32::from(t.mute), solo: u32::from(t.solo) },synth:t.instrument.config.synth().unwrap_or_default().into()}; }
+        let mut tracks=[RawParametersV2{struct_size:std::mem::size_of::<RawParametersV2>() as u32,version:2,base:RawParameters{mix:RawTrackMix::default(),synth:SynthParameters::default().into()},pad_count:0,pads:[RawPadParameters::default();MAX_PADS]};16];
+        for (i,(out,t)) in tracks.iter_mut().zip(&project.tracks).enumerate(){
+            out.base=RawParameters{mix:RawTrackMix{gain:t.gain,pan:t.pan,mute:t.mute.into(),solo:t.solo.into()},synth:t.instrument.config.synth().unwrap_or_default().into()};
+            if let Some(kit)=t.instrument.config.drums(){
+                if !kit.pads.iter().map(|p|p.id).eq(self.pad_ids[i].iter().copied()){return Err("Drum pad slots changed; compile before live updates".into());}
+                out.pad_count=kit.pads.len() as u32;for (o,p) in out.pads.iter_mut().zip(&kit.pads){*o=p.parameters.into();}
+            }else if !self.pad_ids[i].is_empty(){return Err("Drum instrument type changed; compile before live updates".into());}
+        }
         let mut serial = 0;
-        let code = unsafe { od_set_parameters_v1(self.raw.as_ptr(), self.generation, tracks.as_ptr(), project.tracks.len(), &mut serial) };
+        let code = unsafe { od_set_parameters_v2(self.raw.as_ptr(), self.generation, tracks.as_ptr(), project.tracks.len(), &mut serial) };
         if code == 2 { return Ok(None); }
         check(code)?; Ok(Some(serial))
     }

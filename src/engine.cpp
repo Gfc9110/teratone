@@ -208,6 +208,9 @@ void SynthNode::noteOn(uint8_t note, uint8_t velocity, uint64_t id) noexcept {
     destination->velocityGain = velocity / 127.0f;
 }
 
+void SynthNode::cancelLive() noexcept {
+    for(auto& v:voices_)if((v.id>>63) && v.state!=Phase::Off){v.state=Phase::Release;v.envelopeSamples=0;v.release=std::max(1u,static_cast<uint32_t>(sampleRate_*.005));}
+}
 void SynthNode::noteOff(uint8_t note, uint64_t id) noexcept {
     // IDs isolate overlapping same-pitch notes. ID 0 retains legacy pitch semantics.
     for (auto& voice : voices_) {

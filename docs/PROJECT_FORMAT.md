@@ -1,9 +1,9 @@
-# Project format v2 — M3.4
+# Project format v2 — M3.5
 
 The application reads v1 and v2 and writes v2. Opening a v1 project migrates it
 in memory without rewriting its source file. The example under
 `examples/First-session.opendaw/project.json` intentionally remains v1 as a
-compatibility fixture. The original ABI v1 remains compatible; the app uses additive v3 descriptors with synth settings. Legacy descriptor layouts remain compatible.
+compatibility fixture. The original ABI v1 remains compatible; the app uses additive v4 descriptors with synth and drum settings. Legacy descriptor layouts remain compatible.
 
 ```text
 Song.opendaw/
@@ -47,7 +47,7 @@ mutable `Track.notes` array.
 }
 ```
 
-The other currently supported configuration is:
+The sampler configuration is:
 
 ```json
 {"id": 2, "config": {"kind": "sampler", "sample_path": "assets/sample-example.wav", "root_note": 60, "one_shot": false}}
@@ -57,14 +57,14 @@ Track `mute` and `solo` are optional booleans with default false when absent,
 including migrated v1 files and earlier v2 manifests. New saves write both.
 Audibility is `!mute && (!any_solo || solo)`; gain/pan retain their nominal values.
 Flags are undoable and duplicated with the independent instance. Playback and
-export derive the same gate state. The synth/preset model below is implemented in M3.4; drum pads and
-hashed asset references remain subsequent M3 increments. Unknown
+export derive the same gate state. The synth/preset model below is implemented in M3.4;
+drum pads and hashed asset references are implemented in M3.5 below. Unknown
 fields and unsupported versions are rejected. The decoder uses separate strict
 DTOs for v1 and v2 and rejects duplicate fields in the original JSON bytes.
 
-All track, instance, clip and note IDs are globally unique, nonzero, below 2^63
+All track, instance, clip, note and drum pad IDs are globally unique, nonzero, below 2^63
 and below `next_id`. Track array order is visual/playback slot order, not identity.
-Duplicating a track allocates fresh IDs for its instance, clips and notes, while
+Duplicating a track allocates fresh IDs for its instance, clips, notes and pads, while
 copying their values. Undo/redo restores object identities and original positions;
 `next_id` never goes backwards. Undo history is session-local, up to 512 steps.
 Note deletion also restores its original array position on undo.
@@ -153,3 +153,53 @@ fields are required and unknown/duplicate fields are rejected. Each new voice
 captures the whole ADSR. Oscillator targets ramp for 10ms on existing voices.
 `kind: synth` is rejected in v1. Previous app versions reject this new v2 instrument
 kind explicitly; backward reading is not promised. See M3_4_TRACK_SYNTH.md.
+
+## M3.5 drum kits and verified assets
+
+The new instrument configuration has `kind: drum_kit` and a strict owned `kit`.
+The factory creates 16 pads (12 filled, four empty); a valid document may contain
+1–16. Each pad has globally unique `id`, `name`, unique `midi_note` (0–127),
+nullable `sample`, and complete `parameters`. A single-pad excerpt:
+
+```json
+{"kind":"drum_kit","kit":{"name":"Example","pads":[{
+  "id":100,"name":"Kick","midi_note":35,
+  "sample":{"kind":"factory","asset_id":"kick","sha256":"642aaf3375eaff1307973f7de3ccbf74d18e71fb3cf9412e021b08fc3bf1981c"},
+  "parameters":{"gain":0.76164045,"pan":0.0,"tune_semitones":0.0,"mute":false,"one_shot":true,"choke_group":0}
+}]}}
+```
+
+Gain 0–4, pan −1..1, tune −24..24 semitones, choke group 0–16 (0 disabled),
+booleans mute/one_shot; all numeric values finite. Velocity stays in MIDI notes,
+1–127. MIDI selects a sample without transposition; tune is separate. Empty and
+unmapped notes are silent. One-shot ignores ordinary note-off; gated uses duration.
+Tune/mode/choke are captured by each new voice. Choke groups are kit-local.
+
+`factory` references only known embedded IDs with their exact original SHA-256.
+Save copies every filled pad, including factory bytes, into
+`assets/drum-<sha256>.wav`, deduplicates by verified content, and writes a `file`
+reference: `kind`, `sample_path`, `sha256`, optional `origin` (factory asset ID).
+When present, origin must match the registered factory hash. User imports have
+no origin. Hashes are lowercase 64-digit hex. Load verifies **every referenced
+file**, including separate paths claiming the same hash. Corrupt destination files
+and asset symlinks are rejected rather than silently overwritten. The existing
+relative assets/ containment contract applies. All user and factory drum files
+are checked on load, native prepare and save; these hashes detect changes, not
+adversarial concurrent filesystem races. Melodic sampler path semantics are unchanged.
+
+A project containing factory-origin files receives `assets/VCSL-CC0-MANIFEST.json`
+and `assets/VCSL-CC0-LICENSE.txt`. The manifest records all 12 originals, whether
+or not this project uses all of them. App factory bytes are compiled into both UI
+and headless binaries; no runtime download is required. The demo project under
+`examples/Drum-kit.opendaw` uses factory references and becomes self-contained on Save.
+
+Imported drum WAVs are staged immutably for session Undo, capped at 128 MiB across
+unique imports. A failed candidate does not consume that cache. No automatic
+media deletion; existing hashed assets and replaced files remain for history.
+Save has a combined 128 MiB media budget. Native prepare separately caps encoded
+drum input and combined decoded sample data at 128 MiB each; staging, transients,
+old/new prepared sessions, oscillator banks and export add memory beyond these caps.
+Old v1/v2 sources without drums remain supported with exact v1 audio regression.
+New `drum_kit` is rejected by v1 and by older application versions, not silently
+converted to sine. Full kit settings are persisted; separate kit-preset files,
+velocity layers, step sequencing and shared plugin routing are not introduced.

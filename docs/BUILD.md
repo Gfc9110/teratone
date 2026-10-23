@@ -1,5 +1,24 @@
 # Build, run, and validation
 
+## M3.5 local verification — 23 October 2026
+
+Updated checkout baseline `ebc0e83`; same macOS arm64 toolchain as M3.4. Added
+sha2 0.10.9 with six locked transitive packages, without upgrading existing ones.
+The 12 original CC0 WAVs under assets/drums/vcsl are compile-time inputs to both
+binaries; copy the whole source tree for builds. Runtime factory playback needs
+no network or path outside the binary. `python3 scripts/verify_factory_drums.py`
+is a dependency-free offline hash/license/WAV gate; `--upstream` additionally
+checks official fixed-revision sources via curl and normal TLS validation.
+
+Local gates: 36 headless unit tests + six integration, 55 UI-enabled + the same
+six integration, both release binaries, six native suites, extended C/shared ABI,
+zero C++ new/delete over 10,001 monitored renders, real-controller software UI
+100/200%, v1 byte-identical output. CI adds the offline factory verification to
+its existing OS build/test matrix; CI has not been pushed/run for this increment.
+Detailed commands, benchmark and target-hardware/listening limits:
+[M3.5 validation record](M3_5_DRUM_MACHINE.md).
+
+
 ## M3.4 increment — 23 October 2026
 
 Current gates: 36 headless / 52 UI-enabled Rust tests and both release binaries;

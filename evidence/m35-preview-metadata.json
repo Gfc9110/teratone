@@ -1,0 +1,10 @@
+{
+  "channels": 2,
+  "sample_rate": 48000,
+  "frames": 768000,
+  "sample_width": 2,
+  "bytes": 3072044,
+  "sha256": "a2db5e1b55863a7f9c8774c0eb928f5a974ae8b2adb66599e0ebdcb94b35dbb8",
+  "peak_dbfs": -16.191724453515974,
+  "full_scale_samples": 0
+}

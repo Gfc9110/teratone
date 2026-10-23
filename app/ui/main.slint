@@ -6,6 +6,7 @@ export struct TrackVisual {
     id: string, name: string, tint: color, instrument: string, selected: bool,
     mute: bool, solo: bool, audible: bool, clips: [ClipVisual],
 }
+export struct PadVisual {id:string,name:string,midi:int,filled:bool,muted:bool}
 export struct KeyVisual { pitch: int, y: float, h: float, black: bool, c: bool, label: string }
 export struct NoteVisual { x: float, y: float, w: float, h: float, selected: bool, label: string }
 export component AppWindow inherits Window {
@@ -25,6 +26,24 @@ export component AppWindow inherits Window {
     in property <string> track-name: "Sine lead";
     in-out property <string> track-name-draft: "Sine lead";
     in property <string> instrument: "Sine oscillator";
+    in property <bool> is-drums;
+    in property <string> drum-kit-name;
+    in property <[PadVisual]> drum-pads;
+    in property <[bool]> pad-pulses;
+    in property <[bool]> pad-mutes;
+    in property <string> pad-id: "0";
+    in-out property <string> pad-name;
+    in property <string> pad-source;
+    in property <bool> pad-filled;
+    in-out property <string> pad-import-path;
+    in-out property <int> pad-midi: 35;
+    in-out property <int> pad-preview-velocity: 100;
+    in-out property <float> pad-gain: 1;
+    in-out property <float> pad-pan: 0;
+    in-out property <int> pad-tune: 0;
+    in-out property <int> pad-choke: 0;
+    in property <bool> pad-muted;
+    in property <bool> pad-one-shot: true;
     in property <bool> is-synth: true;
     in-out property <bool> sound-tab: false;
     in-out property <int> synth-wave: 0;
@@ -78,7 +97,7 @@ export component AppWindow inherits Window {
     in property <string> clip-id: "0";
     in property <float> clip-length-beats;
     in-out property <string> clip-name-draft;
-    private property <length> keyboard-width: 76px;
+    private property <length> keyboard-width: root.is-drums ? 140px : 76px;
     private property <int> piano-first-beat: floor(root.scroll-beat);
     private property <int> piano-beat-count: ceil(root.canvas-width/root.pixels-per-beat)+2;
     private property <int> piano-first-line: floor(root.scroll-beat*4);
@@ -132,6 +151,25 @@ export component AppWindow inherits Window {
     out property <float> add-track-y: add-track-button.absolute-position.y / 1px + add-track-button.height / 2px;
     out property <float> duplicate-track-x: duplicate-button.absolute-position.x / 1px + duplicate-button.width / 2px;
     out property <float> duplicate-track-y: duplicate-button.absolute-position.y / 1px + duplicate-button.height / 2px;
+    out property <float> drums-add-x: add-drums-button.absolute-position.x / 1px + add-drums-button.width / 2px;
+    out property <float> drums-add-y: add-drums-button.absolute-position.y / 1px + add-drums-button.height / 2px;
+    out property <float> drums-grid-x: drum-focus.absolute-position.x / 1px + drum-focus.width / 2px;
+    out property <float> drums-grid-y: drum-focus.absolute-position.y / 1px + drum-focus.height / 2px;
+    out property <float> drums-mute-x: pad-mute-button.absolute-position.x / 1px + pad-mute-button.width / 2px;
+    out property <float> drums-mute-y: pad-mute-button.absolute-position.y / 1px + pad-mute-button.height / 2px;
+    out property <float> drums-mode-x: pad-mode-button.absolute-position.x / 1px + pad-mode-button.width / 2px;
+    out property <float> drums-mode-y: pad-mode-button.absolute-position.y / 1px + pad-mode-button.height / 2px;
+    out property <float> drums-gain-x: pad-gain-slider.absolute-position.x / 1px + pad-gain-slider.width / 2px;
+    out property <float> drums-gain-y: pad-gain-slider.absolute-position.y / 1px + pad-gain-slider.height / 2px;
+    out property <float> drums-pan-x: pad-pan-slider.absolute-position.x / 1px + pad-pan-slider.width / 2px;
+    out property <float> drums-pan-y: pad-pan-slider.absolute-position.y / 1px + pad-pan-slider.height / 2px;
+    out property <float> drums-map-x: pad-map-button.absolute-position.x / 1px + pad-map-button.width / 2px;
+    out property <float> drums-map-y: pad-map-button.absolute-position.y / 1px + pad-map-button.height / 2px;
+    out property <float> drums-import-x: pad-import-button.absolute-position.x / 1px + pad-import-button.width / 2px;
+    out property <float> drums-import-y: pad-import-button.absolute-position.y / 1px + pad-import-button.height / 2px;
+    out property <float> drums-clear-x: pad-clear-button.absolute-position.x / 1px + pad-clear-button.width / 2px;
+    out property <float> drums-clear-y: pad-clear-button.absolute-position.y / 1px + pad-clear-button.height / 2px;
+    out property <float> drums-grid-width: drum-focus.width / 1px;
     out property <float> synth-sound-tab-x: sound-tab-button.absolute-position.x / 1px + sound-tab-button.width / 2px;
     out property <float> synth-sound-tab-y: sound-tab-button.absolute-position.y / 1px + sound-tab-button.height / 2px;
     out property <float> synth-shape-x: shape-slider.absolute-position.x / 1px + shape-slider.width / 2px;
@@ -170,6 +208,10 @@ export component AppWindow inherits Window {
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
     callback down(float, float, bool); callback moved(float, float); callback up(float, float);
     callback save-project(string); callback open-project(string);
+    callback add-drums(string);callback use-drums(string);callback select-pad(string);
+    callback drum-pad-gate(string,bool);callback pad-parameter(int,float);callback toggle-pad(int);
+    callback rename-pad(string);callback map-pad(int);callback import-pad(string);callback clear-pad();
+    callback release-keyboard();
     callback synth-parameter(string, string, int, float);
     callback factory-preset(string, string, int);
     callback save-synth-preset(string, string, string, string);
@@ -265,8 +307,9 @@ export component AppWindow inherits Window {
             x: 0; y: 0; width: parent.width; height: 30px; spacing: 5px;
             Text { text: "TRACKS  " + root.track-items.length + " / 16"; color: #a6bdd4; vertical-alignment: center; }
             add-track-button := Button { text: "+ Track"; enabled: root.track-items.length < 16; clicked => { root.add-track(root.track-id); } }
+            add-drums-button := Button {text:"+ Drums";enabled:root.track-items.length<16;clicked=>{root.add-drums(root.track-id);root.sound-tab=true;root.project-tab=false;root.inspector-scroll=0px;}}
             duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < 16; clicked => { root.duplicate-track(root.track-id); } }
-            Button { text: "Show selected"; clicked => { root.reveal-selected(); } }
+            Button { text: root.width < 1100px ? "Show" : "Show selected";accessible-label:"Show selected track"; clicked => { root.reveal-selected(); } }
             Rectangle { horizontal-stretch: 1; }
             Button { text: "−"; clicked => { root.arrangement-zoom = max(12, root.arrangement-zoom * 0.8); root.clamp-scroll(); } }
             Button { text: "+"; clicked => { root.arrangement-zoom = min(192, root.arrangement-zoom * 1.25); } }
@@ -458,11 +501,11 @@ export component AppWindow inherits Window {
                     selected(value)=>{if self.current-index>=0 && self.current-index<root.clip-ids.length {root.select-clip(root.track-id,root.clip-ids[self.current-index]);}}}
                 Text {text:"Start "+(root.clip-start-beat+1)+" · "+root.clip-length-beats+" beats · 1/16";color:#8199b2;vertical-alignment:center;font-size:10px;}
                 Rectangle {horizontal-stretch:1;}
-                Text {text:"Middle C";color:#a5bbcc;vertical-alignment:center;font-size:10px;}
-                ComboBox {width:76px;model:["C3","C4","C5"];current-index<=>root.notation-index;selected(value)=>{root.notation(self.current-index - 1);}}
+                Text {text:root.is-drums ? "Drums / MIDI" : "Middle C";color:#a5bbcc;vertical-alignment:center;font-size:10px;}
+                ComboBox {visible:!root.is-drums;width:76px;model:["C3","C4","C5"];current-index<=>root.notation-index;selected(value)=>{root.notation(self.current-index - 1);}}
             }
             Rectangle {x:0;y:64px;width:root.keyboard-width;height:20px;background:#243445;
-                Text {text:"KEY / MIDI";color:#a6bfca;font-size:9px;horizontal-alignment:center;vertical-alignment:center;}}
+                Text {text:root.is-drums ? "DRUMS / MIDI" : "KEY / MIDI";color:#a6bfca;font-size:9px;horizontal-alignment:center;vertical-alignment:center;}}
             Rectangle {
                 x:root.keyboard-width;y:64px;width:parent.width - self.x - 12px;height:20px;background:#1a2532;clip:true;
                 for beat in root.piano-beat-count : Text {
@@ -482,7 +525,7 @@ export component AppWindow inherits Window {
                         Rectangle {x:0;y:0;width:key.c ? 4px : 0px;height:parent.height;background:#52b892;}
                         Rectangle {x:0;y:parent.height - 1px;width:parent.width;height:1px;background:key.c ? #4d987f : #8196a7;}
                         Text {x:7px;y:0;width:parent.width - 13px;height:parent.height;text:key.label;
-                            color:key.black ? #dae8f1 : #193343;font-size:key.h>=22 ? 12px : 10px;font-weight:key.c ? 700 : 400;vertical-alignment:center;horizontal-alignment:right;}
+                            color:key.black ? #dae8f1 : #193343;font-size:key.h>=22 ? 12px : 10px;font-weight:key.c ? 700 : 400;vertical-alignment:center;horizontal-alignment:root.is-drums ? left : right;overflow:elide;}
                         key-touch := TouchArea {
                             accessible-role:button;accessible-label:key.label+" · MIDI "+key.pitch;
                             pointer-event(event)=>{
@@ -555,11 +598,11 @@ export component AppWindow inherits Window {
         ScrollView {
             x: 12px; y: 48px; width: parent.width - 24px; height: parent.height - 60px;
             horizontal-scrollbar-policy: always-off; content-width: self.visible-width;
-            content-height: root.project-tab ? 360px : root.sound-tab ? 710px : 770px;
+            content-height: root.project-tab ? 360px : root.sound-tab ? (root.is-drums ? 1080px : 710px) : 810px;
             content-y <=> root.inspector-scroll;
             VerticalLayout {
                 visible: !root.project-tab && !root.sound-tab;
-                x: 0; y: 0; width: parent.width - 8px; height: 770px; spacing: 7px;
+                x: 0; y: 0; width: parent.width - 8px; height: 810px; spacing: 7px;
                 Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.track-index + 1); color: #7edcba; font-size: 11px; }
                 name-edit := LineEdit { height: 30px; text <=> root.track-name-draft; accepted => { root.rename-track(root.track-id, self.text); } }
                 Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.track-id, name-edit.text); } }
@@ -592,6 +635,7 @@ export component AppWindow inherits Window {
                 Text { height: 30px; text: "Drag ≡ to reorder tracks.\nTrack / note edits stop playback."; color: #8b9eb3; font-size: 10px; }
                 Rectangle { height: 1px; background: #293747; }
                 Button { height: 30px; text: "Use oscillator instrument"; enabled: !root.is-synth; clicked => { root.use-sine(root.track-id); } }
+                Button {height:30px;text:"Use CC0 drum kit";enabled:!root.is-drums;clicked=>{root.use-drums(root.track-id);root.sound-tab=true;root.inspector-scroll=0px;}}
                 sample-file := LineEdit { height: 30px; text <=> root.sample-path; placeholder-text: "Path to short WAV sample"; }
                 HorizontalLayout {
                     height: 30px;
@@ -604,7 +648,7 @@ export component AppWindow inherits Window {
                 Rectangle { vertical-stretch: 1; }
             }
             VerticalLayout {
-                visible: root.sound-tab && !root.project-tab;
+                visible: root.sound-tab && !root.project-tab && !root.is-drums;
                 x: 0; y: 0; width: parent.width - 8px; height: 710px; spacing: 7px;
                 Text { height: 18px; text: "SOUND  ·  " + root.track-name; color: #7edcba; overflow: elide; }
                 Text { height: 18px; text: root.is-synth ? root.preset-label : "Sampler · controls in Track"; color: #c7d4e5; overflow: elide; }
@@ -654,6 +698,73 @@ export component AppWindow inherits Window {
                 }
                 Text { height: 28px; text: "Presets copy values into this track.\nNotes and track volume are retained."; color: #96abc0; font-size: 10px; }
                 Rectangle { vertical-stretch: 1; }
+            }
+            VerticalLayout {
+                visible: root.sound-tab && !root.project-tab && root.is-drums;
+                x:0;y:0;width:parent.width - 8px;height:1080px;spacing:7px;
+                Text {height:18px;text:root.drum-kit-name;color:#7edcba;overflow:elide;font-size:12px;}
+                Text {height:18px;text:"GM subset · 16 pads · independent kit";color:#96abc0;font-size:10px;}
+                HorizontalLayout {height:30px;spacing:4px;
+                    Text {text:"Preview velocity";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    SpinBox {width:88px;minimum:1;maximum:127;value<=>root.pad-preview-velocity;}
+                }
+                drum-focus := FocusScope {
+                    height:216px;focus-lost(reason)=>{root.release-audition();}
+                    for pad[index] in root.drum-pads : Rectangle {
+                        x:(index - floor(index/4)*4)*(parent.width/4);y:floor(index/4)*54px;
+                        width:parent.width/4 - 4px;height:50px;border-radius:4px;
+                        background:pad-touch.pressed || root.pad-pulses[index] ? #43896f : pad.filled ? #243a4c : #18212c;
+                        border-width:root.pad-id==pad.id ? 2px : 1px;border-color:root.pad-id==pad.id ? #8be0bd : #3a4a5b;
+                        Text {x:4px;y:4px;width:parent.width - 8px;height:27px;text:pad.name;wrap:word-wrap;overflow:elide;color:pad.filled ? #e0eaf3 : #8b9eb3;font-size:9px;}
+                        Text {x:4px;y:34px;width:parent.width - 8px;height:12px;text:pad.filled ? (root.pad-mutes[index] ? "M · " : "")+pad.midi : "Empty · "+pad.midi;color:#9cb2c8;font-size:8px;}
+                        pad-touch := TouchArea {
+                            accessible-role:button;accessible-label:pad.name+" · MIDI "+pad.midi;
+                            pointer-event(event)=>{
+                                if event.kind==PointerEventKind.down && event.button==PointerEventButton.left {drum-focus.focus();root.select-pad(pad.id);root.drum-pad-gate(pad.id,true);}
+                                if event.kind==PointerEventKind.up {root.drum-pad-gate(pad.id,false);}
+                                if event.kind==PointerEventKind.cancel {root.release-audition();}
+                            }
+                            moved=>{if self.pressed && (self.mouse-x<0px || self.mouse-x>=self.width || self.mouse-y<0px || self.mouse-y>=self.height){root.release-audition();}}
+                            Tooltip {text:@markdown("\{pad.name} · MIDI \{pad.midi}");}
+                        }
+                    }
+                }
+                Text {height:18px;text:"SELECTED PAD · MIDI "+root.pad-midi;color:#7edcba;font-size:11px;}
+                pad-name-edit := LineEdit {height:30px;text<=>root.pad-name;accepted=>{root.rename-pad(self.text);}}
+                Button {height:28px;text:"Rename pad";clicked=>{root.rename-pad(pad-name-edit.text);}}
+                HorizontalLayout {height:30px;spacing:4px;
+                    Text {text:"MIDI";color:#c7d4e5;vertical-alignment:center;}
+                    pad-map-spin := SpinBox {minimum:0;maximum:127;value<=>root.pad-midi;width:88px;}
+                    pad-map-button := Button {text:"Apply map";clicked=>{root.map-pad(pad-map-spin.value);}}
+                }
+                HorizontalLayout {height:30px;spacing:5px;
+                    pad-mute-button := Button {text:"Mute";checked:root.pad-muted;accessible-checkable:true;accessible-checked:root.pad-muted;clicked=>{root.toggle-pad(3);}}
+                    pad-mode-button := Button {text:root.pad-one-shot ? "One-shot" : "Gated";checked:root.pad-one-shot;accessible-checkable:true;accessible-checked:root.pad-one-shot;clicked=>{root.toggle-pad(4);}}
+                }
+                Text {height:18px;text:"Pad volume  "+round(root.pad-gain*100)+"%";color:#c7d4e5;}
+                pad-gain-slider := Slider {height:26px;minimum:0;maximum:4;value<=>root.pad-gain;changed(value)=>{root.pad-parameter(0,value);}released(value)=>{root.finish-mix();}}
+                Text {height:18px;text:"Pad pan  "+round(root.pad-pan*100);color:#c7d4e5;}
+                pad-pan-slider := Slider {height:26px;minimum:-1;maximum:1;value<=>root.pad-pan;changed(value)=>{root.pad-parameter(1,value);}released(value)=>{root.finish-mix();}}
+                HorizontalLayout {height:30px;
+                    Text {text:"Tune · semitones";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    SpinBox {minimum:-24;maximum:24;width:88px;value<=>root.pad-tune;edited(value)=>{root.pad-parameter(2,value);root.finish-mix();}}
+                }
+                HorizontalLayout {height:30px;
+                    Text {text:"Choke · 0 = none";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    SpinBox {minimum:0;maximum:16;width:88px;value<=>root.pad-choke;edited(value)=>{root.pad-parameter(5,value);root.finish-mix();}}
+                }
+                Text {height:38px;text:"Tune / mode / choke apply to new hits.\nHi-hats share choke group 1.\nTrack volume / pan: Track tab.";color:#96abc0;font-size:10px;}
+                Rectangle {height:1px;background:#293747;}
+                Text {height:32px;text:root.pad-filled ? root.pad-source : "Empty pad · import a WAV";color:#9db1c7;font-size:10px;wrap:word-wrap;overflow:elide;}
+                LineEdit {height:30px;text<=>root.pad-import-path;placeholder-text:"Path to replacement WAV";}
+                HorizontalLayout {height:30px;spacing:5px;
+                    pad-import-button := Button {text:"Replace WAV";clicked=>{root.import-pad(root.pad-import-path);}}
+                    pad-clear-button := Button {text:"Clear";enabled:root.pad-filled;clicked=>{root.clear-pad();}}
+                }
+                Text {height:48px;text:"One-shots finish after button release.\nFocus / track changes cancel previews.\nMapping and sample edits stop playback;\nUndo restores the previous pad.";color:#96abc0;font-size:10px;}
+                Button {height:30px;text:"Reset CC0 kit";clicked=>{root.use-drums(root.track-id);}}
+                Text {height:28px;text:"VCSL · Versilian Studios · CC0 1.0\nTwelve sounds; four empty pads for import.";color:#8295ad;font-size:10px;}
+                Rectangle {vertical-stretch:1;}
             }
             VerticalLayout {
                 visible: root.project-tab;

@@ -174,7 +174,7 @@ In M3.1, the sidebar exposed track CRUD/order/properties and the editor could
 select existing MIDI clips. M3.2 replaces that presentation with arrangement rows
 and inspector, and adds persistent live mute/solo. M3.3 adds clip manipulation,
 vertical keyboard, velocity, notation and scoped audition. M3.4 implements the
-expanded synth described below; multi-pad drums remain later milestones. See M3_IMPLEMENTATION_PROGRESS.md
+expanded synth described below; M3.5 adds the internal multi-pad drums below. See M3_IMPLEMENTATION_PROGRESS.md
 for exact scope, evidence and remaining limitations; PROJECT_FORMAT.md documents
 the implemented v2 fields rather than the broader proposed handoff model.
 
@@ -231,3 +231,33 @@ coalesces only the same field of the same instance until FinishMix. Factory/pres
 application is one history step. User preset files use atomic storage replacement.
 The Sound inspector tab and software probe share the production UI input adapter.
 See M3_4_TRACK_SYNTH.md for formulas, reproducible FFT tests, benchmarks and limits.
+
+## M3.5 internal drums — 23 October 2026
+
+`app/src/drums.rs` owns strict kit/pad/sample metadata and embedded verified CC0
+bytes. The Rust document remains authoritative; pad commands use track, instance
+and pad IDs. New `include/open_daw/drums.hpp` / `src/drums.cpp` implement a 128-key
+lookup and 64 fixed voice slots per kit, sample-rate conversion, velocity, local
+choke, gated/one-shot and per-pad smoothed mix. Voice/tail state is independent;
+only immutable decoded samples are shared across instances.
+
+The additive v4 load borrows WAV byte spans synchronously and prepares ownership
+on the control thread. Rust checks raw SHA-256 before content deduplication;
+C++ reuses decoded data for repeated prepared spans under a combined media budget.
+The v2 parameter snapshot extends the existing eight-slot POD SPSC with pad arrays;
+consumer coalescing retains synth/drum targets across legacy mix commands. The
+same generation/submitted/applied receipt covers the complete target. Callback
+never opens a file, acquires the control-side cache mutex or changes shared sample
+ownership. Replaced graphs are destroyed after device stop/join.
+
+Preview cancellation has its own native epoch, bypassing a full note queue and
+preserving scheduled voices. One-shot previews are included even after the UI's
+ordinary release. Trigger/active-voice atomics are polled by the control owner;
+UI pulse/mute models are distinct from stable interactive pad rows.
+
+`DrumStaging` retains imported content for session Undo; project storage copies
+all filled pads to hash-addressed relative assets and includes CC0 provenance.
+Structural drum edits decode a candidate before stopping/mutating the active
+project; failed imports roll back their new staging file. Export uses an
+independent engine from the captured document, as before. See
+[M3.5 contracts, DSP, evidence and limitations](M3_5_DRUM_MACHINE.md).

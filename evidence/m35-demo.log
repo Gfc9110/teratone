@@ -1,0 +1,8 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `release` profile [optimized] target(s) in 6.10s
+     Running `app/target/release/examples/drum_demo evidence/m35-kit-preview.wav examples/Drum-kit.opendaw`
+Rendered 12 verified CC0 factory sounds + groove to evidence/m35-kit-preview.wav (16s, 48kHz stereo PCM16); human listening pending.
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.12s
+     Running `app/target/debug/opendaw-project validate examples/Drum-kit.opendaw`
+Valid project: 1 tracks, 38 notes

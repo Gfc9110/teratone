@@ -50,9 +50,14 @@ void* operator new[](size_t n, std::align_val_t a, const std::nothrow_t&) noexce
 void operator delete(void* p, std::align_val_t, const std::nothrow_t&) noexcept { freeAligned(p); }
 void operator delete[](void* p, std::align_val_t, const std::nothrow_t&) noexcept { freeAligned(p); }
 int main() {
-    daw::SessionSpec spec; spec.lengthFrames = 48000; spec.tracks.resize(2);
+    daw::SessionSpec spec; spec.lengthFrames = 48000; spec.tracks.resize(3);
     auto sample = std::make_shared<daw::SampleData>(); sample->stereo.resize(2048, 0.05f);
     spec.tracks[1].sample = sample;
+    spec.tracks[2].drums.emplace();
+    for (uint8_t pitch : {35,42,46}) {
+        daw::DrumPad pad;pad.midiNote=pitch;pad.sample=sample;pad.parameters.chokeGroup=pitch==35?0:1;
+        spec.tracks[2].drums->pads.push_back(pad);
+    }
     spec.notes = {{1, 0, 12000, 0, 60, 100}, {2, 1000, 14000, 0, 60, 100}, {3, 500, 2000, 1, 72, 100}};
     daw::EngineService engine(spec); std::vector<float> out(512);
     daw::Command loop{daw::CommandType::Loop}; loop.enabled = true; loop.b = 48000;
@@ -75,7 +80,15 @@ int main() {
             mix.synths[0].release = block % 12 ? 0 : 20;
             engine.submitMix(mix, serial);
         }
+        if(block % 3 == 0) {
+            daw::Command hit{daw::CommandType::NoteOn};hit.track=2;hit.pitch=block%6?42:46;hit.id=daw::LiveIdBit|2;
+            for(int i=0;i<80;++i)engine.submit(hit); // bounded overload and voice stealing
+            daw::MixSnapshot mix;mix.updateDrums=true;mix.drums[2].pads[1].pan=block%2 ? -1.f : 1.f;
+            mix.drums[2].pads[1].mute=block%4==0;uint64_t serial=0;engine.submitMix(mix,serial);
+        }
+        if(block % 7 == 0)engine.cancelLive();
         engine.render(out.data(), 256);
+        daw::DrumStatus drums;(void)engine.drumStatus(2,drums);
         (void)engine.telemetry();
     }
     engine.stop(); engine.render(out.data(), 256);

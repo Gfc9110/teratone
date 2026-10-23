@@ -1,0 +1,12 @@
+   Compiling opendaw-app v0.2.0 (/Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.91s
+     Running `app/target/debug/examples/layout_probe`
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1280×820, scale 1
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1000×760, scale 1
+PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at 1000×760, scale 2
+PASS M3.3: pointer clip CRUD/transfer/resize, one-step undo/redo, extension, empty-lane creation, stable IDs and portable save
+PASS M3.3: fixed keyboard, C3/C4/C5 notation, MIDI 60 insertion, velocity, fractional scroll, three vertical zooms, 100/200% alignment
+PASS M3.3: keyboard audition never records; hold/release, window exit, focus loss and track change release the original token
+PASS M3.4: pointer preset/shape/PWM/ADSR, waveform combo, modified indicator, one-step undo, independent duplicate, preset save/load at 1280/1000 logical pixels and 100/200% scaling
+PASS M3.5: pointer pads/preview/focus cancellation, gain gesture undo, mute/mode/map, naming, WAV replacement/clear/undo, independent duplicate and portable save at 1280/1000 logical pixels and 100/200% scaling
+PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected

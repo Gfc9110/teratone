@@ -1,5 +1,11 @@
 # OpenDAW implementation handoff
 
+Current local increment (23 October 2026): [M3.5 internal drums](M3_5_DRUM_MACHINE.md)
+and [M3 progress](M3_IMPLEMENTATION_PROGRESS.md) record the updated implementation
+and tests. The original delivery assessment below is historical; Mac software
+builds now pass. Listening, physical audio and the target-device matrix remain open.
+
+
 **Date:** 22 October 2026  
 **Artifact:** 0.2.0 interactive-foundation source candidate  
 **Input:** Open_DAW_M1_M2_Starter.zip  

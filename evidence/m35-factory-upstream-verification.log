@@ -1,0 +1,14 @@
+PASS MIDI 35 kick         bytes= 588092 peak= -9.635dBFS onset1%= 0.14ms SHA256=642aaf3375eaff1307973f7de3ccbf74d18e71fb3cf9412e021b08fc3bf1981c
+PASS MIDI 38 snare        bytes= 240660 peak=-15.843dBFS onset1%= 9.00ms SHA256=ca0ee01347176a65f9d7e361203a61e736fa14acb2a743df355a4bded1ee40bd
+PASS MIDI 42 hat_closed   bytes= 218792 peak=-15.546dBFS onset1%= 8.21ms SHA256=b65ca06ea4f8b5209fc8d98912094be1212911f21e01bd949cc9960db049d37c
+PASS MIDI 44 hat_pedal    bytes= 236820 peak=-19.973dBFS onset1%= 9.05ms SHA256=4e4dbb4ddbeea653f95c2c229685fd5966ed9492fb8489d89d19dbd864f1a6b4
+PASS MIDI 46 hat_open     bytes=1026612 peak=-10.966dBFS onset1%= 8.28ms SHA256=fa492ec14cc6924b43ad5fcf9e9a0f406d926998835bde2eb5847cd15ad25be7
+PASS MIDI 45 tom_low      bytes= 508520 peak=-13.841dBFS onset1%=10.14ms SHA256=bdc312f2f4c799cb43319a7aa0e664bf6194c6f8b14151051b375968df55eab4
+PASS MIDI 50 tom_high     bytes= 424648 peak=-15.917dBFS onset1%=10.25ms SHA256=40bd5cf904ed20eb8e7bba6298e356b66cedd313b4f459c5a5884c054bf447a4
+PASS MIDI 49 crash        bytes=1495666 peak= -5.218dBFS onset1%= 2.43ms SHA256=3b4a6ed42627eedca39f6480e9825dedeaab538197fc734f85be13ba655aa6aa
+PASS MIDI 54 tambourine   bytes= 293256 peak=-16.406dBFS onset1%= 9.48ms SHA256=885ebf1d70f8e888f576682e4e4112b92b69649162f392c83b3379c91a09cf41
+PASS MIDI 56 cowbell      bytes= 165900 peak= -4.535dBFS onset1%= 8.71ms SHA256=e212cc27b3490d7927d41508bd7e90d6e09b0b8da169f0357341d3057c4910c4
+PASS MIDI 60 bongo_high   bytes= 209356 peak=-20.566dBFS onset1%= 8.87ms SHA256=dd9b6239a151702966a995937f74ac022c9bb950c967277fbd16beaced0c9e1a
+PASS MIDI 75 claves       bytes= 191812 peak=-24.232dBFS onset1%= 8.53ms SHA256=bcabe27330761309eb4b4f6207e6e3b4be59815df86449ac05bfb9b81f19efc9
+PASS 12 unmodified CC0 assets, 5600134 encoded bytes; license/readme hashes verified. Human listening remains pending.
+PASS official fixed-revision files, Git blobs and absence of ancestor license overrides rechecked online.

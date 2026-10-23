@@ -4,6 +4,18 @@ This increment retains the uploaded C++20 audio graph/DSP and adds a native engi
 service, bounded transport/live-note control, sampling, streaming WAV export,
 a C ABI, and a Rust/Slint application implementation.
 
+**M3.5 local increment — 23 October 2026:** internal 16-pad drum kit, 12 verified
+unmodified VCSL CC0 sounds plus four empty pads, GM percussion mapping, WAV
+replacement/import, per-pad mixer/tuning/mode/choke and independent track instances.
+Undo, portable save, SHA-256 integrity and offline export are connected to the same
+project model. Factory WAVs are embedded; saved projects contain their own copies.
+Validation: 36 headless unit tests + 6 integration tests, 55 UI-enabled tests +
+the same 6 integration tests, six native suites and software UI interaction at
+100/200%. Human listening and physical audio/Windows/Intel Mac remain pending.
+[M3.5 usage, licensing, contracts and evidence](docs/M3_5_DRUM_MACHINE.md) ·
+[Per-file official sources and hashes](assets/drums/vcsl/manifest.json) ·
+[16-second preview](evidence/m35-kit-preview.wav).
+
 **M3.4 local increment — 23 October 2026:** independent per-track sine/saw/square
 (PWM)/triangle, shape, ADSR, factory/user preset snapshots and the inspector's
 Sound tab. Oscillator transitions take 10 ms; ADSR is captured by each new voice.

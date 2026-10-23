@@ -69,6 +69,70 @@ def fixture(path: Path, bits: int, channels: int, floating: bool = False, nan: b
     path.write_bytes(b"RIFF" + struct.pack("<I", len(content)) + content)
 
 
+class Mix(C.Structure):
+    _fields_ = [('gain',C.c_float),('pan',C.c_float),('mute',C.c_uint32),('solo',C.c_uint32)]
+class Synth(C.Structure):
+    _fields_ = [('struct_size',C.c_uint32),('version',C.c_uint32),('waveform',C.c_uint32)] + [(x,C.c_float) for x in ['shape','pulse_width','attack','decay','sustain','release']]
+class TrackV2(C.Structure):
+    _fields_ = [('struct_size',C.c_uint32),('version',C.c_uint32),('base',Track),('mute',C.c_uint32),('solo',C.c_uint32)]
+class TrackV3(C.Structure):
+    _fields_ = [('struct_size',C.c_uint32),('version',C.c_uint32),('base',TrackV2),('synth',Synth)]
+class PadParameters(C.Structure):
+    _fields_ = [(x,C.c_float) for x in ['gain','pan','tune']] + [(x,C.c_uint32) for x in ['mute','one_shot','choke']]
+class Pad(C.Structure):
+    _fields_ = [('struct_size',C.c_uint32),('version',C.c_uint32),('midi',C.c_uint32),('parameters',PadParameters),('bytes',C.POINTER(C.c_uint8)),('size',C.c_size_t)]
+class TrackV4(C.Structure):
+    _fields_ = [('struct_size',C.c_uint32),('version',C.c_uint32),('base',TrackV3),('kind',C.c_uint32),('pad_count',C.c_uint32),('pads',C.POINTER(Pad))]
+class ParametersV1(C.Structure):
+    _fields_ = [('mix',Mix),('synth',Synth)]
+class ParametersV2(C.Structure):
+    _fields_ = [('struct_size',C.c_uint32),('version',C.c_uint32),('base',ParametersV1),('pad_count',C.c_uint32),('pads',PadParameters*16)]
+class MixStatus(C.Structure):
+    _fields_ = [(x,C.c_uint64) for x in ['generation','submitted','applied']]
+class DrumStatus(C.Structure):
+    _fields_ = [('generation',C.c_uint64),('pad_count',C.c_uint32),('active',C.c_uint32),('triggers',C.c_uint64*16)]
+
+def verify_drums(dll,root,ok,render):
+    for name,result,args in [
+        ('od_load_v4',C.c_int,[C.c_void_p,C.POINTER(TrackV4),C.c_size_t,C.POINTER(Note),C.c_size_t,C.c_uint64]),
+        ('od_read_mix_status_v1',C.c_int,[C.c_void_p,C.POINTER(MixStatus)]),
+        ('od_set_parameters_v2',C.c_int,[C.c_void_p,C.c_uint64,C.POINTER(ParametersV2),C.c_size_t,C.POINTER(C.c_uint64)]),
+        ('od_read_drum_status_v1',C.c_int,[C.c_void_p,C.c_uint64,C.c_uint32,C.POINTER(DrumStatus)]),
+        ('od_cancel_live',C.c_int,[C.c_void_p]),
+    ]:
+        getattr(dll,name).restype=result;getattr(dll,name).argtypes=args
+    assert [C.sizeof(t) for t in [TrackV2,TrackV3,PadParameters,Pad,TrackV4,ParametersV2,DrumStatus]] == [40,88,24,56,112,448,144]
+    path=root/'drum.wav';fixture(path,24,2);raw=path.read_bytes();wav=(C.c_uint8*len(raw)).from_buffer_copy(raw)
+    synth=Synth(C.sizeof(Synth),1,0,1,.5,.006,.06,.75,.06)
+    pads=(Pad*2)(Pad(C.sizeof(Pad),1,35,PadParameters(1,0,0,0,1,0),wav,len(wav)),Pad(C.sizeof(Pad),1,42,PadParameters(1,0,0,0,1,1),wav,len(wav)))
+    track=TrackV4(C.sizeof(TrackV4),4,TrackV3(C.sizeof(TrackV3),3,TrackV2(C.sizeof(TrackV2),2,Track(.5,0,None,60,0),0,0),synth),2,2,pads)
+    notes=(Note*1)(Note(1,0,4000,0,35,100));engine=dll.od_create(48000,256);assert engine
+    try:
+        ok(dll.od_load_v4(engine,C.byref(track),1,notes,1,6000));ok(dll.od_play(engine));render(engine,256)
+        status=MixStatus();ok(dll.od_read_mix_status_v1(engine,C.byref(status)));generation=status.generation
+        # Invalid descriptors and WAV data leave the playing session and its generation intact.
+        for owner,field,bad in [(track,'version',99),(track,'pad_count',17),(track,'kind',3),(pads[1],'midi',35),(pads[0],'version',99),(pads[0],'size',5),(pads[0].parameters,'gain',float('nan')),(pads[0].parameters,'mute',2)]:
+            old=getattr(owner,field);setattr(owner,field,bad)
+            assert dll.od_load_v4(engine,C.byref(track),1,notes,1,6000)!=0,(field,bad)
+            setattr(owner,field,old);ok(dll.od_read_mix_status_v1(engine,C.byref(status)));assert status.generation==generation
+            state=Telemetry();ok(dll.od_read_telemetry(engine,C.byref(state)));assert state.playing==1 and state.position==256
+        # Borrowed input can be overwritten/freed immediately after successful synchronous prepare.
+        C.memset(wav,0,len(wav));del wav
+        values=struct.unpack('<1024f',render(engine,512));assert max(abs(x) for x in values)>.01
+        parameters=ParametersV2();parameters.struct_size=C.sizeof(ParametersV2);parameters.version=2
+        parameters.base=ParametersV1(Mix(.5,0,0,0),synth);parameters.pad_count=2
+        for i in range(2):parameters.pads[i]=pads[i].parameters
+        serial=C.c_uint64(999);assert dll.od_set_parameters_v2(engine,generation+1,C.byref(parameters),1,C.byref(serial))==1 and serial.value==999
+        parameters.pads[0].choke=17;assert dll.od_set_parameters_v2(engine,generation,C.byref(parameters),1,C.byref(serial))==1;parameters.pads[0].choke=0
+        for _ in range(8):ok(dll.od_set_parameters_v2(engine,generation,C.byref(parameters),1,C.byref(serial)))
+        old=serial.value;assert dll.od_set_parameters_v2(engine,generation,C.byref(parameters),1,C.byref(serial))==2 and serial.value==old
+        render(engine,256);ok(dll.od_set_parameters_v2(engine,generation,C.byref(parameters),1,C.byref(serial)))
+        meter=DrumStatus();ok(dll.od_read_drum_status_v1(engine,generation,0,C.byref(meter)));assert meter.pad_count==2 and meter.triggers[0]==1
+        assert dll.od_read_drum_status_v1(engine,generation+1,0,C.byref(meter))==1
+        ok(dll.od_cancel_live(engine));render(engine,256);state=Telemetry();ok(dll.od_read_telemetry(engine,C.byref(state)));assert state.playing==1
+        print('PASS: additive v4/v2 64-bit layouts, descriptor/WAV validation, borrowed-byte ownership, generation guards, full queue recovery, drum telemetry and preview cancellation through shared ABI')
+    finally: dll.od_destroy(engine)
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--library", type=Path, required=True)
@@ -139,6 +203,7 @@ def main():
             print("PASS: explicit silent device excludes a second render consumer")
         finally:
             dll.od_destroy(engine)
+        verify_drums(dll,root,ok,render)
     print("Shared-library integration checks passed (not a Rust/UI or hardware test).")
 
 

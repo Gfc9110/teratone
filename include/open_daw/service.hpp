@@ -1,6 +1,8 @@
 #pragma once
 #include "open_daw/engine.hpp"
 #include "open_daw/media.hpp"
+#include "open_daw/drums.hpp"
+#include <optional>
 #include "open_daw/spsc.hpp"
 #include <filesystem>
 
@@ -24,6 +26,7 @@ struct TrackSettings {
     bool oneShot = false;
     bool mute = false, solo = false;
     SynthConfig synth;
+    std::optional<DrumKit> drums;
 };
 struct SessionSpec {
     double sampleRate = 48000;
@@ -38,6 +41,8 @@ struct MixSnapshot {
     std::array<TrackMix, MaxTracks> tracks{};
     uint64_t serial = 0;
     std::array<SynthConfig, MaxTracks> synths{};
+    std::array<DrumControls, MaxTracks> drums{};
+    bool updateDrums = false;
     bool updateSynths = false; // legacy mixer commands preserve the last synth snapshot
 };
 
@@ -48,6 +53,7 @@ struct Command {
     uint64_t a = 0, b = 0, id = 0, serial = 0;
     uint8_t pitch = 60, velocity = 100;
     bool enabled = false;
+    uint64_t liveEpoch = 0;
 };
 struct Telemetry {
     uint64_t position = 0, renderedFrames = 0, blocks = 0, lastApplied = 0;
@@ -66,6 +72,8 @@ public:
     EngineService& operator=(const EngineService&) = delete;
     bool submit(Command command) noexcept; // single control producer
     void stop() noexcept;                  // priority, cancels the queued backlog
+    bool drumStatus(uint32_t track,DrumStatus& out) const noexcept;
+    bool cancelLive() noexcept;            // priority preview-only cancellation, preserves scheduled voices
     void panic() noexcept;                 // priority silence, retains transport
     bool setGain(uint32_t track, float gain) noexcept;
     bool setPan(uint32_t track, float pan) noexcept;
@@ -83,6 +91,8 @@ private:
     Graph graph_;
     std::array<InstrumentNode*, MaxTracks> instruments_{};
     std::array<SynthNode*, MaxTracks> synths_{};
+    std::array<DrumNode*, MaxTracks> drums_{};
+    std::array<size_t, MaxTracks> padCounts_{};
     std::array<GainPanNode*, MaxTracks> gains_{};
     std::array<AudibilityNode*, MaxTracks> gates_{};
     SpscQueue<MixSnapshot, 9> mixQueue_; // eight coherent snapshots, independent of note traffic
@@ -93,6 +103,9 @@ private:
     std::vector<Scheduled> schedule_;
     SpscQueue<Command, 1025> commands_;
     std::atomic<uint32_t> emergency_{0};
+    uint64_t liveProducerEpoch_ = 0, liveAudioEpoch_ = 0;
+    std::atomic<uint64_t> liveDesiredEpoch_{0};
+    void syncLiveEpoch(uint64_t epoch) noexcept;
     double sampleRate_;
     uint32_t maxFrames_, trackCount_;
     uint64_t length_, position_ = 0, loopBegin_ = 0, loopEnd_ = 0;

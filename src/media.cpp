@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <sstream>
 
 namespace daw {
 namespace {
@@ -11,7 +12,7 @@ uint16_t u16(const unsigned char* p) { return uint16_t(p[0]) | uint16_t(p[1]) <<
 uint32_t u32(const unsigned char* p) {
     return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
 }
-void readExact(std::ifstream& in, void* p, size_t n) {
+void readExact(std::istream& in, void* p, size_t n) {
     in.read(static_cast<char*>(p), static_cast<std::streamsize>(n));
     if (!in) throw std::runtime_error("Truncated WAV file");
 }
@@ -24,10 +25,8 @@ void put32(std::ostream& out, uint32_t value) {
 }
 }
 
-std::shared_ptr<const SampleData> loadWav(const std::filesystem::path& path, uint64_t maximumFrames) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) throw std::runtime_error("Cannot open sample WAV");
-    const auto fileBytes = std::filesystem::file_size(path);
+namespace {
+std::shared_ptr<const SampleData> decodeWav(std::istream& in,uint64_t fileBytes,uint64_t maximumFrames) {
     unsigned char header[12]; readExact(in, header, 12);
     if (std::memcmp(header, "RIFF", 4) || std::memcmp(header + 8, "WAVE", 4))
         throw std::invalid_argument("Only little-endian RIFF/WAVE samples are supported");
@@ -85,6 +84,19 @@ std::shared_ptr<const SampleData> loadWav(const std::filesystem::path& path, uin
     return data;
 }
 
+} // namespace
+std::shared_ptr<const SampleData> loadWav(const std::filesystem::path& path,uint64_t maximumFrames) {
+    std::ifstream in(path,std::ios::binary);if(!in)throw std::runtime_error("Cannot open sample WAV");
+    return decodeWav(in,std::filesystem::file_size(path),maximumFrames);
+}
+std::shared_ptr<const SampleData> loadWavMemory(std::span<const uint8_t> bytes,uint64_t maximumFrames) {
+    if(bytes.size()<12 || bytes.size()>128*1024*1024)throw std::invalid_argument("Invalid embedded WAV byte budget");
+    std::istringstream in(std::string(reinterpret_cast<const char*>(bytes.data()),bytes.size()),std::ios::binary);
+    return decodeWav(in,bytes.size(),maximumFrames);
+}
+void SamplerNode::cancelLive() noexcept {
+    for(auto& v:voices_)if(v.active && (v.id>>63) && !v.releasing){v.releasing=true;v.releaseLeft=releaseFrames_;}
+}
 std::vector<Peak> waveformPeaks(const SampleData& sample, size_t step) {
     if (!step) throw std::invalid_argument("Waveform step must be positive");
     std::vector<Peak> peaks;

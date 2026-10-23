@@ -1,0 +1,42 @@
+-- Configuring done (0.1s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+[ 10%] Built target open_daw_core
+[ 21%] Built target open_daw_tests
+[ 25%] Built target daw_demo
+[ 42%] Built target open_daw_engine
+[ 57%] Built target open_daw_api
+[ 64%] Built target daw_session
+[ 71%] Built target allocation_probe
+[ 71%] Built target open_daw_api_static
+[ 75%] Building C object CMakeFiles/api_smoke.dir/tests/api_smoke.c.o
+[ 82%] Built target drum_tests
+[ 89%] Built target service_tests
+[ 96%] Built target synth_tests
+[100%] Linking CXX executable api_smoke
+[100%] Built target api_smoke
+Test project /Users/giorgiofausto.canu/Downloads/OpenDAW_Interactive/build/macos-validation
+    Start 1: original_audio_core
+1/6 Test #1: original_audio_core ..............   Passed    0.25 sec
+    Start 2: interactive_service
+2/6 Test #2: interactive_service ..............   Passed    2.55 sec
+    Start 3: pure_c_abi
+3/6 Test #3: pure_c_abi .......................   Passed    0.24 sec
+    Start 4: internal_drum_kit
+4/6 Test #4: internal_drum_kit ................   Passed    0.37 sec
+    Start 5: per_track_synth
+5/6 Test #5: per_track_synth ..................   Passed    0.77 sec
+    Start 6: callback_cpp_allocations
+6/6 Test #6: callback_cpp_allocations .........   Passed    0.41 sec
+
+100% tests passed out of 6
+
+Total Test time (real) =   4.60 sec
+Exported 384000 stereo frames to build/macos-validation/native-demo.wav
+PASS: 8 WAV variants through the shared C ABI
+PASS: non-finite media rejected without replacing the active session
+PASS: 25 randomized callback partitions are bit-identical
+PASS: Unicode export path, WAV metadata, and independent export state
+PASS: explicit silent device excludes a second render consumer
+PASS: additive v4/v2 64-bit layouts, descriptor/WAV validation, borrowed-byte ownership, generation guards, full queue recovery, drum telemetry and preview cancellation through shared ABI
+Shared-library integration checks passed (not a Rust/UI or hardware test).

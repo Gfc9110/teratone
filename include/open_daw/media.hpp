@@ -12,6 +12,7 @@ struct SampleData {
 // Short-sample importer, not a streaming decoder. PCM16/24/32 and IEEE float32 WAV.
 std::shared_ptr<const SampleData> loadWav(const std::filesystem::path& path,
                                         uint64_t maximumFrames = 48000 * 60);
+std::shared_ptr<const SampleData> loadWavMemory(std::span<const uint8_t> bytes, uint64_t maximumFrames = 48000 * 60);
 struct Peak { float low = 0, high = 0; };
 std::vector<Peak> waveformPeaks(const SampleData& sample, size_t framesPerPeak);
 
@@ -20,6 +21,7 @@ public:
     SamplerNode(std::shared_ptr<const SampleData> data, uint8_t rootNote, bool oneShot);
     void prepare(double sampleRate, uint32_t maxFrames) override;
     void reset() noexcept override;
+    void cancelLive() noexcept override;
     void process(const ProcessContext&, std::span<const AudioBlock* const>, AudioBlock&) noexcept override;
 private:
     struct Voice {

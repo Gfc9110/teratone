@@ -1,4 +1,5 @@
 use crate::{arrangement::{self, ArrangementViewport, TrackRow}, bridge::{Engine, Telemetry}, editor::{self, Gesture, KeyRow, NoteRect, Viewport}, project::{Edit, History, Impact, Instrument, Project, PPQ, MAX_TRACKS}, storage};
+use crate::drums::{DrumKit,DrumPad,PadField};
 use crate::synth::{SynthParameters,SynthPreset,SynthField};
 use std::{collections::{HashMap, VecDeque}, path::PathBuf, sync::{Arc, atomic::{AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender, TrySendError}}, thread::{self, JoinHandle}, time::{Duration, Instant}};
 pub const PANIC: u32 = 1; pub const STOP: u32 = 2; pub const QUIT: u32 = 4; pub const RELEASE: u32 = 8;
@@ -15,6 +16,12 @@ pub enum Request {
     AddClip { track: u64, beat: f64 }, DuplicateClip { track: u64, clip: u64 }, RemoveClip { track: u64, clip: u64 },
     MoveClip { track: u64, clip: u64, destination: u64, beat: f64 }, ResizeClip { track: u64, clip: u64, beats: f64 },
     RenameClip { track: u64, clip: u64, name: String }, Velocity { track: u64, clip: u64, note: u64, value: i32 },
+    AddDrumTrack{after:u64},UseDrumKit{track:u64},SelectPad{track:u64,instance:u64,pad:u64},
+    PadParameter{track:u64,instance:u64,pad:u64,field:PadField,value:f32},
+    TogglePad{track:u64,instance:u64,pad:u64,field:PadField},
+    RenamePad{track:u64,instance:u64,pad:u64,name:String},MapPad{track:u64,instance:u64,pad:u64,midi:i32},
+    ImportPad{track:u64,instance:u64,pad:u64,path:PathBuf},ClearPad{track:u64,instance:u64,pad:u64},
+    PadAuditionOn{token:u64,epoch:u64,track:u64,instance:u64,pad:u64,velocity:u8},
     SynthParameter {track:u64,instance:u64,field:SynthField,value:f32},
     FactoryPreset {track:u64,instance:u64,index:usize},
     SaveSynthPreset {track:u64,instance:u64,path:PathBuf,name:String}, LoadSynthPreset {track:u64,instance:u64,path:PathBuf},
@@ -34,20 +41,21 @@ pub struct ViewState {
     pub clips: Vec<ClipView>, pub clip_index: Option<usize>, pub clip_start: u64, pub clip_id: u64, pub clip_length: u64, pub clip_name: String, pub track_name: String, pub track_color: String,
     pub bpm: f64, pub gain: f32, pub pan: f32, pub dirty: bool, pub can_undo: bool, pub can_redo: bool,
     pub mute: bool, pub solo: bool, pub audible: bool, pub project_beats: f32, pub arrangement_limited: bool,
+    pub drum_kit:Option<DrumKit>,pub selected_pad:u64,
     pub synth:Option<SynthParameters>, pub synth_preset:Option<SynthPreset>,
     pub instrument: String, pub sample_path: String, pub root_note: u8, pub one_shot: bool, pub is_sampler: bool,
     pub revision: u64, pub mix_label: String, pub instance_id: u64, pub selected_note: u64, pub velocity: i32, pub keys: Vec<KeyRow>, pub live_count: usize,
     pub notes: Vec<NoteRect>, pub viewport: Viewport, pub export_busy: bool, pub selected_label: String,
 }
 pub enum Response {
-    View(Box<ViewState>), Meter(Telemetry), Fatal(String),
+    View(Box<ViewState>), Meter(Telemetry), DrumMeter{track:u64,instance:u64,status:crate::bridge::DrumStatus}, Fatal(String),
     Ack { request_id: u64, revision: u64, error: Option<String>, canceled: bool },
 }
 #[derive(Debug)]
 pub struct Envelope { pub request_id: u64, pub epoch: u64, pub request: Request }
 impl Request {
     pub fn canceled_by_stop(&self) -> bool { matches!(self, Self::Play | Self::Pause | Self::ToggleLoop | Self::Seek(_) | Self::SeekProject(_) |
-        Self::AuditionOn { .. } | Self::AuditionOff(_) | Self::Down { .. } | Self::Move { .. } | Self::Up { .. }) }
+        Self::AuditionOn { .. } | Self::PadAuditionOn{..} | Self::AuditionOff(_) | Self::Down { .. } | Self::Move { .. } | Self::Up { .. }) }
 }
 pub struct Connection {
     pub sender: SyncSender<Envelope>, pub receiver: Receiver<Response>, pub flags: Arc<AtomicU32>, pub epoch: Arc<AtomicU64>, pub audition_epoch: Arc<AtomicU64>, pub worker: JoinHandle<()>,
@@ -56,7 +64,7 @@ pub struct Connection {
 struct InputContext { track: u64, clip: u64, token: u64, viewport: Viewport }
 struct LiveNote { track: u64, instance: u64, pitch: u8, native_id: u64 }
 struct State {
-    project: Project, history: History, engine: Engine, viewport: Viewport, track_id: u64, clip_id: Option<u64>,
+    project: Project, history: History, engine: Engine,staging:storage::DrumStaging,selected_pad:Option<u64>, viewport: Viewport, track_id: u64, clip_id: Option<u64>,
     selected: Option<u64>, gesture: Option<Gesture>, insertion: Option<(u64, u8)>,
     live: HashMap<u64, LiveNote>, next_live: u64,
     input: Option<InputContext>, viewports: HashMap<u64, Viewport>, viewport_ready: bool,
@@ -67,7 +75,7 @@ struct State {
 }
 impl State {
     fn new(silent: bool) -> Result<Self, String> {
-        Ok(Self { project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?, viewport: Viewport::default(),
+        Ok(Self { project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?,staging:storage::DrumStaging::default(),selected_pad:None, viewport: Viewport::default(),
             track_id: 1, clip_id: Some(4), selected: None, gesture: None, insertion: None,
             live: HashMap::new(), next_live: 1, input: None, viewports: HashMap::new(), viewport_ready: false, dirty: false, needs_compile: true, looping: false, silent,
             status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Select a track or add an oscillator." }.into(), export_job: None,
@@ -78,9 +86,7 @@ impl State {
     }
     fn clip(&self) -> Option<&crate::project::MidiClip> { self.project.clip(self.track_id, self.clip_id?) }
     fn release_audition(&mut self) -> Result<(), String> {
-        let active = std::mem::take(&mut self.live);
-        for (_, note) in active { self.release_live(note)?; }
-        Ok(())
+        self.live.clear();self.engine.cancel_live()
     }
     fn release_live(&mut self, note: LiveNote) -> Result<(), String> {
         let index = self.track_index(note.track)?;
@@ -94,7 +100,13 @@ impl State {
         }
     }
     fn fit_notes(&mut self) {
-        let mut v=self.viewport; v.fit(self.clip()); self.viewport=v;
+        let mut v=self.viewport; v.fit(self.clip());
+        if self.clip().is_none_or(|c|c.notes.is_empty()) {
+            if let Some(kit)=self.project.track(self.track_id).and_then(|t|t.instrument.config.drums()){
+                let low=kit.pads.iter().map(|p|p.midi_note).min().unwrap_or(35);let high=kit.pads.iter().map(|p|p.midi_note).max().unwrap_or(75);
+                v.row_height=(v.height/(high as f32-low as f32+3.0)).clamp(12.0,24.0);v.scroll_y=((127.0-(high as f32+low as f32)/2.0+0.5)*v.row_height-v.height/2.0).max(0.0);
+            }
+        }self.viewport=v;
     }
     fn constrain_viewport(&mut self) {
         let length=self.clip().map_or(self.project.length_ticks,|c|c.length_ticks);
@@ -112,7 +124,7 @@ impl State {
         if clip.is_some_and(|id|self.project.clip(track,id).is_none()) {return Err("Clip no longer exists".into());}
         if self.track_id==track && self.clip_id==clip {return Ok(());}
         self.release_audition()?; self.cache_viewport(); self.history.finish_gesture();
-        self.track_id=track; self.clip_id=clip; self.selected=None; self.gesture=None; self.insertion=None; self.input=None;
+        self.track_id=track; self.clip_id=clip;self.selected_pad=self.project.track(track).and_then(|t|t.instrument.config.drums()).and_then(|k|k.pads.first()).map(|p|p.id); self.selected=None; self.gesture=None; self.insertion=None; self.input=None;
         self.restore_viewport();Ok(())
     }
     fn repair_selection(&mut self, fallback: usize) {
@@ -122,6 +134,8 @@ impl State {
         if let Some(id)=self.clip_id {
             if let Some(track)=self.project.tracks.iter().find(|t|t.clips.iter().any(|c|c.id==id)) {self.track_id=track.id;}
         }
+        let kit=self.project.track(self.track_id).and_then(|t|t.instrument.config.drums());
+        if !self.selected_pad.is_some_and(|id|kit.is_some_and(|k|k.pad(id).is_some())){self.selected_pad=kit.and_then(|k|k.pads.first()).map(|p|p.id);}
         if self.clip().is_none() { self.clip_id = self.project.track(self.track_id).and_then(|t| t.clips.first()).map(|c| c.id); }
         if !self.selected.is_some_and(|id| self.clip().is_some_and(|c| c.notes.iter().any(|n| n.id == id))) { self.selected = None; }
     }
@@ -149,6 +163,17 @@ impl State {
             if !self.pending_mix && self.applied_mix >= self.submitted_mix { self.mix_dirty = false; }
         }
         Ok(before != (self.pending_mix, self.applied_mix, self.mix_dirty))
+    }
+    fn drum_pad(&self,track:u64,instance:u64,pad:u64)->Result<&DrumPad,String>{
+        let t=self.project.track(track).ok_or("Track no longer exists")?;if t.instrument.id!=instance{return Err("Stale drum instance".into());}
+        t.instrument.config.drums().and_then(|k|k.pad(pad)).ok_or_else(||"Drum pad no longer exists".into())
+    }
+    fn drum_structure(&mut self,edit:Edit)->Result<(),String>{
+        // Decode/validate a separate candidate BEFORE stopping or mutating the running project.
+        let mut candidate=self.project.clone();History::default().execute(&mut candidate,edit.clone())?;
+        let mut prepared=Engine::new(48000,256)?;prepared.load(&candidate)?;
+        self.edit(edit)?;self.engine=prepared;self.needs_compile=false;self.mix_dirty=false;self.pending_mix=false;self.submitted_mix=0;self.applied_mix=0;
+        self.status="Drum instrument updated. Playback stopped; press Play to resume.".into();Ok(())
     }
     fn synth_instrument(&self,track:u64,instance:u64)->Result<&Instrument,String>{
         let t=self.project.track(track).ok_or("Track no longer exists")?;
@@ -187,19 +212,20 @@ impl State {
         let preview = self.gesture.as_ref().map(|g| &g.preview);
         let (notes, capped) = self.viewport.scene(&self.project, t.id, self.clip_id.unwrap_or(0), self.selected, preview);
         let selected_label = self.selected.and_then(|id| self.clip()?.notes.iter().find(|n| n.id == id))
-            .map(|n| format!("{} · {:.2} beats · velocity {}", crate::editor::label_with_offset(n.pitch,self.viewport.octave_offset), n.duration as f64 / PPQ as f64, n.velocity))
+            .map(|n| format!("{} · {:.2} beats · velocity {}", t.instrument.config.drums().map_or_else(||crate::editor::label_with_offset(n.pitch,self.viewport.octave_offset),|k|k.note_label(n.pitch)), n.duration as f64 / PPQ as f64, n.velocity))
             .unwrap_or_else(|| if self.clip().is_none() { "This track has no MIDI clips.".into() }
                 else { "Click empty space to insert · drag to move · drag right edge to resize".into() });
         let (tracks, arrangement_limited) = arrangement::scene(&self.project, self.arrangement, self.track_id, self.clip_id);
         let (sample_path, root_note, one_shot, is_sampler) = match &t.instrument.config {
-            Instrument::Sine | Instrument::Synth { .. } => (String::new(), 60, false, false),
+            Instrument::Sine | Instrument::Synth { .. } | Instrument::DrumKit{..} => (String::new(), 60, false, false),
             Instrument::Sampler { sample_path, root_note, one_shot } => (sample_path.clone(), *root_note, *one_shot, true),
         };
+        let mut keys=self.viewport.keys();if let Some(kit)=t.instrument.config.drums(){for key in &mut keys{key.label=kit.note_label(key.pitch);key.black=false;key.c=false;}}
         ViewState { name: self.project.name.clone(), status: if capped { format!("{} | View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
             tracks,
             instance_id:t.instrument.id,selected_note:self.selected.unwrap_or(0),
             velocity:self.selected.and_then(|id|self.clip()?.notes.iter().find(|n|n.id==id)).map_or(100,|n|n.velocity as i32),
-            keys:self.viewport.keys(),live_count:self.live.len(),
+            keys,live_count:self.live.len(),drum_kit:t.instrument.config.drums().cloned(),selected_pad:self.selected_pad.unwrap_or(0),
             mute: t.mute, solo: t.solo, audible: self.project.audible(t.id), project_beats: self.project.length_ticks as f32 / PPQ as f32, arrangement_limited,
             synth:t.instrument.config.synth(),synth_preset:t.instrument.config.preset().cloned(),
             instrument: t.instrument.config.label().into(), sample_path, root_note, one_shot, is_sampler,
@@ -321,6 +347,38 @@ impl State {
             Request::ColorTrack { track, color } => {
                 let t = self.project.track(track).ok_or("Track no longer exists")?;
                 if t.color != color { self.edit(Edit::TrackInfo { track, name: t.name.clone(), color })?; }
+            }
+            Request::AddDrumTrack{after}=>{
+                self.track_index(after)?;let id=self.project.next_id;self.drum_structure(Edit::AddDrumTrack{after})?;self.select_track(id)?;self.fit_notes();self.constrain_viewport();
+            }
+            Request::UseDrumKit{track}=>{self.track_index(track)?;self.drum_structure(Edit::UseDrumKit{track})?;self.repair_selection(0);self.fit_notes();self.constrain_viewport();}
+            Request::SelectPad{track,instance,pad}=>{
+                let pitch=self.drum_pad(track,instance,pad)?.midi_note;self.select_track(track)?;self.selected_pad=Some(pad);self.history.finish_gesture();
+                let y=self.viewport.y(pitch);if y<0. || y+self.viewport.row_height>self.viewport.height{self.viewport.scroll_y=(127.0-pitch as f32+0.5)*self.viewport.row_height-self.viewport.height/2.0;self.constrain_viewport();}
+            }
+            Request::PadParameter{track,instance,pad,field,value}=>{
+                let mut replacement=self.drum_pad(track,instance,pad)?.clone();replacement.parameters.change(field,value)?;
+                if &replacement!=self.drum_pad(track,instance,pad)?{self.edit(Edit::Pad{track,instance,pad:replacement,field})?;}
+            }
+            Request::TogglePad{track,instance,pad,field}=>{
+                let p=self.drum_pad(track,instance,pad)?;let value=match field{PadField::Mute=>!p.parameters.mute,PadField::OneShot=>!p.parameters.one_shot,_=>return Err("Invalid pad toggle".into())};
+                self.request(Request::PadParameter{track,instance,pad,field,value:if value{1.}else{0.}},flags)?;self.history.finish_gesture();
+            }
+            Request::RenamePad{track,instance,pad,name}=>{let mut replacement=self.drum_pad(track,instance,pad)?.clone();replacement.name=name;self.edit(Edit::Pad{track,instance,pad:replacement,field:PadField::Name})?;}
+            Request::MapPad{track,instance,pad,midi}=>{
+                if !(0..=127).contains(&midi){return Err("MIDI mapping must be 0..127".into());}
+                let mut replacement=self.drum_pad(track,instance,pad)?.clone();replacement.midi_note=midi as u8;
+                self.drum_structure(Edit::Pad{track,instance,pad:replacement,field:PadField::MidiNote})?;
+            }
+            Request::ImportPad{track,instance,pad,path}=>{
+                let mut replacement=self.drum_pad(track,instance,pad)?.clone();let (sample,created)=self.staging.prepare_import(&path)?;replacement.sample=Some(sample.clone());
+                if let Err(e)=self.drum_structure(Edit::Pad{track,instance,pad:replacement,field:PadField::Sample}){self.staging.discard_failed(&sample,created);return Err(e);}
+                self.status="WAV replaced in this pad. Undo retains the previous sample; Save makes the project portable.".into();
+            }
+            Request::ClearPad{track,instance,pad}=>{let mut replacement=self.drum_pad(track,instance,pad)?.clone();replacement.sample=None;self.drum_structure(Edit::Pad{track,instance,pad:replacement,field:PadField::Sample})?;}
+            Request::PadAuditionOn{token,epoch,track,instance,pad,velocity}=>{
+                let pitch=self.drum_pad(track,instance,pad)?.midi_note;
+                self.request(Request::AuditionOn{token,epoch,track,instance,pitch,velocity},flags)?;
             }
             Request::SynthParameter{track,instance,field,value}=>{
                 let i=self.synth_instrument(track,instance)?;let mut parameters=i.synth().unwrap();let preset=i.preset().cloned();
@@ -507,7 +565,7 @@ pub fn spawn(silent: bool) -> Connection {
                         // this request. A new Play after Stop must wait for quiescence, not be lost.
                         if worker_flags.load(Ordering::Acquire) != 0 { deferred = Some(envelope); continue; }
                         let canceled = (envelope.epoch != worker_epoch.load(Ordering::Acquire) && envelope.request.canceled_by_stop()) ||
-                            matches!(&envelope.request, Request::AuditionOn{epoch,..} if *epoch!=worker_audition_epoch.load(Ordering::Acquire));
+                            matches!(&envelope.request, Request::AuditionOn{epoch,..}|Request::PadAuditionOn{epoch,..} if *epoch!=worker_audition_epoch.load(Ordering::Acquire));
                         let error = if canceled { None } else { state.request(envelope.request, &worker_flags).err() };
                         if let Some(error) = &error { state.status = error.clone(); }
                         acknowledgments.push_back(Response::Ack { request_id: envelope.request_id, revision: state.revision, error, canceled });
@@ -537,6 +595,11 @@ pub fn spawn(silent: bool) -> Connection {
             }
             if last_meter.elapsed() >= Duration::from_millis(33) {
                 if let Ok(t) = state.engine.telemetry() { let _ = responses.try_send(Response::Meter(t)); }
+                if !state.needs_compile{
+                    if let Some(t)=state.project.track(state.track_id).filter(|t|t.instrument.config.drums().is_some()){
+                        if let Ok(status)=state.engine.drum_status(state.track_index(t.id).unwrap() as u32){let _=responses.try_send(Response::DrumMeter{track:t.id,instance:t.instrument.id,status});}
+                    }
+                }
                 last_meter = Instant::now();
             }
         }
@@ -712,6 +775,28 @@ pub fn spawn(silent: bool) -> Connection {
         assert_eq!(state.project.track(1).unwrap().instrument.config.synth(),expected);
         std::fs::write(&path,b"{broken}").unwrap();let before=state.project.clone();assert!(state.request(Request::LoadSynthPreset{track:1,instance:3,path:path.clone()},&AtomicU32::new(0)).is_err());assert_eq!(state.project,before);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test] fn drum_parameters_are_live_undoable_and_stale_pad_edits_are_rejected(){
+        let mut s=State::new(true).unwrap();request(&mut s,Request::AddDrumTrack{after:1});let track=s.track_id;let instance=s.project.track(track).unwrap().instrument.id;let pad=s.project.track(track).unwrap().instrument.config.drums().unwrap().pads[0].id;
+        s.engine.play().unwrap();s.engine.render(256).unwrap();let before=s.engine.telemetry().unwrap().position;
+        request(&mut s,Request::PadParameter{track,instance,pad,field:PadField::Gain,value:0.5});request(&mut s,Request::FinishMix);request(&mut s,Request::TogglePad{track,instance,pad,field:PadField::Mute});
+        s.engine.render(256).unwrap();s.poll_mix().unwrap();assert_eq!(s.engine.telemetry().unwrap().position,before+256);assert!(!s.needs_compile);assert!(!s.mix_dirty);
+        request(&mut s,Request::Undo);assert!(!s.drum_pad(track,instance,pad).unwrap().parameters.mute);request(&mut s,Request::Undo);assert_ne!(s.drum_pad(track,instance,pad).unwrap().parameters.gain,0.5);
+        let saved=s.project.clone();assert!(s.request(Request::PadParameter{track,instance:999,pad,field:PadField::Gain,value:0.4},&AtomicU32::new(0)).is_err());assert_eq!(s.project,saved);
+        for value in 0..12{request(&mut s,Request::PadParameter{track,instance,pad,field:PadField::Gain,value:value as f32/12.});}assert!(s.pending_mix);s.quiesce().unwrap();s.poll_mix().unwrap();s.compile().unwrap();assert!(!s.needs_compile);
+    }
+    #[test] fn invalid_pad_replacement_preserves_running_document_and_does_not_fill_staging(){
+        let mut s=State::new(true).unwrap();request(&mut s,Request::AddDrumTrack{after:1});let track=s.track_id;let instance=s.project.track(track).unwrap().instrument.id;let pads=&s.project.track(track).unwrap().instrument.config.drums().unwrap().pads;let pad=pads[0].id;let occupied=pads[1].midi_note;
+        s.engine.play().unwrap();s.engine.render(256).unwrap();let before=s.project.clone();
+        let file=std::env::temp_dir().join(format!("opendaw-m35-bad-{}.wav",std::process::id()));std::fs::write(&file,b"not a WAV").unwrap();
+        for _ in 0..8{assert!(s.request(Request::ImportPad{track,instance,pad,path:file.clone()},&AtomicU32::new(0)).is_err());assert_eq!(s.staging.byte_count(),0);}
+        assert!(s.request(Request::MapPad{track,instance,pad,midi:occupied as i32},&AtomicU32::new(0)).is_err());assert_eq!(s.project,before);assert_eq!(s.engine.telemetry().unwrap().playing,1);assert!(!s.needs_compile);std::fs::remove_file(file).unwrap();
+    }
+    #[test] fn pad_preview_uses_identity_velocity_and_focus_cancellation_keeps_score_running(){
+        let mut s=State::new(true).unwrap();request(&mut s,Request::AddDrumTrack{after:1});let track=s.track_id;let instance=s.project.track(track).unwrap().instrument.id;let pad=s.project.track(track).unwrap().instrument.config.drums().unwrap().pads[0].id;
+        s.engine.play().unwrap();s.engine.render(256).unwrap();request(&mut s,Request::PadAuditionOn{token:1,epoch:0,track,instance,pad,velocity:37});std::thread::sleep(Duration::from_millis(25));request(&mut s,Request::AuditionOff(1));
+        assert!(s.live.is_empty());assert_eq!(s.project.note_count(),10);s.release_audition().unwrap();std::thread::sleep(Duration::from_millis(20));assert_eq!(s.engine.drum_status(s.track_index(track).unwrap() as u32).unwrap().active_voices,0);assert_eq!(s.engine.telemetry().unwrap().playing,1);s.quiesce().unwrap();
     }
 
 }

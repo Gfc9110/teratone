@@ -106,9 +106,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ui.set_peak_left(t.peak_left.clamp(0.0, 1.0)); ui.set_peak_right(t.peak_right.clamp(0.0, 1.0));
                     if t.device_error != 0 { ui.set_action_error(format!("Audio device error {}. Stop, then retry Play.", t.device_error).into()); }
                 }
+                Response::DrumMeter{track,instance,status}=>presenter.drum_meter(&ui,track,instance,status),
                 Response::Fatal(error) => ui.set_action_error(error.into()),
             }
         }
+        presenter.tick_drums(&ui);
         ui.set_pending_actions(mailbox.borrow().pending_count() as i32);
     });
     let result = ui.run();

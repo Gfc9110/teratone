@@ -10,3 +10,5 @@ pub mod controller;
 pub mod mailbox;
 
 pub mod synth;
+
+pub mod drums;

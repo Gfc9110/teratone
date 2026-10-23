@@ -1,4 +1,4 @@
-use crate::project::{Instrument, Project};
+use crate::{project::{Instrument, Project},drums::{DrumSample,ASSET_BYTE_LIMIT}};
 use std::{fs::{self, File, OpenOptions}, io::{Read, Write}, path::{Component, Path, PathBuf}, sync::atomic::{AtomicU64, Ordering}};
 static SERIAL: AtomicU64 = AtomicU64::new(0);
 const MANIFEST_LIMIT: u64 = 32 * 1024 * 1024;
@@ -45,6 +45,28 @@ fn read_manifest(path: &Path) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new(); file.take(MANIFEST_LIMIT + 1).read_to_end(&mut bytes).map_err(err)?;
     if bytes.len() as u64 > MANIFEST_LIMIT { return Err("Project manifest grew beyond its limit".into()); } Ok(bytes)
 }
+/// Immutable session copies keep replaced/imported samples alive for Undo even if originals vanish.
+pub struct DrumStaging {root:PathBuf,bytes:u64}
+impl Default for DrumStaging{fn default()->Self{Self{root:std::env::temp_dir().join(unique_name("opendaw-drum-import")),bytes:0}}}
+impl Drop for DrumStaging{fn drop(&mut self){let _=fs::remove_dir_all(&self.root);}}
+impl DrumStaging{
+    pub fn import(&mut self,path:&Path)->Result<DrumSample,String>{self.prepare_import(path).map(|(sample,_)|sample)}
+    #[cfg(feature="ui")]
+    pub(crate) fn discard_failed(&mut self,sample:&DrumSample,created:bool){
+        if !created{return;}if let DrumSample::File{sample_path,..}=sample{let path=Path::new(sample_path);if path.parent()==Some(self.root.as_path()){
+            if let Ok(meta)=fs::metadata(path){if fs::remove_file(path).is_ok(){self.bytes=self.bytes.saturating_sub(meta.len());}}
+        }}
+    }
+    pub fn byte_count(&self)->u64{self.bytes}
+    pub(crate) fn prepare_import(&mut self,path:&Path)->Result<(DrumSample,bool),String>{
+        let sample=DrumSample::from_file(path)?;let data=sample.bytes()?;let hash=sample.hash().to_string();
+        fs::create_dir_all(&self.root).map_err(err)?;let dest=self.root.join(format!("{hash}.wav"));
+        let created=!dest.exists();if created{if self.bytes+data.len() as u64>ASSET_BYTE_LIMIT as u64{return Err("Session import history exceeds 128 MiB; save and reopen to release it".into());}
+            atomic_write(&dest,&data)?;self.bytes+=data.len() as u64;
+        }
+        Ok((DrumSample::File{sample_path:dest.to_str().ok_or("Non-UTF-8 staging path")?.into(),sha256:hash,origin:None},created))
+    }
+}
 pub fn save_synth_preset(path:&Path,preset:&crate::synth::SynthPreset)->Result<(),String>{
     preset.validate()?; atomic_write(path,&serde_json::to_vec_pretty(preset).map_err(err)?)
 }
@@ -53,9 +75,20 @@ pub fn load_synth_preset(path:&Path)->Result<crate::synth::SynthPreset,String>{
     if bytes.len()>4096{return Err("Synth preset exceeds 4 KiB".into());}
     let preset:crate::synth::SynthPreset=serde_json::from_slice(&bytes).map_err(err)?;preset.validate()?;Ok(preset)
 }
+fn resolve_relative(root:&Path,path:&str)->Result<PathBuf,String>{
+    let relative=Path::new(path);
+    if relative.is_absolute() || relative.components().any(|c|!matches!(c,Component::Normal(_))) || !relative.starts_with("assets"){return Err("Saved samples must use relative assets/ paths without traversal".into());}
+    let resolved=root.join(relative).canonicalize().map_err(err)?;if !resolved.starts_with(root){return Err("Sample symlink escapes project directory".into());}Ok(resolved)
+}
 fn resolve_samples(root: &Path, p: &mut Project) -> Result<(), String> {
     let root = root.canonicalize().map_err(err)?;
     for t in &mut p.tracks {
+        if let Instrument::DrumKit{kit}=&mut t.instrument.config{
+            for pad in &mut kit.pads{if let Some(sample)=&mut pad.sample{
+                if let DrumSample::File{sample_path,..}=sample{*sample_path=resolve_relative(&root,sample_path)?.to_str().ok_or("Non-UTF-8 asset path")?.into();}
+                sample.bytes()?; // every referenced file is checked, including duplicate hashes
+            }}
+        }
         if let Instrument::Sampler { sample_path, .. } = &mut t.instrument.config {
             let relative = Path::new(sample_path);
             if relative.is_absolute() || relative.components().any(|c| !matches!(c, Component::Normal(_))) || !relative.starts_with("assets") {
@@ -92,7 +125,23 @@ pub fn save(root: &Path, project: &Project) -> Result<Project, String> {
     let mut stored = project.clone();
     let mut imported = std::collections::HashMap::<PathBuf, String>::new();
     let mut copied = 0u64;
+    let mut drum_hashes=std::collections::HashSet::new();let mut has_factory=false;
     for track in &mut stored.tracks {
+        if let Instrument::DrumKit{kit}=&mut track.instrument.config{
+            for pad in &mut kit.pads{if let Some(sample)=&mut pad.sample{
+                let bytes=sample.bytes()?;let hash=sample.hash().to_string();
+                let origin=match sample{DrumSample::Factory{asset_id,..}=>Some(asset_id.clone()),DrumSample::File{origin,..}=>origin.clone()};has_factory|=origin.is_some();
+                let relative=format!("assets/drum-{hash}.wav");let destination=root.join(&relative);
+                if drum_hashes.insert(hash.clone()){
+                    copied=copied.checked_add(bytes.len() as u64).ok_or("Asset budget overflow")?;
+                    if copied>ASSET_BYTE_LIMIT as u64{return Err("Asset import exceeds 128 MiB save budget".into());}
+                    if destination.symlink_metadata().is_ok_and(|m|m.file_type().is_symlink()){return Err("Drum asset must not be a symlink".into());}
+                    if destination.exists(){let existing=DrumSample::File{sample_path:destination.to_str().ok_or("Non-UTF-8 asset name")?.into(),sha256:hash.clone(),origin:origin.clone()};existing.bytes()?;}
+                    else{atomic_write(&destination,&bytes)?;}
+                }
+                *sample=DrumSample::File{sample_path:relative,sha256:hash,origin};
+            }}
+        }
         if let Instrument::Sampler { sample_path, .. } = &mut track.instrument.config {
             let source = Path::new(sample_path).canonicalize().map_err(err)?;
             if let Some(relative) = imported.get(&source) { *sample_path = relative.clone(); continue; }
@@ -113,6 +162,10 @@ pub fn save(root: &Path, project: &Project) -> Result<Project, String> {
             };
             imported.insert(source, relative.clone()); *sample_path = relative;
         }
+    }
+    if has_factory{
+        atomic_write(&assets.join("VCSL-CC0-MANIFEST.json"),include_bytes!("../../assets/drums/vcsl/manifest.json"))?;
+        atomic_write(&assets.join("VCSL-CC0-LICENSE.txt"),include_bytes!("../../assets/drums/vcsl/UPSTREAM_LICENSE"))?;
     }
     let manifest = root.join("project.json");
     let bytes = serde_json::to_vec_pretty(&stored).map_err(err)?;

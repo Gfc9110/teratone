@@ -16,6 +16,7 @@ fn coalesces(a: &Request, b: &Request) -> bool {
         (Request::SetPan { track: a, .. }, Request::SetPan { track: b, .. }) |
         (Request::Mix { track: a, .. }, Request::Mix { track: b, .. }) => a == b,
         (Request::SynthParameter{track:a,instance:ia,field:fa,..},Request::SynthParameter{track:b,instance:ib,field:fb,..})=>a==b && ia==ib && fa==fb,
+        (Request::PadParameter{track:a,instance:ia,pad:pa,field:fa,..},Request::PadParameter{track:b,instance:ib,pad:pb,field:fb,..})=>a==b && ia==ib && pa==pb && fa==fb,
         _ => false,
     }
 }
@@ -29,7 +30,7 @@ impl Mailbox {
             if *old_epoch == epoch && coalesces(old, &request) { *old = request; return Ok(()); }
         }
         if self.pending.len() == 256 {
-            if matches!(request, Request::AuditionOff(_) | Request::CancelGesture(_)) { self.panic(); }
+            if matches!(request, Request::AuditionOff(_) | Request::CancelGesture(_)) { self.release_audition(); }
             return Err("Action not queued: controller is busy. Existing edits are preserved; retry this action.".into());
         }
         self.pending.push_back((epoch, request)); Ok(())
@@ -41,6 +42,9 @@ impl Mailbox {
     pub fn audition_on(&mut self,track:u64,instance:u64,pitch:u8,velocity:u8)->Result<u64,String> {
         let token=self.token()?;let epoch=self.audition_epoch.load(Ordering::Acquire);
         self.enqueue(Request::AuditionOn{token,epoch,track,instance,pitch,velocity})?;Ok(token)
+    }
+    pub fn pad_on(&mut self,track:u64,instance:u64,pad:u64,velocity:u8)->Result<u64,String>{
+        let token=self.token()?;let epoch=self.audition_epoch.load(Ordering::Acquire);self.enqueue(Request::PadAuditionOn{token,epoch,track,instance,pad,velocity})?;Ok(token)
     }
     pub fn release_audition(&mut self) {self.audition_epoch.fetch_add(1,Ordering::AcqRel);self.flags.fetch_or(RELEASE,Ordering::Release);}
     pub fn flush(&mut self) -> Result<(), String> {

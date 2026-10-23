@@ -68,6 +68,7 @@ impl Viewport {
         self.row_height=(self.row_height*factor).clamp(12.0,32.0); self.scroll_y=center*self.row_height-self.height/2.0;
     }
     pub fn scene(&self, project: &Project, track: u64, clip: u64, selected: Option<u64>, preview: Option<&Note>) -> (Vec<NoteRect>, bool) {
+        let kit=project.track(track).and_then(|t|t.instrument.config.drums());
         let mut scene=Vec::new(); let Some(clip)=project.clip(track,clip) else {return(scene,false)};
         for source in &clip.notes {
             let note=preview.filter(|n|n.id==source.id).unwrap_or(source);
@@ -75,7 +76,7 @@ impl Viewport {
             if x+width<=0.0 || x>=self.width || y+self.row_height<=0.0 || y>=self.height {continue;}
             if scene.len()==MAX_VISIBLE {return(scene,true);}
             scene.push(NoteRect{id:note.id,x,y:y+1.0,width:(width-1.0).max(2.0),height:self.row_height-2.0,
-                selected:selected==Some(note.id),label:label_with_offset(note.pitch,self.octave_offset)});
+                selected:selected==Some(note.id),label:kit.map_or_else(||label_with_offset(note.pitch,self.octave_offset),|k|k.note_label(note.pitch))});
         }
         (scene,false)
     }

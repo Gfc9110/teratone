@@ -1,0 +1,577 @@
+{
+  "version": 2,
+  "name": "VCSL CC0 · kit preview + groove",
+  "bpm": 120.0,
+  "length_ticks": 30720,
+  "next_id": 154,
+  "tracks": [
+    {
+      "id": 1,
+      "name": "CC0 Percussion",
+      "color": "#62BFA6",
+      "gain": 0.8,
+      "pan": -0.15,
+      "mute": false,
+      "solo": false,
+      "instrument": {
+        "id": 3,
+        "config": {
+          "kind": "drum_kit",
+          "kit": {
+            "name": "VCSL Percussion · CC0",
+            "pads": [
+              {
+                "id": 100,
+                "name": "Kick",
+                "midi_note": 35,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "kick",
+                  "sha256": "642aaf3375eaff1307973f7de3ccbf74d18e71fb3cf9412e021b08fc3bf1981c"
+                },
+                "parameters": {
+                  "gain": 0.7616404,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 101,
+                "name": "Snare",
+                "midi_note": 38,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "snare",
+                  "sha256": "ca0ee01347176a65f9d7e361203a61e736fa14acb2a743df355a4bded1ee40bd"
+                },
+                "parameters": {
+                  "gain": 1.5565032,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 102,
+                "name": "Closed Hat",
+                "midi_note": 42,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "hat_closed",
+                  "sha256": "b65ca06ea4f8b5209fc8d98912094be1212911f21e01bd949cc9960db049d37c"
+                },
+                "parameters": {
+                  "gain": 1.5041807,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 1
+                }
+              },
+              {
+                "id": 103,
+                "name": "Pedal Hat",
+                "midi_note": 44,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "hat_pedal",
+                  "sha256": "4e4dbb4ddbeea653f95c2c229685fd5966ed9492fb8489d89d19dbd864f1a6b4"
+                },
+                "parameters": {
+                  "gain": 2.5040903,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 1
+                }
+              },
+              {
+                "id": 104,
+                "name": "Open Hat",
+                "midi_note": 46,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "hat_open",
+                  "sha256": "fa492ec14cc6924b43ad5fcf9e9a0f406d926998835bde2eb5847cd15ad25be7"
+                },
+                "parameters": {
+                  "gain": 0.88776904,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 1
+                }
+              },
+              {
+                "id": 105,
+                "name": "Low Tom",
+                "midi_note": 45,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "tom_low",
+                  "sha256": "bdc312f2f4c799cb43319a7aa0e664bf6194c6f8b14151051b375968df55eab4"
+                },
+                "parameters": {
+                  "gain": 1.2360897,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 106,
+                "name": "High Tom",
+                "midi_note": 50,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "tom_high",
+                  "sha256": "40bd5cf904ed20eb8e7bba6298e356b66cedd313b4f459c5a5884c054bf447a4"
+                },
+                "parameters": {
+                  "gain": 1.5698205,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 107,
+                "name": "Crash",
+                "midi_note": 49,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "crash",
+                  "sha256": "3b4a6ed42627eedca39f6480e9825dedeaab538197fc734f85be13ba655aa6aa"
+                },
+                "parameters": {
+                  "gain": 0.45803642,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 108,
+                "name": "Tambourine",
+                "midi_note": 54,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "tambourine",
+                  "sha256": "885ebf1d70f8e888f576682e4e4112b92b69649162f392c83b3379c91a09cf41"
+                },
+                "parameters": {
+                  "gain": 1.6607337,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 109,
+                "name": "Cowbell",
+                "midi_note": 56,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "cowbell",
+                  "sha256": "e212cc27b3490d7927d41508bd7e90d6e09b0b8da169f0357341d3057c4910c4"
+                },
+                "parameters": {
+                  "gain": 0.42339918,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 110,
+                "name": "High Bongo",
+                "midi_note": 60,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "bongo_high",
+                  "sha256": "dd9b6239a151702966a995937f74ac022c9bb950c967277fbd16beaced0c9e1a"
+                },
+                "parameters": {
+                  "gain": 2.6810198,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 111,
+                "name": "Claves",
+                "midi_note": 75,
+                "sample": {
+                  "kind": "factory",
+                  "asset_id": "claves",
+                  "sha256": "bcabe27330761309eb4b4f6207e6e3b4be59815df86449ac05bfb9b81f19efc9"
+                },
+                "parameters": {
+                  "gain": 4.0,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 112,
+                "name": "Kick 2",
+                "midi_note": 36,
+                "sample": null,
+                "parameters": {
+                  "gain": 1.0,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 113,
+                "name": "Hand Clap",
+                "midi_note": 39,
+                "sample": null,
+                "parameters": {
+                  "gain": 1.0,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 114,
+                "name": "Electric Snare",
+                "midi_note": 40,
+                "sample": null,
+                "parameters": {
+                  "gain": 1.0,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              },
+              {
+                "id": 115,
+                "name": "Ride",
+                "midi_note": 51,
+                "sample": null,
+                "parameters": {
+                  "gain": 1.0,
+                  "pan": 0.0,
+                  "tune_semitones": 0.0,
+                  "mute": false,
+                  "one_shot": true,
+                  "choke_group": 0
+                }
+              }
+            ]
+          }
+        }
+      },
+      "clips": [
+        {
+          "id": 4,
+          "name": "12 sounds, then 2-bar groove",
+          "start_tick": 0,
+          "length_ticks": 30720,
+          "notes": [
+            {
+              "id": 116,
+              "start": 0,
+              "duration": 120,
+              "pitch": 35,
+              "velocity": 100
+            },
+            {
+              "id": 117,
+              "start": 960,
+              "duration": 120,
+              "pitch": 38,
+              "velocity": 100
+            },
+            {
+              "id": 118,
+              "start": 1920,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 100
+            },
+            {
+              "id": 119,
+              "start": 2880,
+              "duration": 120,
+              "pitch": 44,
+              "velocity": 100
+            },
+            {
+              "id": 120,
+              "start": 3840,
+              "duration": 120,
+              "pitch": 46,
+              "velocity": 100
+            },
+            {
+              "id": 121,
+              "start": 4800,
+              "duration": 120,
+              "pitch": 45,
+              "velocity": 100
+            },
+            {
+              "id": 122,
+              "start": 5760,
+              "duration": 120,
+              "pitch": 50,
+              "velocity": 100
+            },
+            {
+              "id": 123,
+              "start": 6720,
+              "duration": 120,
+              "pitch": 49,
+              "velocity": 100
+            },
+            {
+              "id": 124,
+              "start": 7680,
+              "duration": 120,
+              "pitch": 54,
+              "velocity": 100
+            },
+            {
+              "id": 125,
+              "start": 8640,
+              "duration": 120,
+              "pitch": 56,
+              "velocity": 100
+            },
+            {
+              "id": 126,
+              "start": 9600,
+              "duration": 120,
+              "pitch": 60,
+              "velocity": 100
+            },
+            {
+              "id": 127,
+              "start": 10560,
+              "duration": 120,
+              "pitch": 75,
+              "velocity": 100
+            },
+            {
+              "id": 128,
+              "start": 15360,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 129,
+              "start": 15360,
+              "duration": 120,
+              "pitch": 35,
+              "velocity": 110
+            },
+            {
+              "id": 130,
+              "start": 15840,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 131,
+              "start": 16320,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 132,
+              "start": 16320,
+              "duration": 120,
+              "pitch": 38,
+              "velocity": 100
+            },
+            {
+              "id": 133,
+              "start": 16800,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 134,
+              "start": 17280,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 135,
+              "start": 17760,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 136,
+              "start": 18240,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 137,
+              "start": 18240,
+              "duration": 120,
+              "pitch": 35,
+              "velocity": 110
+            },
+            {
+              "id": 138,
+              "start": 18240,
+              "duration": 120,
+              "pitch": 38,
+              "velocity": 100
+            },
+            {
+              "id": 139,
+              "start": 18720,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 140,
+              "start": 19200,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 141,
+              "start": 19200,
+              "duration": 120,
+              "pitch": 35,
+              "velocity": 110
+            },
+            {
+              "id": 142,
+              "start": 19680,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 143,
+              "start": 20160,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 144,
+              "start": 20160,
+              "duration": 120,
+              "pitch": 38,
+              "velocity": 100
+            },
+            {
+              "id": 145,
+              "start": 20640,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 146,
+              "start": 21120,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 147,
+              "start": 21600,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 148,
+              "start": 22080,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 85
+            },
+            {
+              "id": 149,
+              "start": 22080,
+              "duration": 120,
+              "pitch": 35,
+              "velocity": 110
+            },
+            {
+              "id": 150,
+              "start": 22080,
+              "duration": 120,
+              "pitch": 38,
+              "velocity": 100
+            },
+            {
+              "id": 151,
+              "start": 22560,
+              "duration": 120,
+              "pitch": 42,
+              "velocity": 55
+            },
+            {
+              "id": 152,
+              "start": 15360,
+              "duration": 120,
+              "pitch": 49,
+              "velocity": 85
+            },
+            {
+              "id": 153,
+              "start": 22560,
+              "duration": 120,
+              "pitch": 46,
+              "velocity": 80
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

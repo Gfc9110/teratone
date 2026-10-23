@@ -56,7 +56,9 @@ EngineService::EngineService(const SessionSpec& spec)
     for (uint32_t i = 0; i < trackCount_; ++i) {
         const auto& settings = spec.tracks[i];
         std::unique_ptr<InstrumentNode> instrument;
-        if (settings.sample) {
+        if (settings.drums) {
+            auto drum=std::make_unique<DrumNode>(*settings.drums);drums_[i]=drum.get();padCounts_[i]=settings.drums->pads.size();instrument=std::move(drum);
+        } else if (settings.sample) {
             instrument = std::make_unique<SamplerNode>(settings.sample, settings.rootNote, settings.oneShot);
         } else {
             auto synth = std::make_unique<SynthNode>();
@@ -92,6 +94,7 @@ bool EngineService::submit(Command c) noexcept {
         default: valid = false; break;
     }
     if (valid) {
+        if(c.type==CommandType::NoteOn || c.type==CommandType::NoteOff)c.liveEpoch=liveProducerEpoch_;
         c.serial = ++serial_;
         if (commands_.push(c)) return true;
     }
@@ -99,6 +102,18 @@ bool EngineService::submit(Command c) noexcept {
     // An undeliverable release must not leave a voice sounding indefinitely.
     if (c.type == CommandType::NoteOff) panic();
     return false;
+}
+bool EngineService::drumStatus(uint32_t track,DrumStatus& out) const noexcept {
+    if(track>=trackCount_ || !drums_[track])return false;out=drums_[track]->status();return true;
+}
+bool EngineService::cancelLive() noexcept {
+    if(liveProducerEpoch_==UINT64_MAX)return false;
+    liveDesiredEpoch_.store(++liveProducerEpoch_,std::memory_order_release);return true;
+}
+void EngineService::syncLiveEpoch(uint64_t epoch) noexcept {
+    if(epoch<=liveAudioEpoch_)return;
+    for(uint32_t i=0;i<trackCount_;++i)instruments_[i]->cancelLive();
+    counts_.fill(0);liveAudioEpoch_=epoch;
 }
 void EngineService::stop() noexcept { emergency_.fetch_or(2, std::memory_order_release); }
 void EngineService::panic() noexcept { emergency_.fetch_or(1, std::memory_order_release); }
@@ -114,6 +129,7 @@ bool EngineService::setPan(uint32_t track, float pan) noexcept {
 bool EngineService::submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept {
     for (uint32_t i = 0; i < trackCount_; ++i) {
         const auto& t = snapshot.tracks[i];
+        if(snapshot.updateDrums)for(size_t pad=0;pad<padCounts_[i];++pad)if(!snapshot.drums[i].pads[pad].valid())return false;
         if (!std::isfinite(t.gain) || !std::isfinite(t.pan) || t.gain < 0 || t.gain > 2 || t.pan < -1 || t.pan > 1 ||
             (snapshot.updateSynths && !snapshot.synths[i].valid())) {
             meter_.rejected.fetch_add(1, std::memory_order_relaxed); return false;
@@ -127,12 +143,14 @@ bool EngineService::submitMix(MixSnapshot snapshot, uint64_t& serial) noexcept {
     serial = ++mixSerial_; return true;
 }
 void EngineService::consumeMix() noexcept {
-    MixSnapshot next, latest; bool changed = false, synthChanged = false;
+    MixSnapshot next, latest; bool changed = false, synthChanged = false, drumsChanged = false;
+    std::array<DrumControls, MaxTracks> drums{};
     std::array<SynthConfig, MaxTracks> synths{};
     // Bounded even if the producer continues filling the queue.
     for (size_t n = 0; n < 8 && mixQueue_.pop(next); ++n) {
         latest = next; changed = true;
         if (next.updateSynths) { synths = next.synths; synthChanged = true; }
+        if(next.updateDrums){drums=next.drums;drumsChanged=true;}
     }
     if (!changed) return;
     bool anySolo = false;
@@ -142,6 +160,7 @@ void EngineService::consumeMix() noexcept {
         gains_[i]->setGain(t.gain); gains_[i]->setPan(t.pan);
         gates_[i]->setAudible(!t.mute && (!anySolo || t.solo));
         if (synthChanged && synths_[i]) synths_[i]->applyConfig(synths[i]);
+        if(drumsChanged && drums_[i])drums_[i]->applyParameters(drums[i]);
     }
     mixApplied_.store(latest.serial, std::memory_order_release);
 }
@@ -155,6 +174,7 @@ void EngineService::discontinuity(uint64_t frame) noexcept {
 }
 void EngineService::consumeCommands() noexcept {
     counts_.fill(0);
+    syncLiveEpoch(liveDesiredEpoch_.load(std::memory_order_acquire));
     const auto emergency = emergency_.exchange(0, std::memory_order_acquire);
     if (emergency) {
         commands_.discard();
@@ -164,6 +184,10 @@ void EngineService::consumeCommands() noexcept {
     }
     Command c;
     for (size_t i = 0; i < CommandsPerBlock && commands_.pop(c); ++i) {
+        if(c.type==CommandType::NoteOn || c.type==CommandType::NoteOff){
+            if(c.liveEpoch<liveAudioEpoch_)continue;
+            syncLiveEpoch(c.liveEpoch);
+        }
         applied_ = c.serial;
         switch (c.type) {
             case CommandType::Play:

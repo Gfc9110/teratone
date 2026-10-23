@@ -53,6 +53,7 @@ struct BlockNoteEvent {
 
 class InstrumentNode : public AudioNode {
 public:
+    virtual void cancelLive() noexcept {} // audio owner: cancel previews without resetting the score
     // The owner keeps this span alive until process() returns; sorted by offset.
     // Set every block. No allocation or ownership transfer.
     void setBlockEvents(std::span<const BlockNoteEvent> events) noexcept { blockEvents_ = events; }
@@ -94,6 +95,7 @@ public:
                  float sustainLevel, float releaseSeconds);
     void configure(const SynthConfig& config); // setup only; validates
     void setBank(std::shared_ptr<const OscillatorBank> bank) { bank_ = std::move(bank); } // setup only
+    void cancelLive() noexcept override;
     void applyConfig(const SynthConfig& config) noexcept; // AUDIO OWNER ONLY, block boundary
     void prepare(double sampleRate, uint32_t maxFrames) override;
     void reset() noexcept override;

@@ -1,0 +1,4 @@
+DRUM BENCH 16 tracks x 8 sustained voices, 48kHz, frames=64 n=1000 prepare_ms=42.1448 p95_ms=0.053541 p99_ms=0.061084 max_ms=0.074667 deadline_ms=1.33333 p99_budget_pct=4.5813
+DRUM BENCH 16 tracks x 8 sustained voices, 48kHz, frames=128 n=1000 prepare_ms=41.973 p95_ms=0.103958 p99_ms=0.115875 max_ms=0.167 deadline_ms=2.66667 p99_budget_pct=4.34531
+DRUM BENCH 16 tracks x 8 sustained voices, 48kHz, frames=256 n=1000 prepare_ms=41.229 p95_ms=0.207417 p99_ms=0.222208 max_ms=0.269 deadline_ms=5.33333 p99_budget_pct=4.1664
+DRUM BENCH 16 tracks x 8 sustained voices, 48kHz, frames=1024 n=1000 prepare_ms=41.4132 p95_ms=0.825167 p99_ms=0.907083 max_ms=2.97429 deadline_ms=21.3333 p99_budget_pct=4.25195
