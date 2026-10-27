@@ -13,6 +13,16 @@ Song.opendaw/
   recovery/pre-m3-v1.json # original v1 manifest when first saved as v2
 ```
 
+Project creation, Save as and the recent-project browser do not change the v2
+format. New projects start at 120 BPM with one empty instrument track and a
+16-beat Main clip. Their `.opendaw` folder is created exclusively, so an existing
+project is never overwritten by Create or Save as. The active folder is stored
+as an absolute canonical path in session state. The recent list (up to 12 names
+and absolute paths) and last used parent directory are written atomically to
+per-user `OpenDAW/projects.json`, outside the project. See the README for OS paths
+and the interactive workflow. Missing recent paths are retained for visibility;
+failed opens do not replace the running session or add a recent entry.
+
 ## Current v2 model
 
 Project fields: `version=2`, `name`, `bpm`, `length_ticks`, `next_id`, `tracks`.

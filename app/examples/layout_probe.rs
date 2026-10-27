@@ -377,7 +377,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     snapshot(&window,"../evidence/m36-selected-track-revealed.ppm",1280,820);
     println!("PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected");
     large_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
-    click(&window,22.0,20.0); click(&window,80.0,60.0);
+    click(&window,67.0,20.0); click(&window,80.0,60.0);
     assert!(ui.get_about_visible(), "Help opens About OpenDAW");
     snapshot(&window,"../evidence/m36-about.ppm",1280,820);
     let count=mailbox.borrow().pending_count(); click(&window,ui.get_play_x(),ui.get_play_y()); assert_eq!(mailbox.borrow().pending_count(),count,"About blocks transport");

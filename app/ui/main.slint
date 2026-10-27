@@ -9,10 +9,11 @@ export struct TrackVisual {
 export struct PadVisual {id:string,name:string,midi:int,filled:bool,muted:bool}
 export struct KeyVisual { pitch: int, y: float, h: float, black: bool, c: bool, label: string }
 export struct NoteVisual { x: float, y: float, w: float, h: float, selected: bool, label: string }
+export struct RecentProjectVisual { name: string, path: string, available: bool }
 export component AppWindow inherits Window {
     in property <int> track-limit;
     init => { Palette.color-scheme = ColorScheme.dark; }
-    title: "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
+    title: root.home-visible ? "OpenDAW — Projects" : "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
     preferred-width: 1280px; preferred-height: 820px; min-width: 1000px; min-height: 760px;
     background: #0d1117; default-font-family: "sans-serif"; default-font-size: 13px;
     in property <string> project-name: "First session";
@@ -109,7 +110,20 @@ export component AppWindow inherits Window {
     in-out property <bool> project-tab: false;
     in-out property <bool> confirm-close: false;
     in-out property <bool> about-visible: false;
-    in-out property <string> project-path: "First-session.opendaw";
+    in property <string> project-path;
+    in property <bool> folder-dialog-busy;
+    in-out property <bool> home-visible;
+    in property <bool> has-project;
+    in property <[RecentProjectVisual]> recent-projects;
+    in-out property <string> new-name: "Untitled";
+    in-out property <string> new-parent;
+    in-out property <bool> save-as-visible;
+    in-out property <string> save-as-name;
+    in-out property <string> save-as-parent;
+    in-out property <bool> confirm-switch;
+    private property <int> pending-project-kind;
+    private property <string> pending-project-path;
+    private property <string> pending-project-name;
     in-out property <string> export-path: "First-session.wav";
     in-out property <float> arrangement-zoom: 48;
     in-out property <length> arrangement-x: 0px;
@@ -134,6 +148,14 @@ export component AppWindow inherits Window {
     out property <float> rows-height: rows.visible-height / 1px;
     out property <float> row-size: root.row-height / 1px;
     out property <float> header-size: root.header-width / 1px;
+    out property <float> home-create-x: create-project-button.absolute-position.x/1px + create-project-button.width/2px;
+    out property <float> home-create-y: create-project-button.absolute-position.y/1px + create-project-button.height/2px;
+    out property <float> recent-list-x: recent-scroll.absolute-position.x/1px;
+    out property <float> recent-list-y: recent-scroll.absolute-position.y/1px;
+    out property <float> switch-save-x: switch-save-button.absolute-position.x/1px + switch-save-button.width/2px;
+    out property <float> switch-save-y: switch-save-button.absolute-position.y/1px + switch-save-button.height/2px;
+    out property <float> switch-discard-x: switch-discard-button.absolute-position.x/1px + switch-discard-button.width/2px;
+    out property <float> switch-discard-y: switch-discard-button.absolute-position.y/1px + switch-discard-button.height/2px;
     out property <float> keyboard-x: keyboard.absolute-position.x/1px;
     out property <float> keyboard-y: keyboard.absolute-position.y/1px;
     out property <float> new-clip-x: new-clip-button.absolute-position.x/1px+new-clip-button.width/2px;
@@ -209,6 +231,9 @@ export component AppWindow inherits Window {
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
     callback down(float, float, bool); callback moved(float, float); callback up(float, float);
     callback save-project(string); callback open-project(string);
+    callback switch-project(int, string, string, int);
+    callback browse-folder(int); callback choose-open-project(); callback reveal-project();
+    callback save-project-as(string, string);
     callback add-drums(string);callback use-drums(string);callback select-pad(string);
     callback drum-pad-gate(string,bool);callback pad-parameter(int,float);callback toggle-pad(int);
     callback rename-pad(string);callback map-pad(int);callback import-pad(string);callback clear-pad();
@@ -219,6 +244,25 @@ export component AppWindow inherits Window {
     callback load-synth-preset(string, string, string);
     callback export-audio(string); callback import-sample(string, string, int, bool); callback use-sine(string);
     callback exit-confirmed();
+    public function show-projects() {
+        if !root.export-busy { root.cancel-interactions(); root.stop(); root.home-visible = true; }
+    }
+    public function request-switch(kind: int, path: string, name: string) {
+        root.cancel-interactions();
+        if root.dirty || root.pending-actions > 0 {
+            root.pending-project-kind = kind; root.pending-project-path = path; root.pending-project-name = name;
+            root.confirm-switch = true;
+        } else { root.switch-project(kind, path, name, 0); }
+    }
+    public function request-save() {
+        if root.project-path == "" {
+            root.save-as-name = root.project-name; root.save-as-parent = root.new-parent; root.save-as-visible = true;
+        } else { root.save-project(root.project-path); }
+    }
+    public function show-save-as() {
+        root.cancel-interactions(); root.save-as-name = root.project-name + " copy";
+        root.save-as-parent = root.new-parent; root.save-as-visible = true;
+    }
     private property <string> clip-drag-id;
     private property <string> clip-drag-track;
     private property <float> clip-press-beat;
@@ -285,6 +329,13 @@ export component AppWindow inherits Window {
         root.arrangement-x = min(0px, max(min(0px, horizontal.visible-width - horizontal.content-width), root.arrangement-x));
     }
     MenuBar {
+        Menu { title: "File";
+            MenuItem { title: "New project / Recent projects…"; enabled: !root.export-busy; activated => { root.show-projects(); } }
+            MenuItem { title: "Open project…"; enabled: !root.export-busy; activated => { root.choose-open-project(); } }
+            MenuItem { title: "Save"; enabled: root.has-project; activated => { root.request-save(); } }
+            MenuItem { title: "Save as…"; enabled: root.has-project; activated => { root.show-save-as(); } }
+            MenuItem { title: "Open project folder"; enabled: root.project-path != ""; activated => { root.reveal-project(); } }
+        }
         Menu { title: "Help"; MenuItem { title: "About OpenDAW"; activated => { root.about-visible = true; } } }
     }
     Rectangle {
@@ -297,6 +348,7 @@ export component AppWindow inherits Window {
             Button { text: "Pause"; clicked => { root.pause(); } }
             Button { text: "Stop"; clicked => { root.stop(); } }
             Button { text: root.looping ? "Loop on" : "Loop off"; clicked => { root.toggle-loop(); } }
+            Button { text: "Projects"; enabled: !root.export-busy; clicked => { root.show-projects(); } }
             Rectangle { horizontal-stretch: 1; }
         }
         Text { x: parent.width - 230px; y: 11px; width: 210px; height: 36px; text: root.transport-text;
@@ -769,13 +821,15 @@ export component AppWindow inherits Window {
             }
             VerticalLayout {
                 visible: root.project-tab;
-                x: 0; y: 0; width: parent.width - 8px; height: 360px; spacing: 8px;
+                x: 0; y: 0; width: parent.width - 8px; height: 460px; spacing: 8px;
                 Text { height: 18px; text: "PROJECT FOLDER"; color: #8295ad; font-size: 11px; }
-                LineEdit { height: 30px; text <=> root.project-path; }
+                Text { height: 58px; text: root.project-path == "" ? "Choose a folder with Save as…" : root.project-path; wrap: char-wrap; color: #c7d4e5; font-size: 11px; }
                 HorizontalLayout { height: 30px;
-                    Button { text: "Save"; clicked => { root.save-project(root.project-path); } }
-                    Button { text: "Open"; clicked => { root.open-project(root.project-path); } }
+                    Button { text: "Save"; clicked => { root.request-save(); } }
+                    Button { text: "Save as…"; clicked => { root.show-save-as(); } }
                 }
+                Button { height: 30px; text: "Open project folder"; enabled: root.project-path != ""; clicked => { root.reveal-project(); } }
+                Button { height: 30px; text: "New / Recent projects…"; enabled: !root.export-busy; clicked => { root.show-projects(); } }
                 HorizontalLayout { height: 30px;
                     Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
                     SpinBox { value <=> root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
@@ -801,6 +855,96 @@ export component AppWindow inherits Window {
         Rectangle { x: parent.width - 190px; y: 23px; width: 170px; height: 6px; background: #29384a;
             Rectangle { x: 0; y: 0; width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
     }
+    Rectangle {
+        visible: root.home-visible;
+        x: 0; y: 0; width: parent.width; height: parent.height - 42px; background: #0d1117;
+        TouchArea { }
+        VerticalLayout {
+            x: (parent.width - 900px) / 2; y: 46px; width: 900px; height: parent.height - 82px; spacing: 18px;
+            HorizontalLayout { height: 38px;
+                Text { text: "OPENDAW"; color: #79e3bf; font-size: 28px; font-weight: 700; }
+                Rectangle { horizontal-stretch: 1; }
+                Button { visible: root.has-project; text: "Back to project"; clicked => { root.home-visible = false; } }
+            }
+            Text { height: 32px; text: "Your next session starts here."; color: #edf4ff; font-size: 23px; }
+            HorizontalLayout { spacing: 22px;
+                Rectangle { width: 360px; background: #151e2b; border-radius: 10px;
+                    VerticalLayout { padding: 22px; spacing: 12px;
+                        Text { height: 28px; text: "New project"; color: #edf4ff; font-size: 20px; font-weight: 600; }
+                        Text { height: 28px; text: "Start with an empty instrument track."; color: #96abc0; font-size: 12px; }
+                        Text { height: 18px; text: "PROJECT NAME"; color: #8295ad; font-size: 11px; }
+                        LineEdit { height: 36px; text <=> root.new-name; placeholder-text: "My song"; }
+                        Text { height: 18px; text: "SAVE IN"; color: #8295ad; font-size: 11px; }
+                        LineEdit { height: 36px; text <=> root.new-parent; placeholder-text: "Choose a folder"; }
+                        Button { height: 32px; text: "Choose folder…"; clicked => { root.browse-folder(0); } }
+                        Text { height: 52px; text: "A new .opendaw folder will contain your\nproject and its audio samples."; color: #96abc0; font-size: 12px; wrap: word-wrap; }
+                        create-project-button := Button { height: 40px; text: "Create project"; enabled: root.new-name != "" && root.new-parent != "" && root.pending-actions == 0 && !root.export-busy;
+                            clicked => { root.request-switch(1, root.new-parent, root.new-name); } }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; background: #111923; border-radius: 10px;
+                    VerticalLayout { padding: 22px; spacing: 12px;
+                        HorizontalLayout { height: 32px;
+                            Text { text: "Recent projects"; color: #edf4ff; font-size: 20px; font-weight: 600; }
+                            Button { text: "Open project…"; enabled: !root.export-busy; clicked => { root.choose-open-project(); } }
+                        }
+                        Text { visible: root.recent-projects.length == 0; height: root.recent-projects.length == 0 ? 68px : 0px; text: "No recent projects yet.\nCreate a project or open an existing .opendaw folder."; color: #96abc0; font-size: 12px; wrap: word-wrap; }
+                        recent-scroll := ScrollView {
+                            horizontal-scrollbar-policy: always-off;
+                            VerticalLayout { spacing: 8px;
+                                for project in root.recent-projects : Rectangle {
+                                    height: 72px; background: #1b2838; border-radius: 6px;
+                                    VerticalLayout { padding: 10px; spacing: 5px;
+                                        Text { text: project.name + (project.available ? "" : " · unavailable"); color: project.available ? #e7f1fc : #b6a18d; font-size: 14px; overflow: elide; }
+                                        Text { text: project.path; color: #8299b2; font-size: 10px; overflow: elide; }
+                                    }
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.request-switch(0, project.path, ""); }
+                                        Tooltip { text: @markdown("\{project.path}"); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if root.save-as-visible : Rectangle {
+        x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
+        TouchArea { }
+        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 560px; height: 360px; background: #1b293a; border-radius: 8px;
+            VerticalLayout { padding: 24px; spacing: 12px;
+                Text { text: "Save project as…"; color: #edf4ff; font-size: 23px; }
+                Text { text: "Create a portable copy in a new .opendaw folder."; color: #adbed1; }
+                LineEdit { height: 34px; text <=> root.save-as-name; placeholder-text: "Project folder name"; }
+                LineEdit { height: 34px; text <=> root.save-as-parent; placeholder-text: "Save in"; }
+                Button { height: 30px; text: "Choose folder…"; clicked => { root.browse-folder(1); } }
+                Text { height: 40px; text: root.action-error; color: #f2b6a1; wrap: word-wrap; font-size: 11px; }
+                HorizontalLayout { height: 34px;
+                    Button { text: "Cancel"; clicked => { root.save-as-visible = false; } }
+                    Button { text: "Save copy"; enabled: root.pending-actions == 0; clicked => { root.save-project-as(root.save-as-parent, root.save-as-name); } }
+                }
+            }
+        }
+    }
+    Rectangle {
+        visible: root.confirm-switch;
+        x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
+        TouchArea { }
+        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 580px; height: 250px; background: #1b293a; border-radius: 8px;
+            VerticalLayout { padding: 24px; spacing: 16px;
+                Text { text: "Save changes before switching?"; color: #edf4ff; font-size: 23px; }
+                Text { text: "Choose what to do with edits to " + root.project-name + "."; color: #adbed1; wrap: word-wrap; }
+                Text { height: 40px; text: root.action-error; color: #f2b6a1; wrap: word-wrap; font-size: 11px; }
+                HorizontalLayout { height: 34px;
+                    Button { text: "Cancel"; clicked => { root.confirm-switch = false; } }
+                    switch-discard-button := Button { text: "Discard and continue"; enabled: root.pending-actions == 0; clicked => { root.switch-project(root.pending-project-kind, root.pending-project-path, root.pending-project-name, 2); } }
+                    switch-save-button := Button { text: "Save and continue"; enabled: root.pending-actions == 0; clicked => { root.switch-project(root.pending-project-kind, root.pending-project-path, root.pending-project-name, 1); } }
+                }
+            }
+        }
+    }
     if root.about-visible : Rectangle {
         x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
         TouchArea { }
@@ -824,7 +968,7 @@ export component AppWindow inherits Window {
                 Text { text: "Save your edits before closing. Unsaved changes will be lost."; color: #adbed1; wrap: word-wrap; }
                 HorizontalLayout {
                     Button { text: "Keep editing"; clicked => { root.confirm-close = false; } }
-                    Button { text: "Save"; clicked => { root.save-project(root.project-path); root.confirm-close = false; } }
+                    Button { text: "Save"; clicked => { root.request-save(); root.confirm-close = false; } }
                     Button { text: "Discard and close"; clicked => { root.exit-confirmed(); } }
                 }
             }

@@ -3,6 +3,7 @@ use slint::ComponentHandle;
 use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::atomic::Ordering, time::Duration};
 slint::include_modules!();
 mod ui_support;
+mod project_ui;
 fn send(mailbox: &RefCell<Mailbox>, weak: &slint::Weak<AppWindow>, request: Request) {
     let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::Move{..} | Request::ScrollPiano(..));
     let result = mailbox.borrow_mut().enqueue(request);
@@ -17,7 +18,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match arg.as_str() { "--silent" => silent = true, _ => return Err(format!("Unknown option: {arg}. Use --silent for an explicit no-audio clock.").into()) }
     }
     let ui = AppWindow::new()?;
-    let connection = controller::spawn(silent);
+    ui.set_home_visible(true);
+    let library = opendaw_app::project_library::settings_path().and_then(opendaw_app::project_library::ProjectLibrary::load)
+        .unwrap_or_else(|error| {ui.set_action_error(error.into());opendaw_app::project_library::ProjectLibrary::default()});
+    let connection = controller::spawn_with_library(silent, library);
     let mailbox = Rc::new(RefCell::new(Mailbox::new(connection.sender.clone(), connection.flags.clone(), connection.epoch.clone(),connection.audition_epoch.clone())));
     macro_rules! bind {
         ($method:ident, ($($arg:ident),*) => $request:expr) => {{
@@ -51,8 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     bind!(on_pitch_view, (notes) => Request::Pitch(notes));
     bind!(on_seek, (beat) => Request::Seek(beat as f64));
     bind!(on_seek_project, (beat) => Request::SeekProject(beat as f64));
-    bind!(on_save_project, (path) => Request::Save(PathBuf::from(path.as_str())));
-    bind!(on_open_project, (path) => Request::Open(PathBuf::from(path.as_str())));
+    project_ui::bind(&ui,mailbox.clone());
     bind!(on_export_audio, (path) => Request::Export(PathBuf::from(path.as_str())));
     bind!(on_import_sample, (track, path, root, one_shot) => Request::Import { track: track.parse().unwrap_or(0), path: PathBuf::from(path.as_str()), root_note: root.clamp(0, 127) as u8, one_shot });
     bind!(on_use_sine, (track) => Request::UseSine(track.parse().unwrap_or(0)));
@@ -62,7 +65,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak = ui.as_weak(); let mailbox = mailbox.clone();
         ui.window().on_close_requested(move || {
             if let Some(ui) = weak.upgrade() {
-                if ui.get_export_busy() { ui.set_status("An export is running. Close after it finishes.".into()); }
+                if ui.get_folder_dialog_busy() {ui.set_status("Close the folder chooser before closing OpenDAW.".into());}
+                else if ui.get_export_busy() { ui.set_status("An export is running. Close after it finishes.".into()); }
+                else if !ui.get_dirty() && mailbox.borrow().pending_count()==0 {let _=slint::quit_event_loop();}
                 else {ui.invoke_cancel_interactions(); mailbox.borrow_mut().stop(); ui.set_confirm_close(true); }
             }
             slint::CloseRequestResponse::KeepWindowShown

@@ -98,7 +98,41 @@ cargo run --locked --release --bin opendaw -- --silent
 ```
 
 The validated `app/Cargo.lock` is tracked. Use `--locked` and preserve it when
-reproducing the current build; M3.6 does not change dependencies.
+reproducing the current build. The project-browser increment adds `rfd` for native
+folder selection; its resolved dependencies are included in the lockfile.
+
+## Create, locate and reopen projects
+
+The application now starts with a project browser. Enter a project name, choose
+its parent folder with **Choose folder…**, then select **Create project**. This
+creates `Name.opendaw/` with an empty instrument track and saves it immediately.
+The initial suggestion is `~/Documents/OpenDAW Projects`; later sessions suggest
+the last successfully used parent folder. Existing project folders are never
+replaced by Create or Save as.
+
+**Open project…** selects an existing folder containing `project.json`. The
+browser lists the 12 most recently opened, created or saved projects, with their
+absolute paths, and retains them across restarts. Projects moved or deleted on
+disk remain marked unavailable; a failed open preserves the current session.
+Use **Projects** in the transport bar or **File → New project / Recent projects…**
+to return to the browser, and **Back to project** to resume the current session.
+Switching with unsaved edits offers Save and continue, Discard and continue, or
+Cancel. Save/open failures preserve the current project.
+
+**Save** writes to the active project's folder. **Save as…** creates a portable
+copy in a new folder and makes that copy the active project. The inspector's
+Project tab shows the actual absolute location; **Open project folder** opens it
+in Finder, Explorer or the desktop file manager. These commands are also in File.
+Earlier builds suggested `First-session.opendaw` relative to the directory from
+which the application was launched; those existing projects can be opened with
+Open project.
+
+Recent-project metadata lives separately in `OpenDAW/projects.json` under macOS
+`~/Library/Application Support`, Windows `%APPDATA%`, or Linux `$XDG_CONFIG_HOME`
+(default `~/.config`). Music and samples remain inside the chosen `.opendaw`
+folder. Linux native folder selection uses an XDG desktop portal or Zenity.
+The [project-browser validation record](docs/PROJECT_WORKFLOW.md) describes tested
+flows and the remaining native-dialog checks.
 
 ## Implemented boundaries
 

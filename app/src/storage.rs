@@ -29,7 +29,7 @@ fn sync_directory(path: &Path) -> Result<(), String> {
     #[cfg(not(unix))] let _ = path;
     Ok(())
 }
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     let (temp, mut file) = temp_file(parent, ".pending")?;
     let result = (|| {

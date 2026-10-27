@@ -8,12 +8,13 @@ publish = false
 
 [features]
 default = ["ui"]
-ui = ["dep:slint", "dep:slint-build"]
+ui = ["dep:slint", "dep:slint-build", "dep:rfd"]
 
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 sha2 = "=0.10.9"
+rfd = { version = "=0.17.2", optional = true }
 slint = { version = "=1.18.1", optional = true, default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "renderer-software", "accessibility"] }
 
 [build-dependencies]
@@ -31,6 +32,11 @@ path = "src/project_cli.rs"
 [[example]]
 name = "layout_probe"
 path = "examples/layout_probe.rs"
+required-features = ["ui"]
+
+[[example]]
+name = "project_workflow_probe"
+path = "examples/project_workflow_probe.rs"
 required-features = ["ui"]
 
 [profile.release]

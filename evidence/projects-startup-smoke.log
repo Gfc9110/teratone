@@ -1,0 +1,1 @@
+PASS: release UI remained running for 4 seconds in silent mode; terminated only the probe process.

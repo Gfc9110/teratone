@@ -1,8 +1,13 @@
 use crate::{arrangement::{self, ArrangementViewport, TrackRow}, bridge::{Engine, Telemetry}, editor::{self, Gesture, KeyRow, NoteRect, Viewport}, project::{Edit, History, Impact, Instrument, Project, PPQ, MAX_TRACKS}, storage};
 use crate::drums::{DrumKit,DrumPad,PadField};
 use crate::synth::{SynthParameters,SynthPreset,SynthField};
+use crate::project_library::{self, ProjectLibrary, RecentProject};
 use std::{collections::{HashMap, VecDeque}, path::PathBuf, sync::{Arc, atomic::{AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender, TrySendError}}, thread::{self, JoinHandle}, time::{Duration, Instant}};
 pub const PANIC: u32 = 1; pub const STOP: u32 = 2; pub const QUIT: u32 = 4; pub const RELEASE: u32 = 8;
+#[derive(Debug)]
+pub enum ProjectTarget { New { name: String, parent: PathBuf }, Existing(PathBuf) }
+#[derive(Debug, Clone, Copy)]
+pub enum UnsavedChanges { Reject, Save, Discard }
 #[derive(Debug)]
 pub enum Request {
     Play, Pause, ToggleLoop, Seek(f64), SelectTrack(u64), SelectClip { track: u64, clip: u64 },
@@ -30,13 +35,15 @@ pub enum Request {
     Down { track: u64, clip: u64, token: u64, viewport: Viewport, x: f32, y: f32, right: bool },
     Move { token: u64, x: f32, y: f32 }, Up { token: u64, x: f32, y: f32 }, CancelGesture(u64),
     AuditionOn { token: u64, epoch: u64, track: u64, instance: u64, pitch: u8, velocity: u8 }, AuditionOff(u64),
-    Save(PathBuf), Open(PathBuf), Export(PathBuf),
+    Save(PathBuf), SaveAs(PathBuf), Open(PathBuf), Export(PathBuf),
+    SwitchProject { target: ProjectTarget, unsaved: UnsavedChanges },
     Import { track: u64, path: PathBuf, root_note: u8, one_shot: bool }, UseSine(u64),
 }
 #[derive(Clone)]
 pub struct ClipView { pub id: u64, pub name: String }
 #[derive(Clone)]
 pub struct ViewState {
+    pub project_path: Option<PathBuf>, pub project_session: u64, pub recent_projects: Vec<RecentProject>, pub default_folder: PathBuf,
     pub name: String, pub status: String, pub tracks: Vec<TrackRow>, pub track_id: u64, pub track_index: usize,
     pub clips: Vec<ClipView>, pub clip_index: Option<usize>, pub clip_start: u64, pub clip_id: u64, pub clip_length: u64, pub clip_name: String, pub track_name: String, pub track_color: String,
     pub bpm: f64, pub gain: f32, pub pan: f32, pub dirty: bool, pub can_undo: bool, pub can_redo: bool,
@@ -64,6 +71,7 @@ pub struct Connection {
 struct InputContext { track: u64, clip: u64, token: u64, viewport: Viewport }
 struct LiveNote { track: u64, instance: u64, pitch: u8, native_id: u64 }
 struct State {
+    project_path: Option<PathBuf>, project_session: u64, library: ProjectLibrary,
     project: Project, history: History, engine: Engine,staging:storage::DrumStaging,selected_pad:Option<u64>, viewport: Viewport, track_id: u64, clip_id: Option<u64>,
     selected: Option<u64>, gesture: Option<Gesture>, insertion: Option<(u64, u8)>,
     live: HashMap<u64, LiveNote>, next_live: u64,
@@ -75,7 +83,7 @@ struct State {
 }
 impl State {
     fn new(silent: bool) -> Result<Self, String> {
-        Ok(Self { project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?,staging:storage::DrumStaging::default(),selected_pad:None, viewport: Viewport::default(),
+        Ok(Self { project_path: None, project_session: 0, library: ProjectLibrary::default(), project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?,staging:storage::DrumStaging::default(),selected_pad:None, viewport: Viewport::default(),
             track_id: 1, clip_id: Some(4), selected: None, gesture: None, insertion: None,
             live: HashMap::new(), next_live: 1, input: None, viewports: HashMap::new(), viewport_ready: false, dirty: false, needs_compile: true, looping: false, silent,
             status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Select a track or add an oscillator." }.into(), export_job: None,
@@ -83,6 +91,66 @@ impl State {
     }
     fn track_index(&self, id: u64) -> Result<usize, String> {
         self.project.tracks.iter().position(|t| t.id == id).ok_or_else(|| "Track no longer exists".into())
+    }
+    fn remember_project(&mut self) {
+        if let Some(path) = &self.project_path {
+            if let Err(error) = self.library.remember(path, &self.project.name) {
+                self.status.push_str(&format!(" · Project is safe, but recent projects could not be saved: {error}"));
+            }
+        }
+    }
+    fn save_project(&mut self, path: PathBuf) -> Result<(), String> {
+        if path.as_os_str().is_empty() { return Err("Choose a project folder first".into()); }
+        let project = storage::save(&path, &self.project)?;
+        let path = path.canonicalize().map_err(|e| e.to_string())?;
+        self.project = project; self.project_path = Some(path);
+        self.dirty = false; self.history.finish_gesture(); self.revision += 1;
+        self.status = format!("Saved {} (format v2)", self.project_path.as_ref().unwrap().display());
+        self.remember_project(); Ok(())
+    }
+    fn switch_project(&mut self, target: ProjectTarget, unsaved: UnsavedChanges) -> Result<(), String> {
+        if self.export_job.is_some() { return Err("Wait for the export to finish before switching projects".into()); }
+        if self.dirty && matches!(unsaved, UnsavedChanges::Reject) {
+            return Err("Save current edits or choose Discard before switching projects.".into());
+        }
+        // Validate and prepare before saving or replacing any current session state.
+        let (mut candidate, path, version, create) = match target {
+            ProjectTarget::New { name, parent } => {
+                let path = project_library::new_project_path(&parent, &name)?;
+                if path.exists() { return Err("A project with this name already exists in that folder. Choose another name or folder.".into()); }
+                let project = Project::empty(name.trim().into()); project.validate()?;
+                (project, path, 2, true)
+            }
+            ProjectTarget::Existing(path) => {
+                let path = path.canonicalize().map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+                let (project, version) = storage::load_versioned(&path)?; (project, path, version, false)
+            }
+        };
+        let mut engine = Engine::new(48000, 256)?; engine.load(&candidate)?;
+        if self.dirty && matches!(unsaved, UnsavedChanges::Save) {
+            self.save_project(self.project_path.clone().ok_or("Save the current project to a folder before continuing")?)?;
+            if !create && self.project_path.as_ref() == Some(&path) {
+                candidate = self.project.clone(); engine.load(&candidate)?;
+            }
+        }
+        let candidate = if create {
+            std::fs::create_dir_all(path.parent().ok_or("Invalid project folder")?).map_err(|e| e.to_string())?;
+            // create_dir fails if another process claimed the name; never overwrite it.
+            std::fs::create_dir(&path).map_err(|e| format!("Cannot create {}: {e}", path.display()))?;
+            storage::save(&path, &candidate)?
+        } else { candidate };
+        let path = path.canonicalize().map_err(|e| e.to_string())?;
+        self.quiesce()?; self.engine = engine; self.project = candidate;
+        self.project_path = Some(path.clone());
+        self.project_session += 1; self.history = History::default(); self.staging = storage::DrumStaging::default();
+        self.needs_compile = false; self.dirty = false; self.looping = false;
+        self.track_id = self.project.tracks[0].id; self.clip_id = None; self.selected = None; self.selected_pad = None;
+        self.revision += 1; self.mix_dirty = false; self.pending_mix = false; self.submitted_mix = 0; self.applied_mix = 0;
+        self.repair_selection(0); self.viewports.clear(); self.fit_notes(); self.constrain_viewport();
+        self.status = if create { format!("Created {}", path.display()) }
+            else if version == 1 { "Opened v1 project. Save upgrades to v2 and retains recovery/pre-m3-v1.json.".into() }
+            else { format!("Opened {}", path.display()) };
+        self.remember_project(); Ok(())
     }
     fn clip(&self) -> Option<&crate::project::MidiClip> { self.project.clip(self.track_id, self.clip_id?) }
     fn release_audition(&mut self) -> Result<(), String> {
@@ -222,6 +290,8 @@ impl State {
         };
         let mut keys=self.viewport.keys();if let Some(kit)=t.instrument.config.drums(){for key in &mut keys{key.label=kit.note_label(key.pitch);key.black=false;key.c=false;}}
         ViewState { name: self.project.name.clone(), status: if capped { format!("{} | View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
+            project_path: self.project_path.clone(), project_session: self.project_session,
+            recent_projects: self.library.recent().to_vec(), default_folder: self.library.default_folder(),
             tracks,
             instance_id:t.instrument.id,selected_note:self.selected.unwrap_or(0),
             velocity:self.selected.and_then(|id|self.clip()?.notes.iter().find(|n|n.id==id)).map_or(100,|n|n.velocity as i32),
@@ -492,19 +562,16 @@ impl State {
             }
             Request::AuditionOff(token) => {if let Some(note)=self.live.remove(&token) {self.release_live(note)?;}}
             Request::Save(path) => {
-                self.project = storage::save(&path, &self.project)?; self.dirty = false; self.history.finish_gesture();
-                self.status = format!("Saved {} (format v2)", path.display());
+                self.save_project(path)?;
             }
-            Request::Open(path) => {
-                if self.dirty { return Err("Save current edits before opening another project.".into()); }
-                let (candidate, source_version) = storage::load_versioned(&path)?; self.engine.load(&candidate)?;
-                self.live.clear(); self.project = candidate; self.history = History::default(); self.needs_compile = false;
-                self.track_id = self.project.tracks[0].id; self.clip_id = None; self.selected = None; self.gesture = None; self.insertion = None;
-                self.revision += 1; self.mix_dirty = false; self.pending_mix = false; self.submitted_mix = 0; self.applied_mix = 0;
-                self.repair_selection(0); self.viewports.clear(); self.input=None; self.fit_notes();
-                self.status = if source_version == 1 { "Opened v1 project. Save upgrades to v2 and retains recovery/pre-m3-v1.json.".into() }
-                    else { format!("Opened {}", path.display()) };
+            Request::SaveAs(path) => {
+                if path.exists() { return Err("Choose a new project folder; Save as never replaces an existing project.".into()); }
+                std::fs::create_dir_all(path.parent().ok_or("Invalid project folder")?).map_err(|e| e.to_string())?;
+                std::fs::create_dir(&path).map_err(|e| e.to_string())?;
+                self.save_project(path)?;
             }
+            Request::Open(path) => self.switch_project(ProjectTarget::Existing(path), UnsavedChanges::Reject)?,
+            Request::SwitchProject { target, unsaved } => self.switch_project(target, unsaved)?,
             Request::Export(path) => {
                 if self.export_job.is_some() { return Err("An export is already running.".into()); }
                 let project = self.project.clone(); self.status = format!("Exporting {} using an independent engine", path.display());
@@ -526,6 +593,9 @@ impl State {
     }
 }
 pub fn spawn(silent: bool) -> Connection {
+    spawn_with_library(silent, ProjectLibrary::default())
+}
+pub fn spawn_with_library(silent: bool, library: ProjectLibrary) -> Connection {
     let (sender, requests) = mpsc::sync_channel::<Envelope>(64);
     let (responses, receiver) = mpsc::sync_channel(8);
     let flags = Arc::new(AtomicU32::new(0)); let worker_flags = flags.clone();
@@ -533,6 +603,7 @@ pub fn spawn(silent: bool) -> Connection {
     let audition_epoch=Arc::new(AtomicU64::new(0));let worker_audition_epoch=audition_epoch.clone();
     let worker = thread::spawn(move || {
         let mut state = match State::new(silent) { Ok(s) => s, Err(e) => { let _ = responses.send(Response::Fatal(e)); return; } };
+        state.library = library;
         let mut pending = Some(Box::new(state.view())); let mut last_meter = Instant::now();
         let mut acknowledgments = VecDeque::new(); let mut deferred = None;
         loop {
@@ -612,6 +683,65 @@ pub fn spawn(silent: bool) -> Connection {
 #[cfg(test)] mod tests {
     use super::*;
     fn request(state: &mut State, r: Request) { state.request(r, &AtomicU32::new(0)).unwrap(); state.project.validate().unwrap(); }
+    fn new_project(name: &str, parent: &std::path::Path, unsaved: UnsavedChanges) -> Request {
+        Request::SwitchProject { target: ProjectTarget::New { name: name.into(), parent: parent.into() }, unsaved }
+    }
+    #[test] fn project_creation_switching_and_save_as_preserve_checkpoints() {
+        let root=std::env::temp_dir().join(format!("opendaw-project-workflow-{}",std::process::id()));
+        std::fs::create_dir_all(&root).unwrap(); let mut s=State::new(true).unwrap();
+        s.library=ProjectLibrary::load(root.join("settings/projects.json")).unwrap();
+        request(&mut s,new_project("My first song",&root,UnsavedChanges::Reject));
+        let first=s.project_path.clone().unwrap(); assert!(first.is_absolute()); assert_eq!(s.project.note_count(),0);
+        assert_eq!(s.project.tracks.len(),1); assert_eq!(s.project.name,"My first song"); assert!(!s.dirty);
+        assert_eq!(storage::load(&first).unwrap(),s.project); assert!(!s.history.can_undo());
+        let saved=std::fs::read(first.join("project.json")).unwrap();
+        assert!(s.request(new_project("My first song",&root,UnsavedChanges::Discard),&AtomicU32::new(0)).is_err());
+        assert_eq!(std::fs::read(first.join("project.json")).unwrap(),saved);
+        request(&mut s,Request::RenameTrack{track:1,name:"Keep this edit".into()});
+        assert!(s.request(new_project("Second song",&root,UnsavedChanges::Reject),&AtomicU32::new(0)).is_err());
+        assert!(s.dirty); assert!(!root.join("Second song.opendaw").exists());
+        request(&mut s,new_project("Second song",&root,UnsavedChanges::Save));
+        assert_eq!(storage::load(&first).unwrap().tracks[0].name,"Keep this edit");
+        assert_eq!(s.project.name,"Second song"); assert!(!s.dirty); assert!(!s.history.can_undo());
+        assert_eq!(s.library.recent().len(),2);
+        request(&mut s,Request::RenameTrack{track:1,name:"Discard me".into()});
+        request(&mut s,Request::SwitchProject{target:ProjectTarget::Existing(first.clone()),unsaved:UnsavedChanges::Discard});
+        assert_eq!(s.project.tracks[0].name,"Keep this edit"); assert_eq!(s.library.recent()[0].path,first);
+        let copy=root.join("Portable copy.opendaw"); request(&mut s,Request::SaveAs(copy.clone()));
+        assert_eq!(s.project_path,Some(copy.canonicalize().unwrap())); assert_eq!(storage::load(&copy).unwrap(),s.project);
+        assert!(s.request(Request::SaveAs(first.clone()),&AtomicU32::new(0)).is_err());
+        assert_eq!(ProjectLibrary::load(root.join("settings/projects.json")).unwrap().recent()[0].path,s.project_path.clone().unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn failed_switches_preserve_dirty_project_history_and_recent_list() {
+        let root=std::env::temp_dir().join(format!("opendaw-project-failure-{}",std::process::id()));
+        std::fs::create_dir_all(&root).unwrap(); let mut s=State::new(true).unwrap();
+        request(&mut s,new_project("Current",&root,UnsavedChanges::Reject));
+        request(&mut s,Request::RenameTrack{track:1,name:"Unsaved".into()});
+        let current=s.project.clone(); let recent=s.library.recent().to_vec(); let session=s.project_session;
+        let invalid=root.join("Invalid.opendaw"); std::fs::create_dir(&invalid).unwrap();
+        std::fs::write(invalid.join("project.json"),b"invalid").unwrap();
+        for path in [invalid,root.join("Missing.opendaw")] {
+            assert!(s.request(Request::SwitchProject{target:ProjectTarget::Existing(path),unsaved:UnsavedChanges::Discard},&AtomicU32::new(0)).is_err());
+            assert_eq!(s.project,current); assert!(s.dirty); assert!(s.history.can_undo());
+            assert_eq!(s.project_session,session); assert_eq!(s.library.recent(),recent);
+        }
+        // A Save-and-continue error must not discard or clear the session.
+        let blocker=root.join("not-a-directory"); std::fs::write(&blocker,b"blocked").unwrap();
+        s.project_path=Some(blocker.join("Current.opendaw"));
+        assert!(s.request(new_project("Next",&root,UnsavedChanges::Save),&AtomicU32::new(0)).is_err());
+        assert_eq!(s.project,current); assert!(s.dirty); assert!(!root.join("Next.opendaw").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn save_and_reopen_the_same_project_keeps_the_latest_edits() {
+        let root=std::env::temp_dir().join(format!("opendaw-project-reopen-{}",std::process::id()));
+        let mut s=State::new(true).unwrap();request(&mut s,new_project("Song",&root,UnsavedChanges::Reject));
+        request(&mut s,Request::RenameTrack{track:1,name:"Latest edit".into()});
+        let path=s.project_path.clone().unwrap();
+        request(&mut s,Request::SwitchProject{target:ProjectTarget::Existing(path),unsaved:UnsavedChanges::Save});
+        assert_eq!(s.project.tracks[0].name,"Latest edit"); assert!(!s.dirty);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test] fn identity_selection_survives_duplicate_reorder_delete_and_history() {
         let mut state = State::new(true).unwrap();
         request(&mut state, Request::DuplicateTrack(1)); let id = state.track_id; let instance = state.project.track(id).unwrap().instrument.id;

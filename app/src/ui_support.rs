@@ -1,5 +1,5 @@
 //! Presentation only; shared with the software interaction probe.
-use crate::{AppWindow, ClipVisual, MiniVisual, NoteVisual, TrackVisual, KeyVisual,PadVisual};
+use crate::{AppWindow, ClipVisual, MiniVisual, NoteVisual, TrackVisual, KeyVisual,PadVisual,RecentProjectVisual};
 use opendaw_app::{arrangement::TrackRow, controller::ViewState};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::{rc::Rc,cell::{Cell,RefCell},time::{Duration,Instant},collections::HashMap};
@@ -21,6 +21,7 @@ struct Inspector {
     id: u64, name: String, color: String, gain: f32, pan: f32, sample: String, root: u8, one_shot: bool, synth:Option<SynthParameters>, preset:Option<SynthPreset>,
 }
 pub struct Presenter {
+    project_session: Option<u64>, project_path: Option<std::path::PathBuf>, recent: Vec<RecentProjectVisual>,
     pads:Rc<VecModel<PadVisual>>,pad_rows:Vec<(u64,String,u8,bool)>,pad_mutes:Rc<VecModel<bool>>,pulse_model:Rc<VecModel<bool>>,
     pad_cache:Option<DrumPad>,drum_target:Option<(u64,u64)>,last_triggers:[u64;16],meter_generation:u64,pulses:[Option<Instant>;16],
     model: Rc<VecModel<TrackVisual>>, rows: Vec<TrackRow>, inspector: Option<Inspector>, clip_info: Option<(u64,String)>, keys:Vec<KeyRow>, key_model:Rc<VecModel<KeyVisual>> }
@@ -32,7 +33,7 @@ impl Presenter {
         let pads=Rc::new(VecModel::default());ui.set_drum_pads(pads.clone().into());
         let pulse_model=Rc::new(VecModel::from(vec![false;16]));ui.set_pad_pulses(pulse_model.clone().into());
         let pad_mutes=Rc::new(VecModel::from(vec![false;16]));ui.set_pad_mutes(pad_mutes.clone().into());
-        Self { pads,pad_rows:Vec::new(),pad_mutes,pulse_model,pad_cache:None,drum_target:None,last_triggers:[0;16],meter_generation:0,pulses:[None;16],model, rows: Vec::new(), inspector: None, clip_info:None,keys:Vec::new(),key_model }
+        Self { project_session:None,project_path:None,recent:Vec::new(),pads,pad_rows:Vec::new(),pad_mutes,pulse_model,pad_cache:None,drum_target:None,last_triggers:[0;16],meter_generation:0,pulses:[None;16],model, rows: Vec::new(), inspector: None, clip_info:None,keys:Vec::new(),key_model }
     }
     pub fn drum_meter(&mut self,ui:&AppWindow,track:u64,instance:u64,status:DrumStatus){
         if self.drum_target!=Some((track,instance)){return;}
@@ -52,6 +53,62 @@ impl Presenter {
         self.rows = rows;
     }
     pub fn apply(&mut self, ui: &AppWindow, view: ViewState) {
+        let switched = self
+            .project_session
+            .is_some_and(|session| session != view.project_session);
+        if switched {
+            ui.invoke_cancel_interactions();
+            self.inspector = None;
+            self.clip_info = None;
+            self.pad_cache = None;
+            self.drum_target = None;
+            ui.set_arrangement_x(0.0);
+            ui.set_arrangement_y(0.0);
+            ui.set_project_position(0.0);
+            ui.set_playing(false);
+            ui.set_looping(false);
+            ui.set_transport_text("001 : 01".into());
+            ui.set_home_visible(false);
+            ui.set_confirm_switch(false);
+            ui.set_action_error("".into());
+        }
+        if self.project_session.is_none() || switched {
+            ui.set_new_parent(view.default_folder.to_string_lossy().into_owned().into());
+        }
+        if self.project_path != view.project_path {
+            ui.set_project_path(
+                view.project_path
+                    .as_ref()
+                    .map_or(String::new(), |p| p.to_string_lossy().into_owned())
+                    .into(),
+            );
+            if let Some(path) = &view.project_path {
+                ui.set_save_as_visible(false);
+                ui.set_export_path(
+                    path.join("mixdown.wav")
+                        .to_string_lossy()
+                        .into_owned()
+                        .into(),
+                );
+                ui.set_new_parent(view.default_folder.to_string_lossy().into_owned().into());
+            }
+            self.project_path = view.project_path;
+        }
+        self.project_session = Some(view.project_session);
+        ui.set_has_project(view.project_session > 0);
+        let recent: Vec<_> = view
+            .recent_projects
+            .into_iter()
+            .map(|p| RecentProjectVisual {
+                available: p.path.join("project.json").is_file(),
+                name: p.name.into(),
+                path: p.path.to_string_lossy().into_owned().into(),
+            })
+            .collect();
+        if self.recent != recent {
+            ui.set_recent_projects(ModelRc::new(VecModel::from(recent.clone())));
+            self.recent = recent;
+        }
         ui.set_project_name(view.name.into()); ui.set_status(view.status.into()); ui.set_selected_label(view.selected_label.into());
         self.tracks(view.tracks); ui.set_track_index(view.track_index as i32);
         ui.set_track_id(view.track_id.to_string().into()); ui.set_track_name(view.track_name.clone().into());

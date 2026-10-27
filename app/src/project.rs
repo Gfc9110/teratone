@@ -115,6 +115,12 @@ fn validate_limits(name: &str, bpm: f64, length: u64, next: u64, tracks: usize) 
     Ok(())
 }
 impl Project {
+    pub fn empty(name: String) -> Self {
+        Self { version: SCHEMA_VERSION, name, bpm: 120.0, length_ticks: 16 * PPQ, next_id: 5,
+            tracks: vec![Track { id: 1, name: "Track 1".into(), color: TRACK_COLORS[0].into(), gain: 0.7,
+                pan: 0.0, mute: false, solo: false, instrument: InstrumentInstance { id: 3, config: Instrument::Sine },
+                clips: vec![MidiClip { id: 4, name: "Main".into(), start_tick: 0, length_ticks: 16 * PPQ, notes: Vec::new() }] }] }
+    }
     pub fn demo() -> Self {
         let notes = [60, 64, 67, 72, 67, 64, 62, 67].into_iter().enumerate().map(|(i, pitch)| Note {
             id: i as u64 + 10, start: i as u64 * PPQ, duration: PPQ * 3 / 4, pitch, velocity: 100,

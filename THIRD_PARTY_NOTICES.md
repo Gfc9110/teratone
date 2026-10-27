@@ -13,6 +13,7 @@ The Rust candidate declares these direct versions (not a resolved dependency tre
 - serde_json 1.0.145
 - slint 1.18.1
 - slint-build 1.18.1
+- rfd 0.17.2 (MIT; native folder dialogs, UI feature only)
 
 Consult each downloaded package's license and notice files. Slint offers multiple
 license options; the application includes the AboutSlint widget under
@@ -24,6 +25,7 @@ before distribution. No redistribution approval or store eligibility is claimed.
 Primary documentation consulted during development:
 
 - https://docs.rs/slint/1.18.1/slint/
+- https://docs.rs/rfd/0.17.2/rfd/
 - https://docs.rs/slint/1.18.1/slint/docs/cargo_features/
 - https://docs.slint.dev/latest/docs/slint/guide/backends-and-renderers/backends_and_renderers/
 - https://docs.slint.dev/latest/docs/slint/guide/platforms/mobile/ios/
