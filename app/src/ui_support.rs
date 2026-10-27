@@ -353,6 +353,7 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
         });
     }
     let gesture=Rc::new(Cell::new(None));
+    let previous_gesture=Rc::new(Cell::new(None));
     {
         let m=mailbox.clone();let weak=ui.as_weak();let gesture=gesture.clone();
         ui.on_down(move|x,y,right,extend|{
@@ -367,7 +368,11 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
         let m=mailbox.clone();let weak=ui.as_weak();let gesture=gesture.clone();ui.on_moved(move|x,y|{if let Some(token)=gesture.get(){queue(&m,&weak,Request::Move{token,x,y});}});
     }
     {
-        let m=mailbox.clone();let weak=ui.as_weak();let gesture=gesture.clone();ui.on_up(move|x,y|{if let Some(token)=gesture.take(){queue(&m,&weak,Request::Up{token,x,y});}});
+        let m=mailbox.clone();let weak=ui.as_weak();let gesture=gesture.clone();let previous=previous_gesture.clone();ui.on_up(move|x,y|{if let Some(token)=gesture.take(){queue(&m,&weak,Request::Up{token,x,y});previous.set(Some(token));}});
+    }
+    {
+        let m=mailbox.clone();let weak=ui.as_weak();let gesture=gesture.clone();let previous=previous_gesture.clone();
+        ui.on_double_click_note(move||{if let (Some(first_token),Some(second_token))=(previous.take(),gesture.get()){queue(&m,&weak,Request::DeleteDoubleClick{first_token,second_token});}});
     }
     {
         let m=mailbox.clone();let weak=ui.as_weak();ui.on_cancel_note(move||{if let Some(token)=gesture.take(){queue(&m,&weak,Request::CancelGesture(token));}});

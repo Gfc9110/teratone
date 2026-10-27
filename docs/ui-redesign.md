@@ -19,6 +19,7 @@ Il layout è stato concepito come stato dell'interfaccia, separato dai dati musi
 | --- | --- |
 | Clic nel vuoto del piano roll | Inserisce una nota usando lo snap scelto; il default è 1/16. |
 | Clic su una nota | Seleziona la nota; trascinarne il corpo la sposta, trascinarne il bordo destro ne cambia la durata. |
+| Doppio clic su una nota | Elimina la nota nel piano roll, anche nelle tracce drums; l'operazione si può annullare. |
 | Shift o Ctrl/Command + clic su una nota | Aggiunge o rimuove la nota dalla selezione; il trascinamento del corpo sposta il gruppo. Cancellazione e spostamento si annullano in un solo passo. |
 | Clic destro nel piano roll | Su una nota apre il menu con eliminazione riferita alla nota cliccata; nel vuoto mostra i comandi della vista. |
 | Clic destro su traccia, clip o timeline vuota | Apre le azioni relative all'elemento e alla posizione cliccati. |

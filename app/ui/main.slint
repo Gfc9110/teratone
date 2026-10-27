@@ -375,7 +375,7 @@ export component AppWindow inherits Window {
     callback new-clip(string,float); callback duplicate-clip(string,string); callback remove-clip(string,string);
     callback rename-clip(string,string,string); callback move-clip(string,string,string,float); callback resize-clip(string,string,float);
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
-    callback down(float, float, bool, bool); callback moved(float, float); callback up(float, float); callback delete-note-at(string,string,float,float);
+    callback down(float, float, bool, bool); callback moved(float, float); callback up(float, float); callback delete-note-at(string,string,float,float); callback double-click-note();
     callback save-project(string); callback open-project(string);
     callback switch-project(int, string, string, int);
     callback browse-folder(int); callback choose-open-project(); callback reveal-project();
@@ -1018,6 +1018,7 @@ export component AppWindow inherits Window {
                     }
                     TouchArea {
                         mouse-cursor: root.middle-pan-target==2 ? grabbing : default;
+                        double-clicked => {root.double-click-note();}
                         pointer-event(event)=>{
                             if event.kind==PointerEventKind.down && event.button==PointerEventButton.middle {
                                 root.begin-middle-pan(2,self.absolute-position.x+self.mouse-x,self.absolute-position.y+self.mouse-y);

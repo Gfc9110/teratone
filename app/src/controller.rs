@@ -14,6 +14,7 @@ pub enum Request {
     ActivateEditorClip { track: u64, clip: u64 }, FollowSelection(bool),
     ToggleReference { track: u64, clip: u64 }, ToggleReferencePin { track: u64, clip: u64 }, HideReferences,
     DeleteContext { track:u64, clip:u64 },
+    DeleteDoubleClick { first_token:u64, second_token:u64 },
     SetNavigationLinked(bool),
     SetVelocityVisible(bool), SetPianoVisible(bool),
     AddTrack { after: u64 }, DuplicateTrack(u64), RemoveTrack(u64), MoveTrack { track: u64, direction: i32 },
@@ -95,6 +96,7 @@ struct State {
     project: Project, history: History, engine: Engine,staging:storage::DrumStaging,selected_pad:Option<u64>, viewport: Viewport, track_id: u64, clip_id: Option<u64>,
     selected: Option<u64>, selected_notes: HashSet<u64>, gesture: Option<Gesture>, group_original: Vec<crate::project::Note>, group_preview: Vec<crate::project::Note>, insertion: Option<(u64, u8)>,
     context_note:Option<(u64,u64,u64)>,
+    last_note_click:Option<(u64,u64,u64,u64)>,
     live: HashMap<u64, LiveNote>, next_live: u64,
     input: Option<InputContext>, viewports: HashMap<(u64,crate::midi_view::ViewMode), Viewport>, fit_restore: HashMap<(u64,crate::midi_view::ViewMode), Viewport>, viewport_ready: bool,
     dirty: bool, needs_compile: bool, looping: bool, silent: bool, status: String, processed_request_id:u64, piano_navigation_request_id:u64,
@@ -114,7 +116,7 @@ struct State {
 impl State {
     fn new(silent: bool) -> Result<Self, String> {
         Ok(Self { project_path: None, project_session: 0, library: ProjectLibrary::default(), project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?,staging:storage::DrumStaging::default(),selected_pad:None, viewport: Viewport::default(),
-            track_id: 1, clip_id: Some(4), selected: None, selected_notes: HashSet::new(), gesture: None, group_original: Vec::new(), group_preview: Vec::new(), insertion: None, context_note:None,
+            track_id: 1, clip_id: Some(4), selected: None, selected_notes: HashSet::new(), gesture: None, group_original: Vec::new(), group_preview: Vec::new(), insertion: None, context_note:None, last_note_click:None,
             live: HashMap::new(), next_live: 1, input: None, viewports: HashMap::new(), fit_restore: HashMap::new(), viewport_ready: false, dirty: false, needs_compile: true, looping: false, silent,
             status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Select a track or add an oscillator." }.into(), processed_request_id:0, piano_navigation_request_id:0, export_job: None,
             arrangement: ArrangementViewport::default(), arrangement_scroll_y:0.0,arrangement_track: 1, arrangement_clip: Some(4), follow_selection: true, references: HashMap::new(), navigation_linked:false,view_state_write_allowed:true,velocity_visible:false,piano_visible:true,project_view_loaded:false,
@@ -321,7 +323,7 @@ impl State {
         if self.track_id==track && self.clip_id==clip {return Ok(());}
         self.release_audition()?; self.cache_viewport(); self.history.finish_gesture();
         self.references.retain(|_, reference| reference.pinned);
-        self.track_id=track; self.clip_id=clip;self.selected_pad=self.project.track(track).and_then(|t|t.instrument.config.drums()).and_then(|k|k.pads.first()).map(|p|p.id); self.selected=None; self.selected_notes.clear(); self.gesture=None; self.group_original.clear(); self.group_preview.clear(); self.insertion=None; self.input=None;self.context_note=None;
+        self.track_id=track; self.clip_id=clip;self.selected_pad=self.project.track(track).and_then(|t|t.instrument.config.drums()).and_then(|k|k.pads.first()).map(|p|p.id); self.selected=None; self.selected_notes.clear(); self.gesture=None; self.group_original.clear(); self.group_preview.clear(); self.insertion=None; self.input=None;self.context_note=None;self.last_note_click=None;
         if self.midi_view_mode==crate::midi_view::ViewMode::Drum && self.project.track(track).and_then(|t|t.instrument.config.drums()).is_none() {self.midi_view_mode=crate::midi_view::ViewMode::Piano;}
         self.restore_viewport();Ok(())
     }
@@ -579,6 +581,19 @@ impl State {
                     }
                 }
             }
+            Request::DeleteDoubleClick{first_token,second_token} => {
+                let target=self.last_note_click.take();
+                if let (Some((token,track,clip,note)),Some(ctx),Some(gesture))=(target,self.input.as_ref(),self.gesture.as_ref()) {
+                    if token==first_token && ctx.token==second_token && (ctx.track,ctx.clip)==(track,clip)
+                        && (self.track_id,self.clip_id)==(track,Some(clip)) && gesture.original.id==note
+                        && gesture.preview==gesture.original && self.group_preview.is_empty()
+                        && self.project.clip(track,clip).is_some_and(|c|c.notes.iter().any(|n|n.id==note)) {
+                        self.input=None;self.gesture=None;self.group_original.clear();self.group_preview.clear();self.insertion=None;
+                        self.edit(Edit::Delete{track,clip,id:note})?;
+                        self.selected_notes.remove(&note);self.selected=self.selected_notes.iter().next().copied();
+                    }
+                }
+            }
             Request::AddClip { track, beat } => {
                 let id=self.project.next_id;let start=editor::beats_to_ticks(beat)?;
                 self.edit(Edit::AddClip{track,start,length:4*PPQ})?;self.select_arrangement_clip(track,Some(id))?;
@@ -813,15 +828,18 @@ impl State {
                 }
             }
             Request::Up{token,x,y} => {
+                self.last_note_click=None;
                 let Some(ctx)=self.input.as_ref().filter(|c|c.token==token).cloned() else {return Ok(());}; self.input=None;
                 let length=self.project.clip(ctx.track,ctx.clip).ok_or("Clip no longer exists")?.length_ticks;
                 if let Some(g)=self.gesture.take() {
                     if !self.group_original.is_empty() {
                         let notes=ctx.layout.drag_group_snap(&ctx.viewport,&g,&self.group_original,x,y,length,ctx.snap);
                         if notes!=self.group_original {self.edit(Edit::ReplaceMany{track:ctx.track,clip:ctx.clip,notes})?;}
+                        else {self.last_note_click=Some((token,ctx.track,ctx.clip,g.original.id));}
                     } else {
                         let note=ctx.layout.drag_snap(&ctx.viewport,&g,x,y,length,ctx.snap);
                         if note!=g.original {self.edit(Edit::Replace{track:ctx.track,clip:ctx.clip,note})?;}
+                        else {self.last_note_click=Some((token,ctx.track,ctx.clip,g.original.id));}
                     }
                     self.group_original.clear();self.group_preview.clear();
                 } else if let Some((start,pitch))=self.insertion.take() {
