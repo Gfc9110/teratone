@@ -1,0 +1,56 @@
+import { StudioTheme } from "studio_theme.slint";
+
+// Compact icon action with persistent checked and keyboard-focus states.
+export component StudioIconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <string> hint: root.label;
+    in property <bool> enabled: true;
+    in property <bool> checked: false;
+    in property <bool> checkable: false;
+    private property <bool> pointer-focus: false;
+    callback clicked();
+
+    min-width: 32px; max-width: 32px; preferred-width: 32px;
+    min-height: 30px; max-height: 30px; preferred-height: 30px;
+    horizontal-stretch: 0; vertical-stretch: 0;
+    border-radius: 4px;
+    background: !root.enabled ? StudioTheme.panel : touch.pressed ? #465762 : root.checked ? #27443c : touch.has-hover ? StudioTheme.hover : StudioTheme.panel;
+    border-width: focus.has-focus ? 2px : 0px;
+    border-color: StudioTheme.solo;
+    forward-focus: focus;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.checked;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    changed hint => { if focus.has-focus { StudioTheme.focus-hint = root.hint; } }
+
+    Image { x: 7px; y: 6px; width: 18px; height: 18px; source: root.icon;
+        image-fit: contain; colorize: !root.enabled ? #707b88 : root.checked ? StudioTheme.accent : StudioTheme.text; }
+    if root.checked : Rectangle { x: 5px; y: parent.height - 3px; width: parent.width - 10px; height: 2px; background: StudioTheme.accent; }
+    focus := FocusScope {
+        enabled: root.enabled;
+        changed has-focus => {
+            if self.has-focus {
+                StudioTheme.focus-hint = root.hint; StudioTheme.focus-tooltip-x = root.absolute-position.x;
+                StudioTheme.focus-tooltip-y = root.absolute-position.y + root.height; StudioTheme.focus-tooltip-visible = !root.pointer-focus;
+            } else if StudioTheme.focus-hint == root.hint { StudioTheme.focus-hint = ""; StudioTheme.focus-tooltip-visible = false; root.pointer-focus = false; }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return { root.pointer-focus = false; StudioTheme.focus-tooltip-visible = true; root.clicked(); return accept; }
+            reject
+        }
+        touch := TouchArea {
+            enabled: root.enabled; mouse-cursor: pointer;
+            clicked => { root.pointer-focus = true; StudioTheme.focus-tooltip-visible = false; focus.focus(); root.clicked(); }
+            Tooltip {
+                Rectangle { width: max(100px, min(240px, root.hint.character-count * 7px + 16px)); height: 28px;
+                    background: StudioTheme.raised; border-width: 1px; border-color: #566470; border-radius: 4px;
+                    Text { x: 8px; width: parent.width - 16px; text: root.hint; color: StudioTheme.text; font-size: 11px; vertical-alignment: center; overflow: elide; }
+                }
+            }
+        }
+    }
+}

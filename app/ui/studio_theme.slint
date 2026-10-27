@@ -1,0 +1,23 @@
+// Shared semantic colors for the Compact Studio visual language.
+export global StudioTheme {
+    out property <color> app: #14181d;
+    out property <color> canvas: #181d23;
+    out property <color> panel: #222830;
+    out property <color> raised: #2a323c;
+    out property <color> hover: #323c47;
+    out property <color> border: #39434f;
+    out property <color> text: #e8edf2;
+    out property <color> secondary: #a7b2bf;
+    out property <color> tertiary: #8b97a5;
+    out property <color> accent: #72ddb7;
+    out property <color> solo: #80b9f4;
+    out property <color> mute: #e4bc74;
+    out property <color> error: #f08089;
+    out property <color> selection: #f2f6fa;
+    // Keyboard focus describes icon-only actions in the status bar as well as
+    // exposing their accessible names, without opening a focus-stealing popup.
+    in-out property <string> focus-hint;
+    in-out property <bool> focus-tooltip-visible: false;
+    in-out property <length> focus-tooltip-x;
+    in-out property <length> focus-tooltip-y;
+}

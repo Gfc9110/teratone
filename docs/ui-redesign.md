@@ -13,6 +13,18 @@
 
 Il layout è stato concepito come stato dell'interfaccia, separato dai dati musicali e dallo storico. Il formato dei progetti e il motore audio non richiedono migrazioni per questo intervento.
 
+## Compact Studio: linguaggio visivo
+
+La palette Graphite + Mint è definita nei token semantici di `app/ui/studio_theme.slint`. I pulsanti a icona usano geometrie vettoriali originali, nomi accessibili, stati di focus e indicazione persistente quando sono attivi. Il passaggio del puntatore mostra il tooltip; con il focus da tastiera un suggerimento compare vicino ai pulsanti a icona e ai controlli M/S, e la descrizione viene riportata anche nella barra di stato, senza aprire finestre che sottraggano il focus.
+
+Il colore della traccia identifica clip, note attive e velocity. La traccia selezionata ha un indicatore geometrico, mentre il clip aperto nell'editor ha un bordo chiaro e un marcatore; la selezione nell'arrangement resta distinguibile. Mute e Solo conservano le lettere M/S e hanno riempimenti separati; le note di riferimento restano delineate e non modificabili. Il playhead usa un contorno scuro e un centro chiaro per rimanere leggibile sui contenuti. L'inspector mantiene i controlli reali e le preferenze precedenti.
+
+Sui colori pieni, testo principale, secondario e terziario sul pannello hanno rispettivamente rapporti di contrasto di 12,61:1, 6,90:1 e 5,00:1; il testo scuro sui sei colori di traccia predefiniti supera 6:1. Queste misure non certificano l'accessibilità dell'intera applicazione o di colori personalizzati.
+
+Le immagini `evidence/redesign/compact-studio-1280.png`, `compact-studio-1024.png` e `compact-studio-states-1280.png` documentano il rendering e gli stati Mute/Solo. La verifica in scala di grigi conserva le lettere e il riempimento degli stati, oltre ai marcatori di selezione.
+
+Il probe release con 64 tracce e 100.000 note ha misurato p95 risposta/disegno di 13,87 ms a 1280×820, 13,35 ms a 1000×760 e 16,50 ms a 1000×760 con scala 200%, entro i limiti del probe. Il controllo usa la stessa fixture con note coincidenti descritta sotto e non garantisce prestazioni equivalenti su ogni progetto o renderer.
+
 ## Interazioni principali
 
 | Input | Comportamento |

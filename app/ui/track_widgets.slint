@@ -1,0 +1,42 @@
+import { StudioTheme } from "studio_theme.slint";
+
+// Track status retains a stable letter and a filled checked state.
+export component TrackStatus inherits Rectangle {
+    in property <string> label;
+    in property <string> description;
+    in property <bool> checked;
+    in property <color> checked-color: StudioTheme.mute;
+    private property <bool> pointer-focus: false;
+    callback activated();
+    border-radius: 3px;
+    background: root.checked ? root.checked-color : touch.pressed ? StudioTheme.border : touch.has-hover ? StudioTheme.hover : #181f25;
+    border-width: focus.has-focus ? 2px : 1px;
+    border-color: focus.has-focus ? StudioTheme.selection : root.checked ? root.checked-color : #536170;
+    accessible-role: button;
+    accessible-label: root.description;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.activated(); }
+    Text {
+        text: root.label; font-size: 11px; font-weight: 700;
+        color: root.checked ? #171a1d : #c5d0db;
+        vertical-alignment: center; horizontal-alignment: center;
+    }
+    focus := FocusScope {
+        changed has-focus => {
+            if self.has-focus {
+                StudioTheme.focus-hint = root.description; StudioTheme.focus-tooltip-x = root.absolute-position.x;
+                StudioTheme.focus-tooltip-y = root.absolute-position.y + root.height; StudioTheme.focus-tooltip-visible = !root.pointer-focus;
+            } else if StudioTheme.focus-hint == root.description { StudioTheme.focus-hint = ""; StudioTheme.focus-tooltip-visible = false; root.pointer-focus = false; }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return { root.pointer-focus = false; StudioTheme.focus-tooltip-visible = true; root.activated(); return accept; }
+            reject
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.pointer-focus = true; StudioTheme.focus-tooltip-visible = false; focus.focus(); root.activated(); }
+        Tooltip { text: @markdown("\{root.description}"); }
+    }
+}

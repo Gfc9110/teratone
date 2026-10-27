@@ -49,6 +49,13 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
     ui_support::bind_editor(&ui,mailbox.clone());ui.show()?;window.set_size(slint::PhysicalSize::new(1280,820));
     let mut presenter=ui_support::Presenter::new(&ui);let mut last=None;
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    let plays=Rc::new(Cell::new(0));let play_count=plays.clone();ui.on_play(move||play_count.set(play_count.get()+1));
+    click(&window,ui.get_play_x(),ui.get_play_y());
+    assert_eq!(plays.get(),1,"Icon transport must respond to pointer input");
+    assert_eq!(ui.get_focused_action_hint().as_str(),"Start playback","Focused icon must expose its description in the status bar");
+    key(&window,slint::platform::Key::Space.into());
+    assert_eq!(plays.get(),2,"Focused icon transport must respond to keyboard input");
+    assert!(ui.get_focused_tooltip_visible(),"Keyboard focus must expose the icon tooltip");
     let tempo_edits=Rc::new(Cell::new(0));let tempo_edits_out=tempo_edits.clone();
     ui.on_tempo(move |v|tempo_edits_out.set(v));
     ui.set_bpm(99);let (tempo_x,tempo_y,tempo_w)=(ui.get_tempo_control_x(),ui.get_tempo_control_y(),ui.get_tempo_control_width());
@@ -73,6 +80,12 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
     mailbox.borrow_mut().enqueue(Request::FollowSelection(true)).unwrap();mailbox.borrow_mut().enqueue(Request::SelectTrack(1)).unwrap();
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     snapshot(&window,"phase4-combined-1280.ppm",1280,820);
+    mailbox.borrow_mut().enqueue(Request::ToggleMute(1)).unwrap();
+    mailbox.borrow_mut().enqueue(Request::ToggleSolo(2)).unwrap();settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    assert!(last.as_ref().unwrap().tracks[0].mute && last.as_ref().unwrap().tracks[1].solo,"Mute and solo must keep their independent states");
+    snapshot(&window,"compact-studio-states-1280.ppm",1280,820);
+    mailbox.borrow_mut().enqueue(Request::ToggleMute(1)).unwrap();
+    mailbox.borrow_mut().enqueue(Request::ToggleSolo(2)).unwrap();settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     mailbox.borrow_mut().enqueue(Request::ToggleReference{track:2,clip:6}).unwrap();
     mailbox.borrow_mut().enqueue(Request::ZoomY(0.5)).unwrap();
     mailbox.borrow_mut().enqueue(Request::ScrollPiano(0.,624.)).unwrap();

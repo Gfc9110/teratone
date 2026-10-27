@@ -28,7 +28,7 @@ fn check_alignment(pixels: &SharedPixelBuffer<slint::Rgb8Pixel>, ui: &AppWindow,
             let py=expected+offset;
             if py<0 || py>=pixels.height() as i32 { return None; }
             let p=pixels.as_slice()[py as usize*pixels.width() as usize+x];
-            (p.r==0x32 && p.g==0x42 && p.b==0x54).then_some(py)
+            (p.r==0x39 && p.g==0x43 && p.b==0x4f).then_some(py)
         }).collect() };
         let a=positions(x_header); let b=positions(x_lane);
         assert!(!a.is_empty() && !b.is_empty(), "Visible row divider must be present in header and lane");

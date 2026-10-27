@@ -1,6 +1,9 @@
 import { VelocityLane, VelocityVisual } from "velocity_lane.slint";
+import { TrackStatus } from "track_widgets.slint";
 export { VelocityVisual } from "velocity_lane.slint";
 import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, ScrollView, AboutSlint, Palette } from "std-widgets.slint";
+import { StudioTheme } from "studio_theme.slint";
+import { StudioIconButton } from "studio_controls.slint";
 
 export struct MiniVisual { x: float, y: float, w: float, h: float }
 export struct ClipVisual { id: string, name: string, start: float, length: float, selected: bool, notes: [MiniVisual] }
@@ -23,7 +26,7 @@ component TempoControl inherits Rectangle {
     min-height: 30px; max-height: 30px; preferred-height: 30px;
     horizontal-stretch: 0; vertical-stretch: 0;
     forward-focus: input;
-    background: #202f3d; border-color: #40566a; border-width: 1px; border-radius: 5px;
+    background: StudioTheme.raised; border-color: StudioTheme.border; border-width: 1px; border-radius: 5px;
     accessible-role: spinbox; accessible-label: "Tempo in BPM";
     accessible-value: root.value; accessible-value-minimum: 30; accessible-value-maximum: 300; accessible-value-step: 1;
     accessible-action-increment => { root.change-value(root.value + 1); }
@@ -69,7 +72,7 @@ export component AppWindow inherits Window {
     init => { Palette.color-scheme = ColorScheme.dark; }
     title: root.home-visible ? "OpenDAW — Projects" : "OpenDAW — " + root.project-name + (root.dirty ? " *" : "");
     preferred-width: 1280px; preferred-height: 820px; min-width: 1000px; min-height: 760px;
-    background: #0d1117; default-font-family: "sans-serif"; default-font-size: 13px;
+    background: StudioTheme.app; default-font-family: "sans-serif"; default-font-size: 13px;
     in property <string> project-name: "First session";
     // Last controller session presented by the UI, used to reject stale scrolls.
     in property <string> ui-project-session: "0";
@@ -297,6 +300,8 @@ export component AppWindow inherits Window {
     out property <float> piano-context-height: grid.popup-height / 1px;
     out property <float> play-x: play-button.absolute-position.x / 1px + play-button.width / 2px;
     out property <float> play-y: play-button.absolute-position.y / 1px + play-button.height / 2px;
+    out property <string> focused-action-hint: StudioTheme.focus-hint;
+    out property <bool> focused-tooltip-visible: StudioTheme.focus-tooltip-visible;
     out property <float> undo-x: undo-button.absolute-position.x / 1px + undo-button.width / 2px;
     out property <float> undo-y: undo-button.absolute-position.y / 1px + undo-button.height / 2px;
     out property <float> add-track-x: add-track-button.absolute-position.x / 1px + add-track-button.width / 2px;
@@ -551,23 +556,29 @@ export component AppWindow inherits Window {
         Menu { title: "Help"; MenuItem { title: "About OpenDAW"; activated => { root.about-visible = true; } } }
     }
     Rectangle {
-        x: 0; y: 0; height: 40px; width: parent.width; background: #151d28;
+        x: 0; y: 0; height: 40px; width: parent.width; background: #11161a;
         HorizontalLayout {
             x: 8px; y: 4px; width: parent.width - 16px; height: 32px; spacing: 4px;
-            Text { text: "OPENDAW"; color: #79e3bf; font-size: 15px; font-weight: 700; vertical-alignment: center; }
-            play-button := Button { text: root.playing ? "Pause" : "Play"; clicked => { if root.playing { root.pause(); } else { root.play(); } } }
-            Button { text: "Stop"; clicked => { root.stop(); } }
-            Button { text: "Loop"; checked: root.looping; accessible-checkable: true; accessible-checked: root.looping; clicked => { root.toggle-loop(); } }
-            Text { text: root.transport-text; font-size: 16px; color: #e8f2ff; vertical-alignment: center; }
-            Text { text: "BPM"; color: #a6bdd4; vertical-alignment: center; }
+            Text { text: "OPENDAW"; color: StudioTheme.accent; font-size: 16px; font-weight: 700; vertical-alignment: center; }
+            play-button := StudioIconButton {
+                icon: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                label: root.playing ? "Pause" : "Play"; hint: root.playing ? "Pause playback" : "Start playback";
+                checkable: true; checked: root.playing;
+                clicked => { if root.playing { root.pause(); } else { root.play(); } }
+            }
+            StudioIconButton { icon: @image-url("icons/stop.svg"); label: "Stop"; hint: "Stop playback"; clicked => { root.stop(); } }
+            StudioIconButton { icon: @image-url("icons/loop.svg"); label: "Loop"; hint: "Toggle loop"; checkable: true; checked: root.looping; clicked => { root.toggle-loop(); } }
+            Text { text: root.transport-text; font-size: 17px; color: StudioTheme.text; vertical-alignment: center; }
+            Text { text: "BPM"; color: StudioTheme.secondary; vertical-alignment: center; }
             tempo-control := TempoControl { value <=> root.bpm; edited(value) => { root.tempo(value); } }
-            Text { text: root.silent-mode ? "SILENT CLOCK · no audio" : root.mix-label; color: root.silent-mode ? #e0bd7b : #91a7bf; font-size: 10px; vertical-alignment: center; overflow: elide; }
+            Text { text: root.silent-mode ? "SILENT CLOCK · no audio" : root.mix-label; color: root.silent-mode ? StudioTheme.mute : StudioTheme.secondary; font-size: 11px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
             Button { text: "Projects"; enabled: !root.export-busy; clicked => { root.show-projects(); } }
         }
     }
     main := Rectangle {
         x: 6px; y: 44px; width: root.width - root.reserved-inspector-width - (root.reserved-inspector-width > 0px ? 18px : 12px); height: root.height - 70px;
+        Rectangle { x: 0; y: 0; width: parent.width; height: root.toolbar-height; background: StudioTheme.panel; }
         HorizontalLayout {
             x: 0; y: 0; width: parent.width; height: root.toolbar-height; spacing: 4px;
             Text { text: "TRACKS  " + root.track-items.length + " / " + root.track-limit; color: #a6bdd4; vertical-alignment: center; }
@@ -633,11 +644,17 @@ export component AppWindow inherits Window {
             }
             for track[index] in root.track-items : Rectangle {
                 x: 0; y: index * root.row-height; width: rows.visible-width; height: root.row-height;
-                background: track.selected ? #22354a : #141e2b;
+                background: track.selected ? #29343a : StudioTheme.panel;
                 header := Rectangle {
                     x: 0; y: 0; width: root.header-width; height: parent.height;
+                    background: track.selected ? #2c3739 : StudioTheme.panel;
+                    TouchArea {
+                        clicked => { root.select-track-context(track.id); }
+                        pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.right { track-menu.show(); } }
+                    }
                     Rectangle { x: 0; y: 0; width: 4px; height: parent.height - 1px; background: track.tint; }
-                    Text { x: 9px; y: 9px; text: "≡"; color: #829bb2; }
+                    Rectangle { x: parent.width - 2px; y: 0; width: track.selected ? 2px : 0px; height: parent.height - 1px; background: StudioTheme.selection; }
+                    Text { x: 9px; y: 9px; text: "≡"; color: StudioTheme.secondary; }
                     handle := TouchArea {
                         x: 4px; y: 0; width: 24px; height: parent.height;
                         pointer-event(event) => {
@@ -661,13 +678,18 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
+                    Image {
+                        x: 29px; y: 7px; width: 15px; height: 15px;
+                        source: track.instrument == "Drum Kit" ? @image-url("icons/instrument-drums.svg") : track.instrument == "Sampler" ? @image-url("icons/instrument-sampler.svg") : @image-url("icons/instrument-wave.svg");
+                        colorize: track.tint; image-fit: contain;
+                    }
                     Rectangle {
-                        x: 28px; y: 2px; width: root.header-width - (root.ui-density == 2 ? 124px : 104px); height: 27px;
-                        background: name-touch.has-hover ? #30465b : #253647; border-radius: 3px;
-                        border-width: name-focus.has-focus ? 2px : 0px; border-color: #9df3d6;
+                        x: 46px; y: 2px; width: root.header-width - (root.ui-density == 2 ? 142px : 122px); height: 27px;
+                        background: name-touch.has-hover ? StudioTheme.hover : transparent; border-radius: 3px;
+                        border-width: name-focus.has-focus ? 2px : 0px; border-color: StudioTheme.selection;
                         accessible-role: button; accessible-label: "Select track " + track.name;
                         accessible-action-default => { root.select-track-context(track.id); }
-                        Text { x: 4px; width: parent.width - 8px; height: parent.height; text: (track.selected ? "› " : "") + track.name; color: #e3eef6; vertical-alignment: center; overflow: elide; }
+                        Text { x: 4px; width: parent.width - 8px; height: parent.height; text: track.name; color: StudioTheme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; overflow: elide; }
                         name-focus := FocusScope {
                             width:0px;
                             changed has-focus => { if self.has-focus {root.focused-track-id=track.id;} else if root.focused-track-id==track.id {root.focused-track-id="";} }
@@ -702,19 +724,19 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    Text { x: 30px; y: 30px; width: 92px; height: 15px; text: track.instrument;
-                        color: #a0b4cb; font-size: 10px; overflow: elide; }
-                    Button { x: root.ui-density == 2 ? 98px : 124px; y: root.ui-density == 2 ? 10px : 9px; width: root.ui-density == 2 ? 44px : 30px; height: root.ui-density == 2 ? 44px : 28px; text: "M"; accessible-checkable: true; accessible-checked: track.mute; checked: track.mute;
-                        accessible-label: "Mute " + track.name; clicked => { root.toggle-mute(track.id); } Tooltip { text: @markdown("Mute track"); } }
-                    Button { x: root.ui-density == 2 ? 144px : 156px; y: root.ui-density == 2 ? 10px : 9px; width: root.ui-density == 2 ? 44px : 30px; height: root.ui-density == 2 ? 44px : 28px; text: "S"; accessible-checkable: true; accessible-checked: track.solo; checked: track.solo;
-                        accessible-label: "Solo " + track.name; clicked => { root.toggle-solo(track.id); } Tooltip { text: @markdown("Solo track"); } }
+                    Text { x: 46px; y: 30px; width: root.header-width - 50px; height: 15px; text: track.instrument;
+                        color: StudioTheme.secondary; font-size: 11px; overflow: elide; }
+                    TrackStatus { x: root.ui-density == 2 ? 98px : 124px; y: root.ui-density == 2 ? 10px : 9px; width: root.ui-density == 2 ? 44px : 30px; height: root.ui-density == 2 ? 44px : 28px; label: "M"; checked: track.mute;
+                        description: "Mute " + track.name; checked-color: StudioTheme.mute; activated => { root.toggle-mute(track.id); } }
+                    TrackStatus { x: root.ui-density == 2 ? 144px : 156px; y: root.ui-density == 2 ? 10px : 9px; width: root.ui-density == 2 ? 44px : 30px; height: root.ui-density == 2 ? 44px : 28px; label: "S"; checked: track.solo;
+                        description: "Solo " + track.name; checked-color: StudioTheme.solo; activated => { root.toggle-solo(track.id); } }
                 }
                 lane := Rectangle {
                     x: root.header-width; y: 0; width: parent.width - self.x; height: parent.height; clip: true;
-                    background: track.selected ? #182a3b : #111b27;
+                    background: track.selected ? #202a2d : StudioTheme.canvas;
                     for beat in root.arrangement-beat-count : Rectangle {
                         x: (beat + root.arrangement-first-beat) * root.arrangement-zoom * 1px + root.arrangement-x; y: 0; width: 1px; height: parent.height;
-                        background: Math.mod(beat + root.arrangement-first-beat, 4) == 0 ? #314357 : #1d2b3b;
+                        background: Math.mod(beat + root.arrangement-first-beat, 4) == 0 ? #4a5663 : #2b3540;
                     }
                     private property <float> context-beat;
                     private property <length> context-x;
@@ -748,15 +770,18 @@ export component AppWindow inherits Window {
                         x: clip.start * root.arrangement-zoom * 1px + root.arrangement-x; y: 7px;
                         width: max(4px, clip.length * root.arrangement-zoom * 1px - 2px); height: parent.height - 14px;
                         opacity: root.clip-drag-id==clip.id && root.clip-dragging ? 0.35 : 1;
-                        border-radius: 4px; background: track.audible ? track.tint.with-alpha(0.30) : track.tint.with-alpha(0.12);
-                        border-width: clip.selected ? 2px : 1px; border-color: clip.selected ? #d8edee : track.tint.with-alpha(0.5);
-                        Text { x: 8px; y: 5px; width: parent.width - 16px; height: 15px; text: clip.name; color: #d4e6ed; font-size: 11px; overflow: elide; }
+                        private property <bool> editor-active: root.track-id == track.id && root.clip-id == clip.id;
+                        border-radius: 3px; background: track.audible ? track.tint.with-alpha(clip.selected ? 0.26 : 0.16) : track.tint.with-alpha(0.10);
+                        border-width: self.editor-active || clip.selected ? 2px : 1px;
+                        border-color: self.editor-active ? StudioTheme.selection : clip.selected ? StudioTheme.solo : track.tint.with-alpha(0.65);
+                        Rectangle { x: max(0px,parent.width - 8px); y: 4px; width: parent.editor-active ? 4px : 0px; height: 4px; border-radius: 1px; background: StudioTheme.selection; }
+                        Text { x: 8px; y: 3px; width: max(0px,parent.width - 20px); height: 17px; text: clip.name; color: StudioTheme.text; font-size: 12px; font-weight: 600; overflow: elide; }
                         Rectangle {
-                            x: 5px; y: 26px; width: max(0px, parent.width - 10px); height: parent.height - 31px; clip: true;
+                            x: 5px; y: 22px; width: max(0px, parent.width - 10px); height: max(0px,parent.height - 26px); clip: true;
                             for note in clip.notes : Rectangle {
                                 x: note.x * parent.width; y: note.y * parent.height;
                                 width: max(1px, note.w * parent.width - 1px); height: max(2px, note.h * parent.height);
-                                background: track.audible ? track.tint : #6a7c88;
+                                background: track.tint; opacity: track.audible ? 1 : 0.55;
                             }
                         }
                         private property <length> menu-x;
@@ -814,7 +839,7 @@ export component AppWindow inherits Window {
                         x: root.project-position * root.arrangement-zoom * 1px + root.arrangement-x; y: 0; width: 1px; height: parent.height; background: #edf8ff;
                     }
                 }
-                Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: #324254; }
+                Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: StudioTheme.border; }
             }
             if root.clip-dragging : Rectangle {
                 x:root.header-width;y:0;width:rows.visible-width - self.x;height:rows.content-height;clip:true;
@@ -840,7 +865,8 @@ export component AppWindow inherits Window {
         }
         Rectangle {
             x: 0; y: root.toolbar-height + 44px + root.arrangement-height; width: parent.width; height: root.splitter-height;
-            Rectangle { x: 0; y: 4px; width: parent.width; height: 4px; background: split-touch.has-hover || split-touch.pressed ? #6ed6b0 : #314354; }
+            background: StudioTheme.app;
+            Rectangle { x: (parent.width - 48px)/2; y: 5px; width: 48px; height: 2px; border-radius: 1px; background: split-touch.has-hover || split-touch.pressed ? StudioTheme.accent : #687685; }
             split-touch := TouchArea {
                 mouse-cursor: ns-resize;
                 moved => {
@@ -854,17 +880,18 @@ export component AppWindow inherits Window {
             }
         }
         // One compact editor toolbar: clip identity, edit commands and view controls.
+        Rectangle { x:0; y:root.toolbar-height+56px+root.arrangement-height; width:parent.width; height:root.editor-toolbar-height; background:StudioTheme.panel; }
         HorizontalLayout {
             x:0; y:root.toolbar-height+56px+root.arrangement-height; width:parent.width; height:root.editor-toolbar-height; spacing:3px;
-            new-clip-button := Button { width:28px; text:"+"; accessible-label:"New clip"; clicked=>{root.new-clip(root.track-id,root.clip-id!="0" ? root.clip-start-beat+root.clip-length-beats : root.project-position);} Tooltip {text:@markdown("New clip");} }
-            dup-clip-button := Button { width:38px; text:"Dup"; accessible-label:"Duplicate clip"; enabled:root.clip-id!="0"; clicked=>{root.duplicate-clip(root.track-id,root.clip-id);} Tooltip {text:@markdown("Duplicate clip");} }
-            remove-clip-button := Button { width:28px; text:"−"; accessible-label:"Remove clip"; enabled:root.clip-id!="0"; clicked=>{root.remove-clip(root.track-id,root.clip-id);} Tooltip {text:@markdown("Remove clip");} }
+            new-clip-button := StudioIconButton { icon:@image-url("icons/add.svg"); label:"New clip"; clicked=>{root.new-clip(root.track-id,root.clip-id!="0" ? root.clip-start-beat+root.clip-length-beats : root.project-position);} }
+            dup-clip-button := StudioIconButton { icon:@image-url("icons/copy.svg"); label:"Duplicate clip"; enabled:root.clip-id!="0"; clicked=>{root.duplicate-clip(root.track-id,root.clip-id);} }
+            remove-clip-button := StudioIconButton { icon:@image-url("icons/remove.svg"); label:"Remove clip"; enabled:root.clip-id!="0"; clicked=>{root.remove-clip(root.track-id,root.clip-id);} }
             ComboBox { width:100px; model:root.clip-names; current-index<=>root.clip-index; enabled:root.clip-id!="0";
                 selected(value)=>{if self.current-index>=0 && self.current-index<root.clip-ids.length {root.activate-editor-clip(root.track-id,root.clip-ids[self.current-index]);}} }
-            undo-button := Button { width:40px; text:"Undo"; accessible-label:"Undo"; enabled:root.can-undo; clicked=>{root.undo();} Tooltip {text:@markdown("Undo");} }
-            Button { width:40px; text:"Redo"; accessible-label:"Redo"; enabled:root.can-redo; clicked=>{root.redo();} Tooltip {text:@markdown("Redo");} }
-            Button { width:36px; text:"Del"; accessible-label:"Delete selected notes"; enabled:root.selected-note-id!="0"; clicked=>{root.remove-note();} Tooltip {text:@markdown("Delete selected notes · Delete");} }
-            Button { width:34px; text:"Fit"; clicked=>{root.fit-notes();} Tooltip {text:@markdown("Fit notes");} }
+            undo-button := StudioIconButton { icon:@image-url("icons/undo.svg"); label:"Undo"; enabled:root.can-undo; clicked=>{root.undo();} }
+            StudioIconButton { icon:@image-url("icons/redo.svg"); label:"Redo"; enabled:root.can-redo; clicked=>{root.redo();} }
+            StudioIconButton { icon:@image-url("icons/delete.svg"); label:"Delete selected notes"; hint:"Delete selected notes · Delete"; enabled:root.selected-note-id!="0"; clicked=>{root.remove-note();} }
+            StudioIconButton { icon:@image-url("icons/fit.svg"); label:"Fit notes"; clicked=>{root.fit-notes();} }
             Button { width:64px; text:"Restore"; clicked=>{root.restore-view();} Tooltip {text:@markdown("Restore view before Fit");} }
             Button { width:38px; text:"Vel"; accessible-label:"Toggle velocity lane"; checked:root.velocity-visible; clicked=>{root.velocity-visible=!root.velocity-visible;} Tooltip {text:@markdown("Toggle velocity lane");} }
             midi-snap-control := ComboBox { width:80px; model:["Off", "1/4", "1/16", "1/32"]; current-index:root.snap-index; selected(value)=>{root.set-snap(self.current-index);} }
@@ -915,13 +942,17 @@ export component AppWindow inherits Window {
         editor := Rectangle {
             visible: root.workspace-focus != 1;
             x:0;y:root.toolbar-height+58px+root.editor-toolbar-height+root.arrangement-height;width:parent.width;height:max(0px, parent.height - self.y);
-            Rectangle {x:0;y:0px;width:root.keyboard-width;height:20px;background:#243445;
-                Text {text:root.is-drums ? "DRUMS / MIDI" : "KEY / MIDI";color:#a6bfca;font-size:9px;horizontal-alignment:center;vertical-alignment:center;}}
+            // The editor can be locked to a different track than the selected
+            // arrangement row: its notes follow the editor's track identity.
+            private property <color> note-tint: root.track-index >= 0 && root.track-index < root.track-items.length ? root.track-items[root.track-index].tint : StudioTheme.accent;
+            private property <bool> note-tint-dark: (editor.note-tint.red * 299 + editor.note-tint.green * 587 + editor.note-tint.blue * 114) / 1000 < 135;
+            Rectangle {x:0;y:0px;width:root.keyboard-width;height:20px;background:StudioTheme.panel;
+                Text {text:root.is-drums ? "DRUMS / MIDI" : "KEY / MIDI";color:StudioTheme.secondary;font-size:10px;horizontal-alignment:center;vertical-alignment:center;}}
             Rectangle {
-                x:root.keyboard-width;y:0px;width:parent.width - self.x - 12px;height:20px;background:#1a2532;clip:true;
+                x:root.keyboard-width;y:0px;width:parent.width - self.x - 12px;height:20px;background:StudioTheme.panel;clip:true;
                 for beat in root.piano-beat-count : Text {
                     x:(beat+root.piano-first-beat - root.display-scroll-beat)*root.pixels-per-beat*1px+3px;y:3px;
-                    text:beat+root.piano-first-beat+1;color:#a2b5cc;font-size:10px;
+                    text:beat+root.piano-first-beat+1;color:StudioTheme.secondary;font-size:11px;
                 }
                 TouchArea {
                     mouse-cursor: root.middle-pan-target==2 ? grabbing : default;
@@ -947,14 +978,14 @@ export component AppWindow inherits Window {
                     reject
                 }
                 keyboard := Rectangle {
-                    x:0;y:0;width:root.keyboard-width;height:parent.height;clip:true;background:#d2dfe5;
+                    x:0;y:0;width:root.keyboard-width;height:parent.height;clip:true;background:#adb9c4;
                     for key in root.key-items : Rectangle {
                         x:0;y:key.y*1px+root.piano-scene-offset-y;width:parent.width;height:key.h*1px;
-                        background:key-touch.pressed ? #84deb8 : key.black ? #1b2c3c : #d7e2e8;
-                        Rectangle {x:0;y:0;width:key.c ? 4px : 0px;height:parent.height;background:#52b892;}
-                        Rectangle {x:0;y:parent.height - 1px;width:parent.width;height:1px;background:key.c ? #4d987f : #8196a7;}
+                        background:key-touch.pressed ? StudioTheme.accent : key.black ? #27333f : key.c ? #d3dfe9 : #afbbc7;
+                        Rectangle {x:0;y:0;width:key.c ? 3px : 0px;height:parent.height;background:StudioTheme.accent;}
+                        Rectangle {x:0;y:parent.height - 1px;width:parent.width;height:1px;background:key.black ? #1b252f : #8796a4;}
                         Text {x:7px;y:0;width:parent.width - 13px;height:parent.height;text:key.label;
-                            color:key.black ? #dae8f1 : #193343;font-size:key.h>=22 ? 12px : 10px;font-weight:key.c ? 700 : 400;vertical-alignment:center;horizontal-alignment:root.is-drums ? left : right;overflow:elide;}
+                            color:key-touch.pressed ? #17251e : key.black ? StudioTheme.text : #16202b;font-size:key.h>=22 ? 12px : 11px;font-weight:key.c ? 700 : 400;vertical-alignment:center;horizontal-alignment:root.is-drums ? left : right;overflow:elide;}
                         key-touch := TouchArea {
                             accessible-role:button;accessible-label:key.label+" · MIDI "+key.pitch;
                             mouse-cursor: root.middle-pan-target==2 ? grabbing : default;
@@ -972,27 +1003,30 @@ export component AppWindow inherits Window {
                     }
                 }
                 grid := Rectangle {
-                    x:root.keyboard-width;y:0;width:parent.width - self.x;height:parent.height;background:#101923;clip:true;
+                    x:root.keyboard-width;y:0;width:parent.width - self.x;height:parent.height;background:StudioTheme.canvas;clip:true;
                     for key in root.key-items : Rectangle {
-                        x:0;y:key.y*1px+root.piano-scene-offset-y;width:parent.width;height:key.h*1px;background:root.scale-mode != 0 && key.in-scale ? #213a3d : key.black ? #131e2a : #172332;
-                        Rectangle {x:0;y:parent.height - 1px;height:1px;width:parent.width;background:key.c ? #41705c : #233246;}
+                        x:0;y:key.y*1px+root.piano-scene-offset-y;width:parent.width;height:key.h*1px;background:root.scale-mode != 0 && key.in-scale ? #253632 : key.black ? #171d24 : #1b222a;
+                        Rectangle {x:0;y:parent.height - 1px;height:1px;width:parent.width;background:key.c ? #4b5968 : #27313b;}
                     }
                     for line in root.piano-beat-count*4+4 : Rectangle {
                         x:((line+root.piano-first-line)/4 - root.display-scroll-beat)*root.pixels-per-beat*1px;y:0;width:1px;height:parent.height;
-                        background:Math.mod(line+root.piano-first-line,4)==0 ? #35475e : #202e40;
+                        background:Math.mod(line+root.piano-first-line,16)==0 ? #4a5663 : Math.mod(line+root.piano-first-line,4)==0 ? #34404b : #252e37;
                     }
                     Rectangle {x:root.clip-length-beats*root.pixels-per-beat*1px - root.display-scroll-beat*root.pixels-per-beat*1px;y:0;width:max(0px,parent.width - self.x);height:parent.height;background:#070c13b0;}
                     for ghost in root.ghost-items : Rectangle {
                         x:ghost.x*1px+root.piano-scene-offset-x; y:ghost.y*1px+root.piano-scene-offset-y; width:ghost.w*1px; height:ghost.h*1px;
-                        background:ghost.tint.with-alpha(0.22); border-width:1px; border-color:ghost.tint.with-alpha(0.60); border-radius:2px;
+                        background:ghost.tint.with-alpha(0.07); border-width:1px; border-color:ghost.tint.with-alpha(0.80); border-radius:2px;
                     }
                     for note in root.note-items : Rectangle {
                         x:note.x*1px+root.piano-scene-offset-x;y:note.y*1px+root.piano-scene-offset-y;width:note.w*1px;height:note.h*1px;
-                        background:note.selected ? #e7c77b : #62bfa6;border-radius:2px;
-                        border-width: note.selected ? 2px : 0px; border-color: #fff4c8;
-                        if note.w >= 28 : Text {x:3px;y:0;width:parent.width - 5px;height:parent.height;text:note.label;color:#102b29;font-size:9px;vertical-alignment:center;overflow:elide;}
+                        background:editor.note-tint;border-radius:2px;
+                        border-width: note.selected ? 2px : editor.note-tint-dark ? 1px : 0px; border-color: note.selected ? StudioTheme.selection : StudioTheme.secondary;
+                        if note.w >= 28 : Text {x:3px;y:0;width:parent.width - 5px;height:parent.height;text:note.label;color:editor.note-tint-dark ? StudioTheme.selection : #10201a;font-size:11px;font-weight:600;vertical-alignment:center;overflow:elide;}
                     }
-                    if root.playhead-x>=0 && root.playhead-x<root.canvas-width : Rectangle {x:root.playhead-x*1px;y:0;width:2px;height:parent.height;background:#edf8ff;}
+                    if root.playhead-x>=0 && root.playhead-x<root.canvas-width : Rectangle {
+                        x:root.playhead-x*1px - 1px;y:0;width:3px;height:parent.height;background:StudioTheme.app;
+                        Rectangle {x:1px;y:0;width:1px;height:parent.height;background:StudioTheme.selection;}
+                    }
                     private property <length> menu-x;
                     private property <length> menu-y;
                     private property <length> menu-action-height: 32px;
@@ -1006,7 +1040,7 @@ export component AppWindow inherits Window {
                         // Keep the menu inside the window without changing the clicked note position.
                         x: grid.popup-x; y: grid.popup-y;
                         width: grid.popup-width; height: grid.popup-height; close-policy: close-on-click-outside;
-                        Rectangle { background: #1a2938; border-width: 1px; border-color: #536b7f;
+                        Rectangle { background: StudioTheme.raised; border-width: 1px; border-color: #576675;
                             VerticalLayout { padding: 4px; spacing: 2px;
                                 Button { height: grid.menu-action-height; text: "Note inspector"; clicked => { root.inspector-visible=true; root.project-tab=false; root.sound-tab=false; root.inspector-detail=2; root.inspector-scroll=0px; piano-menu.close(); } }
                                 Button { height: grid.menu-action-height; text: "Delete note here"; enabled:root.selected-note-id!="0"; clicked => {root.delete-note-at(grid.menu-track-id,grid.menu-clip-id,grid.menu-x/1px,grid.menu-y/1px);piano-menu.close();} }
@@ -1044,6 +1078,7 @@ export component AppWindow inherits Window {
                 x: root.keyboard-width; y: piano-focus.y + piano-focus.height;
                 width: parent.width - self.x - 12px; height: 60px;
                 items: root.velocity-items;
+                tint: editor.note-tint;
                 scroll-offset-x: root.piano-scene-offset-x;
                 middle-pan-active: root.middle-pan-target==2;
                 middle-pan-start(x,y) => {root.begin-middle-pan(2,x,y);}
@@ -1072,15 +1107,15 @@ export component AppWindow inherits Window {
             }
             HorizontalLayout {
                 x:0;y:parent.height - root.velocity-control-height - 1px;width:parent.width;height:root.velocity-control-height;spacing:5px;
-                Text {text:root.selected-label;color:#93a7bd;font-size:10px;overflow:elide;horizontal-stretch:1;vertical-alignment:center;}
-                Text {text:"Velocity";color:#a0b6c9;vertical-alignment:center;font-size:10px;}
+                Text {text:root.selected-label;color:StudioTheme.secondary;font-size:11px;overflow:elide;horizontal-stretch:1;vertical-alignment:center;}
+                Text {text:"Velocity";color:StudioTheme.secondary;vertical-alignment:center;font-size:11px;}
                 SpinBox {width:root.velocity-control-width;value<=>root.note-velocity;minimum:1;maximum:127;enabled:root.selected-note-id!="0";edited(value)=>{root.velocity(value);}}
             }
         }
     }
     inspector := Rectangle {
         x: root.width - root.inspector-width - 6px; y: 44px; width: root.inspector-width; height: root.height - 70px;
-        visible: root.inspector-visible; background: #141e2b; border-radius: 5px;
+        visible: root.inspector-visible; background: StudioTheme.panel; border-radius: 5px;
         // Consume input over empty and disabled inspector regions so it never
         // reaches the timeline or piano roll underneath an overlaid panel.
         TouchArea {
@@ -1117,13 +1152,13 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 visible: !root.project-tab && !root.sound-tab && root.inspector-detail == 0;
                 x: 0; y: 0; width: parent.width - 8px; height: 810px; spacing: 7px;
-                Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.inspector-track-index + 1); color: #7edcba; font-size: 11px; }
+                Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.inspector-track-index + 1); color: StudioTheme.accent; font-size: 11px; }
                 name-edit := LineEdit { height: 30px; text <=> root.inspector-track-name-draft; accepted => { root.rename-track(root.inspector-track-id, self.text); } }
                 Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.inspector-track-id, name-edit.text); } }
                 ComboBox { height: 30px; model: ["Mint", "Blue", "Amber", "Violet", "Rose", "Cyan"]; current-index <=> root.inspector-color-index;
                     selected(value) => { root.color-track(root.inspector-track-id, self.current-index); } }
-                Text { height: 18px; text: root.inspector-instrument + "  ·  independent instance"; color: #a0b4ca; font-size: 10px; }
-                Text { height: 18px; text: "Output → Master"; color: #c1d2e3; }
+                Text { height: 18px; text: root.inspector-instrument + "  ·  independent instance"; color: StudioTheme.secondary; font-size: 10px; }
+                Text { height: 18px; text: "Output → Master"; color: StudioTheme.text; }
                 HorizontalLayout {
                     height: 30px; spacing: 5px;
                     inspector-mute := Button { text: "Mute"; accessible-checkable: true; accessible-checked: root.inspector-muted; checked: root.inspector-muted;
@@ -1132,28 +1167,28 @@ export component AppWindow inherits Window {
                         clicked => { root.toggle-solo(root.inspector-track-id); } }
                 }
                 Text { height: 18px; text: root.inspector-audible ? "Audible · solo is cumulative" : root.inspector-muted ? "Muted · fader value retained" : "Excluded by another solo";
-                    color: root.inspector-audible ? #79d8b5 : #e0bd7b; font-size: 10px; }
-                Text { height: 18px; text: "Volume  " + round(root.inspector-gain * 100) + "%"; color: #c7d4e5; }
+                    color: root.inspector-audible ? StudioTheme.accent : StudioTheme.mute; font-size: 10px; }
+                Text { height: 18px; text: "Volume  " + round(root.inspector-gain * 100) + "%"; color: StudioTheme.text; }
                 gain-slider := Slider { height: 26px; value <=> root.inspector-gain; minimum: 0; maximum: 2;
                     changed(value) => { root.set-gain(root.inspector-track-id, value); } released(value) => { root.finish-mix(); } }
-                Text { height: 18px; text: "Pan  " + round(root.inspector-pan * 100); color: #c7d4e5; }
+                Text { height: 18px; text: "Pan  " + round(root.inspector-pan * 100); color: StudioTheme.text; }
                 Slider { height: 26px; value <=> root.inspector-pan; minimum: -1; maximum: 1;
                     changed(value) => { root.set-pan(root.inspector-track-id, value); } released(value) => { root.finish-mix(); } }
-                Text { height: 18px; text: root.mix-label; color: #7e96b0; font-size: 10px; }
+                Text { height: 18px; text: root.mix-label; color: StudioTheme.tertiary; font-size: 10px; }
                 HorizontalLayout {
                     height: 30px; spacing: 4px;
                     Button { text: "↑"; accessible-label: "Move track up"; enabled: root.inspector-track-index > 0; clicked => { root.move-track(root.inspector-track-id, -1); } Tooltip { text: @markdown("Move track up"); } }
                     Button { text: "↓"; accessible-label: "Move track down"; enabled: root.inspector-track-index < root.track-items.length - 1; clicked => { root.move-track(root.inspector-track-id, 1); } Tooltip { text: @markdown("Move track down"); } }
                     Button { text: "Remove"; enabled: root.track-items.length > 1; clicked => { root.remove-track(root.inspector-track-id); } }
                 }
-                Text { height: 30px; text: "Drag ≡ to reorder tracks.\nTrack / note edits stop playback."; color: #8b9eb3; font-size: 10px; }
-                Rectangle { height: 1px; background: #293747; }
+                Text { height: 30px; text: "Drag ≡ to reorder tracks.\nTrack / note edits stop playback."; color: StudioTheme.tertiary; font-size: 10px; }
+                Rectangle { height: 1px; background: StudioTheme.border; }
                 Button { height: 30px; text: "Use oscillator instrument"; enabled: !root.inspector-is-synth; clicked => { root.use-sine(root.inspector-track-id); } }
                 Button {height:30px;text:"Use CC0 drum kit";enabled:!root.inspector-is-drums;clicked=>{root.use-drums(root.inspector-track-id);if root.inspector-track-id==root.track-id {root.sound-tab=true;}root.inspector-scroll=0px;}}
                 sample-file := LineEdit { height: 30px; text <=> root.inspector-sample-path; placeholder-text: "Path to short WAV sample"; }
                 HorizontalLayout {
                     height: 30px;
-                    Text { text: "Root MIDI"; color: #c7d4e5; vertical-alignment: center; }
+                    Text { text: "Root MIDI"; color: StudioTheme.text; vertical-alignment: center; }
                     root-note := SpinBox { minimum: 0; maximum: 127; value <=> root.inspector-sample-root; }
                 }
                 one-shot := CheckBox { height: 26px; text: "One-shot"; checked <=> root.inspector-sample-one-shot; }
@@ -1164,9 +1199,9 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 visible: !root.project-tab && !root.sound-tab && root.inspector-detail == 1;
                 x: 0; y: 0; width: parent.width - 8px; height: 240px; spacing: 6px;
-                editor-clip-label := Text { height: 22px; text: "EDITOR CLIP · " + root.track-name + (root.clip-id != "0" && root.clip-index >= 0 && root.clip-index < root.clip-names.length ? " › " + root.clip-names[root.clip-index] : ""); color: #7edcba; overflow: elide; }
+                editor-clip-label := Text { height: 22px; text: "EDITOR CLIP · " + root.track-name + (root.clip-id != "0" && root.clip-index >= 0 && root.clip-index < root.clip-names.length ? " › " + root.clip-names[root.clip-index] : ""); color: StudioTheme.accent; overflow: elide; }
                 LineEdit { height: 30px; text <=> root.clip-name-draft; enabled: root.clip-id != "0"; placeholder-text: "Clip name"; accepted => { root.rename-clip(root.track-id, root.clip-id, self.text); } }
-                Text { height: 22px; text: root.clip-id == "0" ? "No clip selected" : "Start " + (root.clip-start-beat + 1) + " · " + root.clip-length-beats + " beats"; color: #c7d4e5; }
+                Text { height: 22px; text: root.clip-id == "0" ? "No clip selected" : "Start " + (root.clip-start-beat + 1) + " · " + root.clip-length-beats + " beats"; color: StudioTheme.text; }
                 Button { height: 30px; text: "Duplicate clip"; enabled: root.clip-id != "0"; clicked => { root.duplicate-clip(root.track-id,root.clip-id); } }
                 Button { height: 30px; text: "Remove clip"; enabled: root.clip-id != "0"; clicked => { root.remove-clip(root.track-id,root.clip-id); } }
                 Rectangle { vertical-stretch: 1; }
@@ -1174,17 +1209,17 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 visible: !root.project-tab && !root.sound-tab && root.inspector-detail == 2;
                 x: 0; y: 0; width: parent.width - 8px; height: 240px; spacing: 6px;
-                Text { height: 22px; text: "SELECTED NOTE"; color: #7edcba; }
-                Text { height: 30px; text: root.selected-note-id == "0" ? "No note selected" : root.selected-label; color: #c7d4e5; overflow: elide; }
-                HorizontalLayout { height: root.velocity-control-height; Text { text: "Velocity"; color: #c7d4e5; vertical-alignment: center; } SpinBox { width: root.velocity-control-width; value <=> root.note-velocity; minimum: 1; maximum: 127; enabled: root.selected-note-id != "0"; edited(value) => { root.velocity(value); } } }
+                Text { height: 22px; text: "SELECTED NOTE"; color: StudioTheme.accent; }
+                Text { height: 30px; text: root.selected-note-id == "0" ? "No note selected" : root.selected-label; color: StudioTheme.text; overflow: elide; }
+                HorizontalLayout { height: root.velocity-control-height; Text { text: "Velocity"; color: StudioTheme.text; vertical-alignment: center; } SpinBox { width: root.velocity-control-width; value <=> root.note-velocity; minimum: 1; maximum: 127; enabled: root.selected-note-id != "0"; edited(value) => { root.velocity(value); } } }
                 Button { height: 30px; text: "Delete note"; enabled: root.selected-note-id != "0"; clicked => { root.remove-note(); } }
                 Rectangle { vertical-stretch: 1; }
             }
             VerticalLayout {
                 visible: root.sound-tab && !root.project-tab && !root.is-drums;
                 x: 0; y: 0; width: parent.width - 8px; height: 710px; spacing: 7px;
-                synth-sound-label := Text { height: 18px; text: "EDITOR SOUND  ·  " + root.track-name; color: #7edcba; overflow: elide; }
-                Text { height: 18px; text: root.is-synth ? root.preset-label : "Sampler · controls in Track"; color: #c7d4e5; overflow: elide; }
+                synth-sound-label := Text { height: 18px; text: "EDITOR SOUND  ·  " + root.track-name; color: StudioTheme.accent; overflow: elide; }
+                Text { height: 18px; text: root.is-synth ? root.preset-label : "Sampler · controls in Track"; color: StudioTheme.text; overflow: elide; }
                 HorizontalLayout {
                     height: 30px; spacing: 5px;
                     ComboBox { enabled: root.is-synth; model: ["Legacy Sine", "Warm Saw", "Hollow Pulse", "Soft Triangle", "Short Pluck"]; current-index <=> root.factory-index; }
@@ -1193,53 +1228,53 @@ export component AppWindow inherits Window {
                 }
                 waveform-combo := ComboBox { height: 30px; enabled: root.is-synth; model: ["Sine", "Saw", "Square / PWM", "Triangle"]; current-index <=> root.synth-wave;
                     selected(value) => { root.synth-parameter(root.track-id, root.instance-id, 0, self.current-index); root.finish-mix(); } }
-                Text { height: 18px; text: "Shape  " + round(root.synth-shape * 100) + "%  ·  sine → wave"; color: #c7d4e5; }
+                Text { height: 18px; text: "Shape  " + round(root.synth-shape * 100) + "%  ·  sine → wave"; color: StudioTheme.text; }
                 shape-slider := Slider { height: 26px; enabled: root.is-synth && root.synth-wave != 0; minimum: 0; maximum: 1; value <=> root.synth-shape;
                     changed(value) => { root.synth-parameter(root.track-id, root.instance-id, 1, value); } released(value) => { root.finish-mix(); } }
-                Text { height: 18px; text: "Pulse width  " + round(root.synth-duty * 100) + "%"; color: #c7d4e5; }
+                Text { height: 18px; text: "Pulse width  " + round(root.synth-duty * 100) + "%"; color: StudioTheme.text; }
                 duty-slider := Slider { height: 26px; enabled: root.is-synth && root.synth-wave == 2; minimum: 0.05; maximum: 0.95; value <=> root.synth-duty;
                     changed(value) => { root.synth-parameter(root.track-id, root.instance-id, 2, value); } released(value) => { root.finish-mix(); } }
                 HorizontalLayout { height: 30px;
-                    Text { text: "Attack · ms"; color: #c7d4e5; vertical-alignment: center; }
+                    Text { text: "Attack · ms"; color: StudioTheme.text; vertical-alignment: center; }
                     attack-spin := SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 10000; value <=> root.synth-attack;
                         edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 3, value / 1000.0); root.finish-mix(); } }
                 }
                 HorizontalLayout { height: 30px;
-                    Text { text: "Decay · ms"; color: #c7d4e5; vertical-alignment: center; }
+                    Text { text: "Decay · ms"; color: StudioTheme.text; vertical-alignment: center; }
                     SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 10000; value <=> root.synth-decay;
                         edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 4, value / 1000.0); root.finish-mix(); } }
                 }
                 HorizontalLayout { height: 30px;
-                    Text { text: "Sustain · %"; color: #c7d4e5; vertical-alignment: center; }
+                    Text { text: "Sustain · %"; color: StudioTheme.text; vertical-alignment: center; }
                     SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 100; value <=> root.synth-sustain;
                         edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 5, value / 100.0); root.finish-mix(); } }
                 }
                 HorizontalLayout { height: 30px;
-                    Text { text: "Release · ms"; color: #c7d4e5; vertical-alignment: center; }
+                    Text { text: "Release · ms"; color: StudioTheme.text; vertical-alignment: center; }
                     SpinBox { enabled: root.is-synth; width: 116px; minimum: 0; maximum: 20000; value <=> root.synth-release;
                         edited(value) => { root.synth-parameter(root.track-id, root.instance-id, 6, value / 1000.0); root.finish-mix(); } }
                 }
-                Text { height: 32px; text: "ADSR applies to new notes.\nWave / shape / PWM fade in 10 ms."; color: #96abc0; font-size: 10px; }
-                Text { height: 28px; text: "Volume / pan: Track tab.\nOne oscillator · independent voices."; color: #96abc0; font-size: 10px; }
-                Rectangle { height: 1px; background: #293747; }
-                Text { height: 18px; text: "USER PRESET"; color: #8295ad; font-size: 11px; }
+                Text { height: 32px; text: "ADSR applies to new notes.\nWave / shape / PWM fade in 10 ms."; color: StudioTheme.secondary; font-size: 10px; }
+                Text { height: 28px; text: "Volume / pan: Track tab.\nOne oscillator · independent voices."; color: StudioTheme.secondary; font-size: 10px; }
+                Rectangle { height: 1px; background: StudioTheme.border; }
+                Text { height: 18px; text: "USER PRESET"; color: StudioTheme.tertiary; font-size: 11px; }
                 LineEdit { height: 30px; text <=> root.preset-name; placeholder-text: "Preset name"; }
                 LineEdit { height: 30px; text <=> root.preset-path; placeholder-text: "Path to .synth.json"; }
                 HorizontalLayout { height: 30px; spacing: 5px;
                     save-preset-button := Button { text: "Save preset"; enabled: root.is-synth; clicked => { root.save-synth-preset(root.track-id, root.instance-id, root.preset-path, root.preset-name); } }
                     load-preset-button := Button { text: "Load preset"; enabled: root.is-synth; clicked => { root.load-synth-preset(root.track-id, root.instance-id, root.preset-path); } }
                 }
-                Text { height: 28px; text: "Presets copy values into this track.\nNotes and track volume are retained."; color: #96abc0; font-size: 10px; }
+                Text { height: 28px; text: "Presets copy values into this track.\nNotes and track volume are retained."; color: StudioTheme.secondary; font-size: 10px; }
                 Rectangle { vertical-stretch: 1; }
             }
             VerticalLayout {
                 visible: root.sound-tab && !root.project-tab && root.is-drums;
                 x:0;y:0;width:parent.width - 8px;height:1100px;spacing:7px;
-                drum-sound-label := Text {height:18px;text:"EDITOR SOUND  ·  " + root.track-name;color:#7edcba;overflow:elide;font-size:11px;}
-                Text {height:18px;text:root.drum-kit-name;color:#a0b4ca;overflow:elide;font-size:12px;}
-                Text {height:18px;text:"GM subset · 16 pads · independent kit";color:#96abc0;font-size:10px;}
+                drum-sound-label := Text {height:18px;text:"EDITOR SOUND  ·  " + root.track-name;color:StudioTheme.accent;overflow:elide;font-size:11px;}
+                Text {height:18px;text:root.drum-kit-name;color:StudioTheme.secondary;overflow:elide;font-size:12px;}
+                Text {height:18px;text:"GM subset · 16 pads · independent kit";color:StudioTheme.secondary;font-size:10px;}
                 HorizontalLayout {height:root.velocity-control-height;spacing:4px;
-                    Text {text:"Preview vel.";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    Text {text:"Preview vel.";color:StudioTheme.text;vertical-alignment:center;font-size:11px;}
                     SpinBox {width:root.velocity-control-width;accessible-label:"Drum preview velocity";minimum:1;maximum:127;value<=>root.pad-preview-velocity;}
                 }
                 drum-focus := FocusScope {
@@ -1247,10 +1282,10 @@ export component AppWindow inherits Window {
                     for pad[index] in root.drum-pads : Rectangle {
                         x:(index - floor(index/4)*4)*(parent.width/4);y:floor(index/4)*54px;
                         width:parent.width/4 - 4px;height:50px;border-radius:4px;
-                        background:pad-touch.pressed || root.pad-pulses[index] ? #43896f : pad.filled ? #243a4c : #18212c;
-                        border-width:root.pad-id==pad.id ? 2px : 1px;border-color:root.pad-id==pad.id ? #8be0bd : #3a4a5b;
-                        Text {x:4px;y:4px;width:parent.width - 8px;height:27px;text:pad.name;wrap:word-wrap;overflow:elide;color:pad.filled ? #e0eaf3 : #8b9eb3;font-size:9px;}
-                        Text {x:4px;y:34px;width:parent.width - 8px;height:12px;text:pad.filled ? (root.pad-mutes[index] ? "M · " : "")+pad.midi : "Empty · "+pad.midi;color:#9cb2c8;font-size:8px;}
+                        background:pad-touch.pressed || root.pad-pulses[index] ? #315c4c : pad.filled ? StudioTheme.raised : StudioTheme.canvas;
+                        border-width:root.pad-id==pad.id ? 2px : 1px;border-color:root.pad-id==pad.id ? StudioTheme.accent : StudioTheme.border;
+                        Text {x:4px;y:4px;width:parent.width - 8px;height:27px;text:pad.name;wrap:word-wrap;overflow:elide;color:pad.filled ? StudioTheme.text : StudioTheme.tertiary;font-size:9px;}
+                        Text {x:4px;y:34px;width:parent.width - 8px;height:12px;text:pad.filled ? (root.pad-mutes[index] ? "M · " : "")+pad.midi : "Empty · "+pad.midi;color:StudioTheme.secondary;font-size:8px;}
                         pad-touch := TouchArea {
                             accessible-role:button;accessible-label:pad.name+" · MIDI "+pad.midi;
                             pointer-event(event)=>{
@@ -1263,11 +1298,11 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                Text {height:18px;text:"SELECTED PAD · MIDI "+root.pad-midi;color:#7edcba;font-size:11px;}
+                Text {height:18px;text:"SELECTED PAD · MIDI "+root.pad-midi;color:StudioTheme.accent;font-size:11px;}
                 pad-name-edit := LineEdit {height:30px;text<=>root.pad-name;accepted=>{root.rename-pad(self.text);}}
                 Button {height:28px;text:"Rename pad";clicked=>{root.rename-pad(pad-name-edit.text);}}
                 HorizontalLayout {height:30px;spacing:4px;
-                    Text {text:"MIDI";color:#c7d4e5;vertical-alignment:center;}
+                    Text {text:"MIDI";color:StudioTheme.text;vertical-alignment:center;}
                     pad-map-spin := SpinBox {minimum:0;maximum:127;value<=>root.pad-midi;width:88px;}
                     pad-map-button := Button {text:"Apply map";clicked=>{root.map-pad(pad-map-spin.value);}}
                 }
@@ -1275,36 +1310,36 @@ export component AppWindow inherits Window {
                     pad-mute-button := Button {text:"Mute";checked:root.pad-muted;accessible-checkable:true;accessible-checked:root.pad-muted;clicked=>{root.toggle-pad(3);}}
                     pad-mode-button := Button {text:root.pad-one-shot ? "One-shot" : "Gated";checked:root.pad-one-shot;accessible-checkable:true;accessible-checked:root.pad-one-shot;clicked=>{root.toggle-pad(4);}}
                 }
-                Text {height:18px;text:"Pad volume  "+round(root.pad-gain*100)+"%";color:#c7d4e5;}
+                Text {height:18px;text:"Pad volume  "+round(root.pad-gain*100)+"%";color:StudioTheme.text;}
                 pad-gain-slider := Slider {height:26px;minimum:0;maximum:4;value<=>root.pad-gain;changed(value)=>{root.pad-parameter(0,value);}released(value)=>{root.finish-mix();}}
-                Text {height:18px;text:"Pad pan  "+round(root.pad-pan*100);color:#c7d4e5;}
+                Text {height:18px;text:"Pad pan  "+round(root.pad-pan*100);color:StudioTheme.text;}
                 pad-pan-slider := Slider {height:26px;minimum:-1;maximum:1;value<=>root.pad-pan;changed(value)=>{root.pad-parameter(1,value);}released(value)=>{root.finish-mix();}}
                 HorizontalLayout {height:30px;
-                    Text {text:"Tune · semitones";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    Text {text:"Tune · semitones";color:StudioTheme.text;vertical-alignment:center;font-size:11px;}
                     SpinBox {minimum:-24;maximum:24;width:88px;value<=>root.pad-tune;edited(value)=>{root.pad-parameter(2,value);root.finish-mix();}}
                 }
                 HorizontalLayout {height:30px;
-                    Text {text:"Choke · 0 = none";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    Text {text:"Choke · 0 = none";color:StudioTheme.text;vertical-alignment:center;font-size:11px;}
                     SpinBox {minimum:0;maximum:16;width:88px;value<=>root.pad-choke;edited(value)=>{root.pad-parameter(5,value);root.finish-mix();}}
                 }
-                Text {height:38px;text:"Tune / mode / choke apply to new hits.\nHi-hats share choke group 1.\nTrack volume / pan: Track tab.";color:#96abc0;font-size:10px;}
-                Rectangle {height:1px;background:#293747;}
-                Text {height:32px;text:root.pad-filled ? root.pad-source : "Empty pad · import a WAV";color:#9db1c7;font-size:10px;wrap:word-wrap;overflow:elide;}
+                Text {height:38px;text:"Tune / mode / choke apply to new hits.\nHi-hats share choke group 1.\nTrack volume / pan: Track tab.";color:StudioTheme.secondary;font-size:10px;}
+                Rectangle {height:1px;background:StudioTheme.border;}
+                Text {height:32px;text:root.pad-filled ? root.pad-source : "Empty pad · import a WAV";color:StudioTheme.secondary;font-size:10px;wrap:word-wrap;overflow:elide;}
                 LineEdit {height:30px;text<=>root.pad-import-path;placeholder-text:"Path to replacement WAV";}
                 HorizontalLayout {height:30px;spacing:5px;
                     pad-import-button := Button {text:"Replace WAV";clicked=>{root.import-pad(root.pad-import-path);}}
                     pad-clear-button := Button {text:"Clear";enabled:root.pad-filled;clicked=>{root.clear-pad();}}
                 }
-                Text {height:48px;text:"One-shots finish after button release.\nFocus / track changes cancel previews.\nMapping and sample edits stop playback;\nUndo restores the previous pad.";color:#96abc0;font-size:10px;}
+                Text {height:48px;text:"One-shots finish after button release.\nFocus / track changes cancel previews.\nMapping and sample edits stop playback;\nUndo restores the previous pad.";color:StudioTheme.secondary;font-size:10px;}
                 Button {height:30px;text:"Reset CC0 kit";clicked=>{root.use-drums(root.track-id);}}
-                Text {height:28px;text:"VCSL · Versilian Studios · CC0 1.0\nTwelve sounds; four empty pads for import.";color:#8295ad;font-size:10px;}
+                Text {height:28px;text:"VCSL · Versilian Studios · CC0 1.0\nTwelve sounds; four empty pads for import.";color:StudioTheme.tertiary;font-size:10px;}
                 Rectangle {vertical-stretch:1;}
             }
             VerticalLayout {
                 visible: root.project-tab;
                 x: 0; y: 0; width: parent.width - 8px; height: 460px; spacing: 8px;
-                Text { height: 18px; text: "PROJECT FOLDER"; color: #8295ad; font-size: 11px; }
-                Text { height: 58px; text: root.project-path == "" ? "Choose a folder with Save as…" : root.project-path; wrap: char-wrap; color: #c7d4e5; font-size: 11px; }
+                Text { height: 18px; text: "PROJECT FOLDER"; color: StudioTheme.tertiary; font-size: 11px; }
+                Text { height: 58px; text: root.project-path == "" ? "Choose a folder with Save as…" : root.project-path; wrap: char-wrap; color: StudioTheme.text; font-size: 11px; }
                 HorizontalLayout { height: 30px;
                     Button { text: "Save"; clicked => { root.request-save(); } }
                     Button { text: "Save as…"; clicked => { root.show-save-as(); } }
@@ -1312,27 +1347,34 @@ export component AppWindow inherits Window {
                 Button { height: 30px; text: "Open project folder"; enabled: root.project-path != ""; clicked => { root.reveal-project(); } }
                 Button { height: 30px; text: "New / Recent projects…"; enabled: !root.export-busy; clicked => { root.show-projects(); } }
                 HorizontalLayout { height: 30px;
-                    Text { text: "Tempo"; color: #c7d4e5; vertical-alignment: center; }
+                    Text { text: "Tempo"; color: StudioTheme.text; vertical-alignment: center; }
                     TempoControl { value <=> root.bpm; edited(value) => { root.tempo(value); } }
                 }
-                Text { height: 18px; text: "WAV EXPORT"; color: #8295ad; font-size: 11px; }
+                Text { height: 18px; text: "WAV EXPORT"; color: StudioTheme.tertiary; font-size: 11px; }
                 LineEdit { height: 30px; text <=> root.export-path; }
                 Button { height: 30px; text: root.export-busy ? "Exporting…" : "Export PCM16 WAV"; enabled: !root.export-busy;
                     clicked => { root.export-audio(root.export-path); } }
-                Text { height: 34px; text: "Export includes track mute / solo.\nPlayback continues independently."; color: #96abc0; font-size: 11px; }
+                Text { height: 34px; text: "Export includes track mute / solo.\nPlayback continues independently."; color: StudioTheme.secondary; font-size: 11px; }
                 Rectangle { vertical-stretch: 1; }
             }
         }
     }
     Rectangle {
-        x: 0; y: root.height - 22px; width: root.width; height: 22px; background: #151e29;
+        x: 0; y: root.height - 22px; width: root.width; height: 22px; background: StudioTheme.app;
         Text { x: 12px; y: 4px; height: 19px; width: parent.width - 218px;
-            text: root.action-error != "" ? root.action-error : root.arrangement-limited ? "Preview limited to 256 clips; zoom in." : root.status;
-            color: root.action-error != "" ? #f2b6a1 : #a8b9cd; vertical-alignment: center; overflow: elide; font-size: 11px; }
-        Rectangle { x: parent.width - 190px; y: 4px; width: 170px; height: 5px; background: #29384a;
-            Rectangle { x: 0; y: 0; width: parent.width * root.peak-left; height: parent.height; background: #70dcb5; } }
-        Rectangle { x: parent.width - 190px; y: 12px; width: 170px; height: 5px; background: #29384a;
-            Rectangle { x: 0; y: 0; width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
+            text: root.action-error != "" ? root.action-error : root.arrangement-limited ? "Preview limited to 256 clips; zoom in." : StudioTheme.focus-hint != "" ? StudioTheme.focus-hint : root.status;
+            color: root.action-error != "" ? StudioTheme.error : StudioTheme.secondary; vertical-alignment: center; overflow: elide; font-size: 11px; }
+        Rectangle { x: parent.width - 190px; y: 4px; width: 170px; height: 5px; background: StudioTheme.raised;
+            Rectangle { x: 0; y: 0; width: parent.width * root.peak-left; height: parent.height; background: StudioTheme.accent; } }
+        Rectangle { x: parent.width - 190px; y: 12px; width: 170px; height: 5px; background: StudioTheme.raised;
+            Rectangle { x: 0; y: 0; width: parent.width * root.peak-right; height: parent.height; background: StudioTheme.accent; } }
+    }
+    if StudioTheme.focus-tooltip-visible && StudioTheme.focus-hint != "" && !root.home-visible : Rectangle {
+        x: max(4px, min(root.width - self.width - 4px, StudioTheme.focus-tooltip-x));
+        y: min(root.height - self.height - 24px, StudioTheme.focus-tooltip-y + 4px);
+        width: max(100px, min(240px, StudioTheme.focus-hint.character-count * 7px + 16px)); height: 28px;
+        background: StudioTheme.raised; border-width: 1px; border-color: #566470; border-radius: 4px;
+        Text { x: 8px; width: parent.width - 16px; text: StudioTheme.focus-hint; color: StudioTheme.text; font-size: 11px; vertical-alignment: center; overflow: elide; }
     }
     // The initial hit target can disappear when a long timeline pan culls a
     // clip or row. A stable window-level target continues the same drag until
@@ -1348,47 +1390,47 @@ export component AppWindow inherits Window {
     }
     Rectangle {
         visible: root.home-visible;
-        x: 0; y: 0; width: parent.width; height: parent.height - 42px; background: #0d1117;
+        x: 0; y: 0; width: parent.width; height: parent.height - 42px; background: StudioTheme.app;
         TouchArea { }
         VerticalLayout {
             x: (parent.width - 900px) / 2; y: 46px; width: 900px; height: parent.height - 82px; spacing: 18px;
             HorizontalLayout { height: 38px;
-                Text { text: "OPENDAW"; color: #79e3bf; font-size: 28px; font-weight: 700; }
+                Text { text: "OPENDAW"; color: StudioTheme.accent; font-size: 28px; font-weight: 700; }
                 Rectangle { horizontal-stretch: 1; }
                 Button { visible: root.has-project; text: "Back to project"; clicked => { root.home-visible = false; } }
             }
-            Text { height: 32px; text: "Your next session starts here."; color: #edf4ff; font-size: 23px; }
+            Text { height: 32px; text: "Your next session starts here."; color: StudioTheme.text; font-size: 23px; }
             HorizontalLayout { spacing: 22px;
-                Rectangle { width: 360px; background: #151e2b; border-radius: 10px;
+                Rectangle { width: 360px; background: StudioTheme.panel; border-radius: 10px;
                     VerticalLayout { padding: 22px; spacing: 12px;
-                        Text { height: 28px; text: "New project"; color: #edf4ff; font-size: 20px; font-weight: 600; }
-                        Text { height: 28px; text: "Start with an empty instrument track."; color: #96abc0; font-size: 12px; }
-                        Text { height: 18px; text: "PROJECT NAME"; color: #8295ad; font-size: 11px; }
+                        Text { height: 28px; text: "New project"; color: StudioTheme.text; font-size: 20px; font-weight: 600; }
+                        Text { height: 28px; text: "Start with an empty instrument track."; color: StudioTheme.secondary; font-size: 12px; }
+                        Text { height: 18px; text: "PROJECT NAME"; color: StudioTheme.tertiary; font-size: 11px; }
                         LineEdit { height: 36px; text <=> root.new-name; placeholder-text: "My song"; }
-                        Text { height: 18px; text: "SAVE IN"; color: #8295ad; font-size: 11px; }
+                        Text { height: 18px; text: "SAVE IN"; color: StudioTheme.tertiary; font-size: 11px; }
                         LineEdit { height: 36px; text <=> root.new-parent; placeholder-text: "Choose a folder"; }
                         Button { height: 32px; text: "Choose folder…"; clicked => { root.browse-folder(0); } }
-                        Text { height: 52px; text: "A new .opendaw folder will contain your\nproject and its audio samples."; color: #96abc0; font-size: 12px; wrap: word-wrap; }
+                        Text { height: 52px; text: "A new .opendaw folder will contain your\nproject and its audio samples."; color: StudioTheme.secondary; font-size: 12px; wrap: word-wrap; }
                         create-project-button := Button { height: 40px; text: "Create project"; enabled: root.new-name != "" && root.new-parent != "" && root.pending-actions == 0 && !root.export-busy;
                             clicked => { root.request-switch(1, root.new-parent, root.new-name); } }
                         Rectangle { vertical-stretch: 1; }
                     }
                 }
-                Rectangle { horizontal-stretch: 1; background: #111923; border-radius: 10px;
+                Rectangle { horizontal-stretch: 1; background: StudioTheme.canvas; border-radius: 10px;
                     VerticalLayout { padding: 22px; spacing: 12px;
                         HorizontalLayout { height: 32px;
-                            Text { text: "Recent projects"; color: #edf4ff; font-size: 20px; font-weight: 600; }
+                            Text { text: "Recent projects"; color: StudioTheme.text; font-size: 20px; font-weight: 600; }
                             Button { text: "Open project…"; enabled: !root.export-busy; clicked => { root.choose-open-project(); } }
                         }
-                        Text { visible: root.recent-projects.length == 0; height: root.recent-projects.length == 0 ? 68px : 0px; text: "No recent projects yet.\nCreate a project or open an existing .opendaw folder."; color: #96abc0; font-size: 12px; wrap: word-wrap; }
+                        Text { visible: root.recent-projects.length == 0; height: root.recent-projects.length == 0 ? 68px : 0px; text: "No recent projects yet.\nCreate a project or open an existing .opendaw folder."; color: StudioTheme.secondary; font-size: 12px; wrap: word-wrap; }
                         recent-scroll := ScrollView {
                             horizontal-scrollbar-policy: always-off;
                             VerticalLayout { spacing: 8px;
                                 for project in root.recent-projects : Rectangle {
-                                    height: 72px; background: #1b2838; border-radius: 6px;
+                                    height: 72px; background: StudioTheme.raised; border-radius: 6px;
                                     VerticalLayout { padding: 10px; spacing: 5px;
-                                        Text { text: project.name + (project.available ? "" : " · unavailable"); color: project.available ? #e7f1fc : #b6a18d; font-size: 14px; overflow: elide; }
-                                        Text { text: project.path; color: #8299b2; font-size: 10px; overflow: elide; }
+                                        Text { text: project.name + (project.available ? "" : " · unavailable"); color: project.available ? StudioTheme.text : #b6a18d; font-size: 14px; overflow: elide; }
+                                        Text { text: project.path; color: StudioTheme.tertiary; font-size: 10px; overflow: elide; }
                                     }
                                     TouchArea { mouse-cursor: pointer; clicked => { root.request-switch(0, project.path, ""); }
                                         Tooltip { text: @markdown("\{project.path}"); }
@@ -1404,14 +1446,14 @@ export component AppWindow inherits Window {
     if root.save-as-visible : Rectangle {
         x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
         TouchArea { }
-        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 560px; height: 360px; background: #1b293a; border-radius: 8px;
+        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 560px; height: 360px; background: StudioTheme.raised; border-radius: 8px;
             VerticalLayout { padding: 24px; spacing: 12px;
-                Text { text: "Save project as…"; color: #edf4ff; font-size: 23px; }
-                Text { text: "Create a portable copy in a new .opendaw folder."; color: #adbed1; }
+                Text { text: "Save project as…"; color: StudioTheme.text; font-size: 23px; }
+                Text { text: "Create a portable copy in a new .opendaw folder."; color: StudioTheme.secondary; }
                 LineEdit { height: 34px; text <=> root.save-as-name; placeholder-text: "Project folder name"; }
                 LineEdit { height: 34px; text <=> root.save-as-parent; placeholder-text: "Save in"; }
                 Button { height: 30px; text: "Choose folder…"; clicked => { root.browse-folder(1); } }
-                Text { height: 40px; text: root.action-error; color: #f2b6a1; wrap: word-wrap; font-size: 11px; }
+                Text { height: 40px; text: root.action-error; color: StudioTheme.error; wrap: word-wrap; font-size: 11px; }
                 HorizontalLayout { height: 34px;
                     Button { text: "Cancel"; clicked => { root.save-as-visible = false; } }
                     Button { text: "Save copy"; enabled: root.pending-actions == 0; clicked => { root.save-project-as(root.save-as-parent, root.save-as-name); } }
@@ -1423,11 +1465,11 @@ export component AppWindow inherits Window {
         visible: root.confirm-switch;
         x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
         TouchArea { }
-        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 580px; height: 250px; background: #1b293a; border-radius: 8px;
+        Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 580px; height: 250px; background: StudioTheme.raised; border-radius: 8px;
             VerticalLayout { padding: 24px; spacing: 16px;
-                Text { text: "Save changes before switching?"; color: #edf4ff; font-size: 23px; }
-                Text { text: "Choose what to do with edits to " + root.project-name + "."; color: #adbed1; wrap: word-wrap; }
-                Text { height: 40px; text: root.action-error; color: #f2b6a1; wrap: word-wrap; font-size: 11px; }
+                Text { text: "Save changes before switching?"; color: StudioTheme.text; font-size: 23px; }
+                Text { text: "Choose what to do with edits to " + root.project-name + "."; color: StudioTheme.secondary; wrap: word-wrap; }
+                Text { height: 40px; text: root.action-error; color: StudioTheme.error; wrap: word-wrap; font-size: 11px; }
                 HorizontalLayout { height: 34px;
                     Button { text: "Cancel"; clicked => { root.confirm-switch = false; } }
                     switch-discard-button := Button { text: "Discard and continue"; enabled: root.pending-actions == 0; clicked => { root.switch-project(root.pending-project-kind, root.pending-project-path, root.pending-project-name, 2); } }
@@ -1453,10 +1495,10 @@ export component AppWindow inherits Window {
         x: 0; y: 0; width: parent.width; height: parent.height; background: #000000b0;
         TouchArea { }
         Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-            width: 480px; height: 190px; background: #1b293a; border-radius: 8px;
+            width: 480px; height: 190px; background: StudioTheme.raised; border-radius: 8px;
             VerticalLayout { padding: 24px; spacing: 16px;
-                Text { text: "Close OpenDAW?"; color: #eef6ff; font-size: 23px; }
-                Text { text: "Save your edits before closing. Unsaved changes will be lost."; color: #adbed1; wrap: word-wrap; }
+                Text { text: "Close OpenDAW?"; color: StudioTheme.text; font-size: 23px; }
+                Text { text: "Save your edits before closing. Unsaved changes will be lost."; color: StudioTheme.secondary; wrap: word-wrap; }
                 HorizontalLayout {
                     Button { text: "Keep editing"; clicked => { root.confirm-close = false; } }
                     Button { text: "Save"; clicked => { root.request-save(); root.confirm-close = false; } }

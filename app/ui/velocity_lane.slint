@@ -2,6 +2,7 @@
 export struct VelocityVisual { id: string, x: float, value: int, selected: bool }
 export component VelocityLane inherits Rectangle {
     in property <[VelocityVisual]> items;
+    in property <color> tint: #72ddb7;
     in property <length> scroll-offset-x: 0px;
     in property <bool> middle-pan-active: false;
     callback select-note(string);
@@ -12,10 +13,10 @@ export component VelocityLane inherits Rectangle {
     callback wheel(float,float,bool,bool,float);
     private property <string> dragging-id;
     private property <int> preview-value: 100;
-    background: #101923;
+    background: #171d23;
     clip: true;
-    Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: #40566a; }
-    Rectangle { x: 0; y: parent.height / 2; width: parent.width; height: 1px; background: #29394a; }
+    Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: #52606d; }
+    Rectangle { x: 0; y: parent.height / 2; width: parent.width; height: 1px; background: #303b45; }
     // The lane background remains available for middle-button navigation.
     TouchArea {
         mouse-cursor: root.middle-pan-active ? grabbing : default;
@@ -37,7 +38,8 @@ export component VelocityLane inherits Rectangle {
             x: 3px; width: 3px;
             height: max(2px, parent.height * (root.dragging-id == bar.id ? root.preview-value : bar.value) / 127);
             y: parent.height - self.height;
-            background: bar.selected || root.dragging-id == bar.id ? #e7c77b : #62bfa6;
+            background: root.tint;
+            border-width: bar.selected || root.dragging-id == bar.id ? 1px : 0px; border-color: #f2f6fa;
         }
         TouchArea {
             accessible-role: slider;
