@@ -3,7 +3,7 @@ use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferTyp
 use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent, PointerEventButton};
 use slint::{ComponentHandle, SharedPixelBuffer};
 use opendaw_app::{controller::{self, Request, Response, ViewState, QUIT}, mailbox::Mailbox};
-use std::{cell::RefCell, io::Write, path::Path, rc::Rc, sync::atomic::Ordering, time::{Duration, Instant}};
+use std::{cell::{Cell, RefCell}, io::Write, path::Path, rc::Rc, sync::atomic::Ordering, time::{Duration, Instant}};
 slint::include_modules!();
 #[path = "../src/ui_support.rs"] mod ui_support;
 struct ProbePlatform(Rc<MinimalSoftwareWindow>);
@@ -49,6 +49,20 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
     ui_support::bind_editor(&ui,mailbox.clone());ui.show()?;window.set_size(slint::PhysicalSize::new(1280,820));
     let mut presenter=ui_support::Presenter::new(&ui);let mut last=None;
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    let tempo_edits=Rc::new(Cell::new(0));let tempo_edits_out=tempo_edits.clone();
+    ui.on_tempo(move |v|tempo_edits_out.set(v));
+    ui.set_bpm(99);let (tempo_x,tempo_y,tempo_w)=(ui.get_tempo_control_x(),ui.get_tempo_control_y(),ui.get_tempo_control_width());
+    assert!((tempo_w-104.).abs()<0.01,"Tempo control must have a fixed width");
+    click(&window,tempo_x+90.,tempo_y+15.);
+    assert_eq!(ui.get_bpm(),100);assert_eq!(tempo_edits.get(),100);
+    assert!((ui.get_tempo_control_x()-tempo_x).abs()<0.01 && (ui.get_tempo_control_width()-tempo_w).abs()<0.01,"Changing to three digits must not resize or move the control");
+    click(&window,tempo_x+14.,tempo_y+15.);assert_eq!(ui.get_bpm(),99);assert_eq!(tempo_edits.get(),99);
+    click(&window,tempo_x+52.,tempo_y+15.);key(&window,slint::platform::Key::UpArrow.into());
+    assert_eq!(ui.get_bpm(),100,"Keyboard arrows must adjust tempo");
+    ui.set_bpm(30);click(&window,tempo_x+14.,tempo_y+15.);assert_eq!(ui.get_bpm(),30);
+    ui.set_bpm(300);click(&window,tempo_x+90.,tempo_y+15.);assert_eq!(ui.get_bpm(),300);
+    assert!((ui.get_tempo_control_width()-tempo_w).abs()<0.01,"Tempo bounds must not change the control width");
+    ui.set_bpm(120);
     click(&window,299.,20.);click(&window,310.,60.);
     assert!(ui.get_about_visible(),"Help opens About OpenDAW");ui.set_about_visible(false);
     mailbox.borrow_mut().enqueue(Request::FollowSelection(false)).unwrap();
@@ -93,6 +107,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
     click(&window,ui.get_inspector_toggle_x(),ui.get_inspector_toggle_y());settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     assert!(ui.get_inspector_visible() && !ui.get_inspector_pinned(),"The global toggle must reopen the temporary inspector");
     window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:2.});window.set_size(slint::PhysicalSize::new(2000,1520));
+    assert!((ui.get_tempo_control_width()-104.).abs()<0.01,"Tempo control must remain fixed at 200% scaling");
     ui.set_inspector_pinned(true);settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     ui.set_sound_tab(true);ui.set_project_tab(false);ui.set_inspector_scroll(0.);settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     assert_eq!(ui.get_synth_wave(),0,"The sine shape and PWM sliders must start disabled");

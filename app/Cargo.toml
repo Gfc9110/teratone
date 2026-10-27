@@ -59,6 +59,16 @@ name = "view_state_probe"
 path = "examples/view_state_probe.rs"
 required-features = ["ui"]
 
+[[example]]
+name = "middle_pan_probe"
+path = "examples/middle_pan_probe.rs"
+required-features = ["ui"]
+
+[[example]]
+name = "wheel_scroll_probe"
+path = "examples/wheel_scroll_probe.rs"
+required-features = ["ui"]
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

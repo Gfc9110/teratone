@@ -61,9 +61,27 @@ impl Presenter {
         self.rows = rows;
     }
     pub fn apply(&mut self, ui: &AppWindow, view: ViewState) {
+        self.apply_with_navigation(ui,view,false,false,None);
+    }
+    /// Retain newer local wheel/pan input until the corresponding snapshot is
+    /// presented. The Slint scene projects the latest offset over this view's
+    /// geometry, so ruler, notes and hit testing stay aligned while it catches up.
+    pub fn apply_with_navigation(&mut self, ui: &AppWindow, view: ViewState, preserve_piano:bool, preserve_arrangement:bool, settled_scroll:Option<(f64,f32)>) {
         let switched = self
             .project_session
             .is_some_and(|session| session != view.project_session);
+        let same_clip=!switched && ui.get_track_id().parse::<u64>().ok()==Some(view.track_id) && ui.get_clip_id().parse::<u64>().ok()==Some(view.clip_id);
+        let preserve_piano=preserve_piano && same_clip;
+        let optimistic_beat=(-ui.get_piano_bar_x()/ui.get_pixels_per_beat()).max(0.0);
+        let max_x=(view.clip_length as f32/960.0*view.viewport.pixels_per_beat-view.viewport.width).max(0.0);
+        // Keep the unquantized remainder only for the actual scroll snapshot,
+        // inside the clip bounds. Other navigation must use its own view.
+        let residual=same_clip && settled_scroll.is_some_and(|(beat,_)| {
+            let x=beat*view.viewport.pixels_per_beat as f64;
+            x>0.0 && x<(max_x as f64) &&
+                (beat-optimistic_beat as f64).abs()<0.000_001 &&
+                (beat-view.viewport.start_tick as f64/960.0).abs()<=0.5/960.0+0.000_001
+        });
         if switched {
             ui.invoke_cancel_interactions();
             self.inspector = None;
@@ -208,7 +226,11 @@ impl Presenter {
         ui.set_dirty(view.dirty); ui.set_can_undo(view.can_undo); ui.set_can_redo(view.can_redo); ui.set_export_busy(view.export_busy);
         ui.set_pixels_per_beat(view.viewport.pixels_per_beat); ui.set_scroll_beat(view.viewport.start_tick as f32 / 960.0);
         ui.set_piano_scroll_y(view.viewport.scroll_y);ui.set_piano_row_height(view.viewport.row_height);ui.set_notation_index(view.viewport.octave_offset as i32+1);
-        ui.set_piano_bar_y(-view.viewport.scroll_y);ui.set_piano_bar_x(-(view.viewport.start_tick as f32)/960.0*view.viewport.pixels_per_beat);
+        if preserve_piano || residual {
+            let max_y=(view.piano_row_count as f32*view.viewport.row_height-view.viewport.height).max(0.0);
+            ui.set_piano_bar_x((-optimistic_beat*view.viewport.pixels_per_beat).clamp(-max_x,0.0));
+            if preserve_piano {ui.set_piano_bar_y(ui.get_piano_bar_y().clamp(-max_y,0.0));} else {ui.set_piano_bar_y(-view.viewport.scroll_y);}
+        } else { ui.set_piano_bar_y(-view.viewport.scroll_y);ui.set_piano_bar_x(-(view.viewport.start_tick as f32)/960.0*view.viewport.pixels_per_beat); }
         if self.keys!=view.keys {
             ui.invoke_release_keyboard();
             self.key_model.set_vec(view.keys.iter().map(|k|KeyVisual{pitch:k.pitch as i32,y:k.y,h:k.height,black:k.black,c:k.c,in_scale:k.in_scale,label:k.label.clone().into()}).collect::<Vec<_>>());
@@ -242,9 +264,10 @@ impl Presenter {
         ui.set_midi_view_mode(view.midi_view_mode);ui.set_scale_mode(view.scale_mode);ui.set_scale_root(view.scale_root);
         ui.set_piano_row_count(view.piano_row_count as i32);ui.set_snap_index(view.snap_index);
         ui.set_navigation_linked(view.navigation_linked);
-        if view.navigation_linked {
+        if view.navigation_linked && !preserve_arrangement {
             if (ui.get_arrangement_zoom()-view.linked_scale).abs()>0.001 {ui.set_arrangement_zoom(view.linked_scale);}
-            let x=-view.linked_start*view.linked_scale;
+            let linked_start=if preserve_piano || residual {view.clip_start as f32/960.0+optimistic_beat} else {view.linked_start};
+            let x=-linked_start*view.linked_scale;
             if (ui.get_arrangement_x()-x).abs()>0.001 {ui.set_arrangement_x(x);}
         }
         ui.invoke_clamp_scroll();if selection_changed && !switched {ui.invoke_reveal_clip();}self.tick_drums(ui);
@@ -254,7 +277,7 @@ impl Presenter {
 /// The native app and software probe share exactly the same clip/piano input adapter.
 pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
     fn queue(m:&RefCell<Mailbox>,weak:&slint::Weak<AppWindow>,request:Request) {
-        let background=matches!(request,Request::Move{..}|Request::ScrollPiano(..)|Request::ScrollPianoForSession(..)|Request::CancelGesture(_)|Request::AuditionOff(_));
+        let background=matches!(request,Request::Move{..}|Request::ScrollPiano(..)|Request::ScrollPianoForSession(..)|Request::ScrollPianoForClip(..)|Request::CancelGesture(_)|Request::AuditionOff(_));
         let result=m.borrow_mut().enqueue(request);
         if let Some(ui)=weak.upgrade(){if let Err(error)=result {ui.set_action_error(error.into());} else if !background {ui.set_action_error("".into());}}
     }
@@ -304,7 +327,7 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
         let m=mailbox.clone();let weak=ui.as_weak();ui.on_scroll_piano(move|beat,y|{
             if let Some(ui)=weak.upgrade() {
                 let session=ui.get_ui_project_session().parse().unwrap_or(0);
-                queue(&m,&weak,Request::ScrollPianoForSession(session,beat as f64,y));
+                queue(&m,&weak,Request::ScrollPianoForClip(session,ui.get_track_id().parse().unwrap_or(0),ui.get_clip_id().parse().unwrap_or(0),beat as f64,y));
             }
         });
     }
@@ -335,8 +358,8 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
         ui.on_down(move|x,y,right,extend|{
             let Some(ui)=weak.upgrade() else {return;}; if ui.get_clip_id()=="0" {ui.set_action_error("Create a MIDI clip first.".into());return;}
             let token=match m.borrow_mut().token(){Ok(t)=>t,Err(e)=>{ui.set_action_error(e.into());return;}};
-            let viewport=Viewport{start_tick:(ui.get_scroll_beat() as f64*960.0).round() as u64,pixels_per_beat:ui.get_pixels_per_beat(),
-                scroll_y:ui.get_piano_scroll_y(),row_height:ui.get_piano_row_height(),width:ui.get_canvas_width(),height:ui.get_canvas_height(),octave_offset:(ui.get_notation_index()-1) as i8};
+            let viewport=Viewport{start_tick:((-ui.get_piano_bar_x() as f64/ui.get_pixels_per_beat() as f64).max(0.0)*960.0).round() as u64,pixels_per_beat:ui.get_pixels_per_beat(),
+                scroll_y:(-ui.get_piano_bar_y()).max(0.0),row_height:ui.get_piano_row_height(),width:ui.get_canvas_width(),height:ui.get_canvas_height(),octave_offset:(ui.get_notation_index()-1) as i8};
             queue(&m,&weak,Request::Down{track:ui.get_track_id().parse().unwrap_or(0),clip:ui.get_clip_id().parse().unwrap_or(0),token,viewport,x,y,right,extend});gesture.set(Some(token));
         });
     }

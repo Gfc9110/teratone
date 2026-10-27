@@ -25,7 +25,8 @@ Il layout è stato concepito come stato dell'interfaccia, separato dai dati musi
 | Doppio clic nella timeline vuota | Crea un clip nella traccia corrispondente. |
 | Doppio clic sul nome traccia | Apre la rinomina diretta. L’intestazione può anche essere selezionata con Tab e Invio/Spazio, e rinominata con F2. |
 | Trascinamento di un clip | Sposta il clip, anche fra tracce; il bordo destro cambia la durata. |
-| Rotella o gesto di scorrimento | Scorre verticalmente; lo scorrimento orizzontale del trackpad segue l'asse temporale. Ctrl/Command + rotella ingrandisce intorno al puntatore; aggiungere Shift per lo zoom verticale MIDI. |
+| Tasto centrale + trascinamento | Sposta la vista nella timeline o nel piano roll, senza modificare clip o note. |
+| Rotella o gesto di scorrimento | Scorre verticalmente; la rotella orizzontale del mouse o il gesto orizzontale del trackpad seguono l'asse temporale, anche sulla corsia velocity. Ctrl/Command + rotella ingrandisce intorno al puntatore; aggiungere Shift per lo zoom verticale MIDI. |
 | Fit notes / Restore | Adatta la vista alle note e ripristina la vista precedente del clip. |
 | Trascinamento dello splitter | Ridimensiona i due editor; doppio clic ripristina il dimensionamento adattivo. |
 | Escape | Annulla il gesto corrente quando l'editor ha il focus. |
@@ -46,9 +47,9 @@ La velocity di una selezione multipla modifica la nota focalizzata. Con editor b
 
 ## Verifiche eseguite
 
-- Suite Rust con UI: 101 test unitari e 9 di integrazione superati; variante senza UI: 59 unitari e 9 di integrazione superati.
+- Suite Rust con UI: 103 test unitari e 9 di integrazione superati; variante senza UI: 59 unitari e 9 di integrazione superati.
 - Suite nativa: 8 test superati, inclusa la verifica delle allocazioni e dell'heap nel callback audio; controlli dell'ABI condivisa ed esportazione WAV superati.
-- Probe software collegati al controller: trasporto, selezione e riordino tracce, clip, note, multiselezione, velocity e Undo/Redo, strumenti e campioni, inspector, splitter, Focus, menu, accesso da tastiera, viste MIDI, ghost notes, pin/lock e ripristino dopo il cambio progetto. I controlli non sostituiscono una prova con hardware audio o finestre di sistema reali.
+- Probe software collegati al controller: trasporto, selezione e riordino tracce, clip, note, multiselezione, velocity e Undo/Redo, strumenti e campioni, inspector, splitter, Focus, menu, accesso da tastiera, viste MIDI, ghost notes, pin/lock, pan con tasto centrale, scroll frazionario e ripristino dopo il cambio progetto. I controlli non sostituiscono una prova con hardware audio o finestre di sistema reali.
 - Il progetto `examples/First-session.opendaw` è stato validato ed esportato in WAV.
 - La prova software iniziale a 1280×820, 64 tracce e 100.000 note era oltre le soglie del probe. La misura finale in versione release, con note coincidenti raggruppate solo nella presentazione, ha misurato p95 risposta/disegno 13,45 ms e frame 2,55 ms a 1280×820; 13,29 ms / 2,29 ms a 1000×760; 15,68 ms / 4,82 ms con scala 200%. Tutte e tre erano sotto i limiti del probe. La fixture contiene molte note coincidenti; queste misure non garantiscono 60 Hz per ogni progetto, macchina o renderer.
 - La verifica è stata eseguita su macOS; la prova con dispositivo audio fisico, il selettore file nativo e i controlli su Windows/Linux restano da eseguire sui rispettivi ambienti.

@@ -76,10 +76,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let note=&last.as_ref().unwrap().notes[0];
     let note_id=note.id; let nx=ui.get_grid_x()+note.x+note.width/2.0; let ny=ui.get_grid_y()+note.y+note.height/2.0;
     click(&window,nx,ny,PointerEventButton::Right);
-    click(&window,nx+40.0,ny+18.0,PointerEventButton::Left);
+    click(&window,ui.get_piano_context_x()+40.0,ui.get_piano_context_y()+20.0,PointerEventButton::Left);
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     assert_eq!(last.as_ref().unwrap().selected_note,note_id,"Right click must select the note beneath it");
     assert!(ui.get_inspector_visible() && ui.get_inspector_detail()==2,"Note inspector must open from MIDI menu");
+
+    // The complete five-item piano menu must remain visible and clickable at
+    // the edge of the window at both normal and high-DPI scaling.
+    ui.set_inspector_visible(false);
+    for (width,height,scale) in [(1280,820,1.0),(1000,760,2.0)] {
+        window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:scale});
+        window.set_size(slint::PhysicalSize::new((width as f32*scale) as u32,(height as f32*scale) as u32));
+        settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+        ui.set_velocity_visible(false);
+        let px=ui.get_grid_x()+ui.get_canvas_width()-3.0;
+        let py=ui.get_grid_y()+ui.get_canvas_height()-3.0;
+        click(&window,px,py,PointerEventButton::Right);
+        settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+        let (x,y,w,h)=(ui.get_piano_context_x(),ui.get_piano_context_y(),ui.get_piano_context_width(),ui.get_piano_context_height());
+        assert!(x>=0.0 && y>=0.0 && x+w<=width as f32+0.5 && y+h<=height as f32+0.5,"Piano menu must fit within the window: {x},{y} {w}x{h}");
+        assert!(h>=176.0,"Five 32px actions and padding must fit within the menu");
+        click(&window,x+w/2.0,y+h-20.0,PointerEventButton::Left);
+        assert!(ui.get_velocity_visible(),"The last menu action must be reachable at {width}x{height}, scale {scale}");
+    }
+
+    // Repositioning the popup must not change which note its Delete action targets.
+    window.dispatch_event(WindowEvent::ScaleFactorChanged{scale_factor:1.0});
+    window.set_size(slint::PhysicalSize::new(1280,820));ui.set_velocity_visible(false);
+    mailbox.borrow_mut().enqueue(Request::ZoomAt(4.0,0.0)).unwrap();
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    let v=last.as_ref().unwrap().viewport;
+    let scroll=((127.0-67.0)*v.row_height-(v.height-v.row_height-2.0)).max(0.0);
+    mailbox.borrow_mut().enqueue(Request::ScrollPiano(3.0,scroll)).unwrap();
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    let note=last.as_ref().unwrap().notes.iter().find(|n|n.id==17).expect("Target note must be visible near the window edge");
+    let (nx,ny)=(ui.get_grid_x()+note.x+note.width/2.0,ui.get_grid_y()+note.y+note.height/2.0);
+    click(&window,nx,ny,PointerEventButton::Right);
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    let (x,y,w)=(ui.get_piano_context_x(),ui.get_piano_context_y(),ui.get_piano_context_width());
+    assert!(x<nx || y<ny,"The edge popup must move away from the clicked note");
+    click(&window,x+w/2.0,y+54.0,PointerEventButton::Left);
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    assert!(last.as_ref().unwrap().notes.iter().all(|n|n.id!=17),"Delete must target the original note, not the moved menu position");
     println!("PASS: contextual track, clip, timeline and MIDI actions target the clicked objects");
     connection.flags.fetch_or(QUIT,Ordering::Release); connection.worker.join().unwrap(); Ok(())
 }

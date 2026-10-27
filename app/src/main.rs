@@ -5,7 +5,7 @@ slint::include_modules!();
 mod ui_support;
 mod project_ui;
 fn send(mailbox: &RefCell<Mailbox>, weak: &slint::Weak<AppWindow>, request: Request) {
-    let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::ArrangementScroll(..) | Request::ViewportForSession(..) | Request::ArrangementViewportForSession(..) | Request::ArrangementScrollForSession(..) | Request::ScrollPianoForSession(..) | Request::Move{..} | Request::ScrollPiano(..));
+    let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::ArrangementScroll(..) | Request::ViewportForSession(..) | Request::ArrangementViewportForSession(..) | Request::ArrangementScrollForSession(..) | Request::ScrollPianoForSession(..) | Request::ScrollPianoForClip(..) | Request::Move{..} | Request::ScrollPiano(..));
     let result = mailbox.borrow_mut().enqueue(request);
     if let Some(ui) = weak.upgrade() {
         if let Err(error) = result { ui.set_action_error(error.into()); }
@@ -124,11 +124,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Ok(response) = receiver.try_recv() else { break; };
             match response {
                 Response::View(view) => { if view.revision >= latest_revision {
-                    if presented_session!=view.project_session {
+                    let switched=presented_session!=view.project_session;
+                    if switched {
                         presented_session=view.project_session;
                         last_size=(0,0);last_arrangement=(f32::NAN,f32::NAN,f32::NAN);last_arrangement_scroll=f32::NAN;
                     }
-                    presenter.apply(&ui, *view);
+                    let session=view.project_session;let snapshot=view.processed_request_id;
+                    let linked=view.navigation_linked;
+                    let (keep_piano,keep_arrangement,residual)={let m=mailbox.borrow();
+                        (m.piano_scroll_unseen(session,view.track_id,view.clip_id,snapshot),m.arrangement_view_unseen(session,snapshot),m.piano_scroll_residual(session,view.track_id,view.clip_id,view.piano_navigation_request_id))};
+                    presenter.apply_with_navigation(&ui, *view,keep_piano,keep_arrangement,residual);
+                    // Linked navigation is already reflected in the controller;
+                    // do not echo the programmatic adjustment as a new gesture.
+                    if linked && !keep_arrangement && !switched {last_arrangement=(-ui.get_arrangement_x()/ui.get_arrangement_zoom(),ui.get_arrangement_zoom(),ui.get_lane_width());}
+                    mailbox.borrow_mut().retire_navigation_views(session,snapshot);
                 } }
                 Response::Ack { request_id, revision, error, canceled: _ } => {
                     mailbox.borrow_mut().acknowledge(request_id); latest_revision = latest_revision.max(revision);

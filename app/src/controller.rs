@@ -37,7 +37,7 @@ pub enum Request {
     FactoryPreset {track:u64,instance:u64,index:usize},
     SaveSynthPreset {track:u64,instance:u64,path:PathBuf,name:String}, LoadSynthPreset {track:u64,instance:u64,path:PathBuf},
     Tempo(f64), Mix { track: u64, gain: f32, pan: f32 }, FinishMix, Undo, Redo, Delete { track: u64, clip: u64, note: u64 },
-    Viewport(f32, f32), ViewportForSession(u64,f32,f32), Zoom(f32), ZoomAt(f32,f32), ZoomY(f32), Pan(i32), Pitch(i32), ScrollPiano(f64, f32), ScrollPianoForSession(u64,f64,f32), FitNotes, RestoreView, Notation(i32),
+    Viewport(f32, f32), ViewportForSession(u64,f32,f32), Zoom(f32), ZoomAt(f32,f32), ZoomY(f32), Pan(i32), Pitch(i32), ScrollPiano(f64, f32), ScrollPianoForSession(u64,f64,f32), ScrollPianoForClip(u64,u64,u64,f64,f32), FitNotes, RestoreView, Notation(i32),
     SetMidiViewMode(i32), SetScale(i32,i32), SetSnap(i32),
     Down { track: u64, clip: u64, token: u64, viewport: Viewport, x: f32, y: f32, right: bool, extend: bool },
     Move { token: u64, x: f32, y: f32 }, Up { token: u64, x: f32, y: f32 }, CancelGesture(u64),
@@ -56,6 +56,9 @@ pub struct TrackInspectorView {
 }
 #[derive(Clone)]
 pub struct ViewState {
+    /// Last command incorporated in this snapshot; distinct from musical revision.
+    pub processed_request_id: u64,
+    pub piano_navigation_request_id: u64,
     pub project_path: Option<PathBuf>, pub project_session: u64, pub recent_projects: Vec<RecentProject>, pub default_folder: PathBuf,
     pub name: String, pub status: String, pub tracks: Vec<TrackRow>, pub track_id: u64, pub track_index: usize,
     pub clips: Vec<ClipView>, pub clip_index: Option<usize>, pub clip_start: u64, pub clip_id: u64, pub clip_length: u64, pub clip_name: String, pub track_name: String, pub track_color: String,
@@ -94,7 +97,7 @@ struct State {
     context_note:Option<(u64,u64,u64)>,
     live: HashMap<u64, LiveNote>, next_live: u64,
     input: Option<InputContext>, viewports: HashMap<(u64,crate::midi_view::ViewMode), Viewport>, fit_restore: HashMap<(u64,crate::midi_view::ViewMode), Viewport>, viewport_ready: bool,
-    dirty: bool, needs_compile: bool, looping: bool, silent: bool, status: String,
+    dirty: bool, needs_compile: bool, looping: bool, silent: bool, status: String, processed_request_id:u64, piano_navigation_request_id:u64,
     export_job: Option<JoinHandle<Result<(), String>>>,
     arrangement: ArrangementViewport, revision: u64, mix_dirty: bool, pending_mix: bool,
     arrangement_scroll_y:f32,
@@ -113,7 +116,7 @@ impl State {
         Ok(Self { project_path: None, project_session: 0, library: ProjectLibrary::default(), project: Project::demo(), history: History::default(), engine: Engine::new(48000, 256)?,staging:storage::DrumStaging::default(),selected_pad:None, viewport: Viewport::default(),
             track_id: 1, clip_id: Some(4), selected: None, selected_notes: HashSet::new(), gesture: None, group_original: Vec::new(), group_preview: Vec::new(), insertion: None, context_note:None,
             live: HashMap::new(), next_live: 1, input: None, viewports: HashMap::new(), fit_restore: HashMap::new(), viewport_ready: false, dirty: false, needs_compile: true, looping: false, silent,
-            status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Select a track or add an oscillator." }.into(), export_job: None,
+            status: if silent { "SILENT CLOCK mode; no physical audio output" } else { "Ready. Select a track or add an oscillator." }.into(), processed_request_id:0, piano_navigation_request_id:0, export_job: None,
             arrangement: ArrangementViewport::default(), arrangement_scroll_y:0.0,arrangement_track: 1, arrangement_clip: Some(4), follow_selection: true, references: HashMap::new(), navigation_linked:false,view_state_write_allowed:true,velocity_visible:false,piano_visible:true,project_view_loaded:false,
             midi_view_mode:crate::midi_view::ViewMode::Piano,scale:crate::midi_view::Scale::default(),snap_index:2,
             revision: 0, mix_dirty: false, pending_mix: false, submitted_mix: 0, applied_mix: 0 })
@@ -447,7 +450,7 @@ impl State {
             Instrument::Sampler { sample_path, root_note, one_shot } => (sample_path.clone(), *root_note, *one_shot, true),
         };
         let keys=if self.piano_visible {layout.keys(&self.viewport,t.instrument.config.drums(),self.scale)} else {Vec::new()};
-        ViewState { name: self.project.name.clone(), status: if capped { format!("{} | View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
+        ViewState { processed_request_id:self.processed_request_id, piano_navigation_request_id:self.piano_navigation_request_id, name: self.project.name.clone(), status: if capped { format!("{} | View capped at 3000 notes; zoom in.", self.status) } else { self.status.clone() },
             project_path: self.project_path.clone(), project_session: self.project_session,
             recent_projects: self.library.recent().to_vec(), default_folder: self.library.default_folder(),
             tracks,
@@ -488,6 +491,9 @@ impl State {
             }
             Request::ScrollPianoForSession(session,beat,y) => {
                 if session!=self.project_session {return Ok(());} Request::ScrollPiano(beat,y)
+            }
+            Request::ScrollPianoForClip(session,track,clip,beat,y) => {
+                if session!=self.project_session || track!=self.track_id || clip!=self.clip_id.unwrap_or(0) {return Ok(());} Request::ScrollPiano(beat,y)
             }
             other=>other,
         };
@@ -867,7 +873,7 @@ impl State {
                 self.submitted_mix = 0; self.applied_mix = 0; self.status = "WAV loaded into this instance. Save copies samples into assets/.".into();
             }
             Request::UseSine(track) => { self.track_index(track)?; self.edit(Edit::Instrument { track, instrument: Instrument::Sine })?; }
-            Request::ArrangementViewportForSession(..) | Request::ArrangementScrollForSession(..) | Request::ViewportForSession(..) | Request::ScrollPianoForSession(..) => unreachable!("normalized above"),
+            Request::ArrangementViewportForSession(..) | Request::ArrangementScrollForSession(..) | Request::ViewportForSession(..) | Request::ScrollPianoForSession(..) | Request::ScrollPianoForClip(..) => unreachable!("normalized above"),
         }
         if sync_piano {self.sync_arrangement_from_piano();}
         Ok(())
@@ -918,7 +924,11 @@ pub fn spawn_with_library(silent: bool, library: ProjectLibrary) -> Connection {
                         if worker_flags.load(Ordering::Acquire) != 0 { deferred = Some(envelope); continue; }
                         let canceled = (envelope.epoch != worker_epoch.load(Ordering::Acquire) && envelope.request.canceled_by_stop()) ||
                             matches!(&envelope.request, Request::AuditionOn{epoch,..}|Request::PadAuditionOn{epoch,..} if *epoch!=worker_audition_epoch.load(Ordering::Acquire));
+                        let piano_navigation=matches!(&envelope.request, Request::ScrollPiano(..) | Request::ScrollPianoForSession(..) | Request::ScrollPianoForClip(..) | Request::Viewport(..) | Request::ViewportForSession(..) | Request::Zoom(..) | Request::ZoomAt(..) | Request::ZoomY(..) | Request::Pan(..) | Request::Pitch(..) | Request::FitNotes | Request::RestoreView | Request::SetMidiViewMode(..) | Request::SelectTrack(..) | Request::SelectClip{..} | Request::ActivateEditorClip{..} | Request::FollowSelection(..) | Request::SetNavigationLinked(..)) ||
+                            (state.navigation_linked && matches!(&envelope.request,Request::ArrangementViewport(..)|Request::ArrangementViewportForSession(..)));
                         let error = if canceled { None } else { state.request(envelope.request, &worker_flags).err() };
+                        state.processed_request_id = envelope.request_id;
+                        if piano_navigation && !canceled && error.is_none() {state.piano_navigation_request_id=envelope.request_id;}
                         if let Some(error) = &error { state.status = error.clone(); }
                         acknowledgments.push_back(Response::Ack { request_id: envelope.request_id, revision: state.revision, error, canceled });
                         pending = Some(Box::new(state.view()));
@@ -1183,6 +1193,14 @@ pub fn spawn_with_library(silent: bool, library: ProjectLibrary) -> Connection {
         assert_eq!(s.viewport.start_tick,4*PPQ);assert_eq!(s.viewport.pixels_per_beat,80.0);
         request(&mut s,Request::SetNavigationLinked(false));let viewport=s.viewport;
         request(&mut s,Request::ArrangementViewport(7.0,60.0,500.0));assert_eq!(s.viewport,viewport);
+    }
+    #[test] fn scroll_from_previous_clip_is_ignored_after_selection_changes() {
+        let mut s=State::new(true).unwrap();request(&mut s,Request::Viewport(300.0,215.0));
+        request(&mut s,Request::SelectTrack(2));let before=s.viewport;
+        request(&mut s,Request::ScrollPianoForClip(0,1,4,3.0,800.0));
+        assert_eq!(s.viewport,before);
+        request(&mut s,Request::ScrollPianoForClip(1,2,6,3.0,800.0));
+        assert_eq!(s.viewport,before);
     }
     #[test] fn stale_project_session_cannot_apply_view_updates() {
         let mut s=State::new(true).unwrap();

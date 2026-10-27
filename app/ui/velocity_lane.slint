@@ -2,16 +2,36 @@
 export struct VelocityVisual { id: string, x: float, value: int, selected: bool }
 export component VelocityLane inherits Rectangle {
     in property <[VelocityVisual]> items;
+    in property <length> scroll-offset-x: 0px;
+    in property <bool> middle-pan-active: false;
     callback select-note(string);
     callback change-value(string, int);
+    callback middle-pan-start(length,length);
+    callback middle-pan-move(length,length);
+    callback middle-pan-end();
+    callback wheel(float,float,bool,bool,float);
     private property <string> dragging-id;
     private property <int> preview-value: 100;
     background: #101923;
     clip: true;
     Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: #40566a; }
     Rectangle { x: 0; y: parent.height / 2; width: parent.width; height: 1px; background: #29394a; }
+    // The lane background remains available for middle-button navigation.
+    TouchArea {
+        mouse-cursor: root.middle-pan-active ? grabbing : default;
+        pointer-event(event) => {
+            if event.kind==PointerEventKind.down && event.button==PointerEventButton.middle {root.middle-pan-start(self.absolute-position.x+self.mouse-x,self.absolute-position.y+self.mouse-y);}
+            if (event.kind==PointerEventKind.up && event.button==PointerEventButton.middle) || event.kind==PointerEventKind.cancel {root.middle-pan-end();}
+        }
+        moved => {if root.middle-pan-active {root.middle-pan-move(self.absolute-position.x+self.mouse-x,self.absolute-position.y+self.mouse-y);}}
+        scroll-event(event) => {
+            root.wheel(event.delta-x/1px,event.delta-y/1px,event.modifiers.control,event.modifiers.shift,
+                (self.absolute-position.x+self.mouse-x - root.absolute-position.x)/1px);
+            accept
+        }
+    }
     for bar in root.items : Rectangle {
-        x: bar.x * 1px - 4px; y: 0; width: 9px; height: parent.height;
+        x: bar.x * 1px + root.scroll-offset-x - 4px; y: 0; width: 9px; height: parent.height;
         background: transparent;
         Rectangle {
             x: 3px; width: 3px;
@@ -22,22 +42,34 @@ export component VelocityLane inherits Rectangle {
         TouchArea {
             accessible-role: slider;
             accessible-label: "Velocity " + bar.value;
+            mouse-cursor: root.middle-pan-active ? grabbing : default;
             pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.middle {
+                    root.dragging-id = "";
+                    root.middle-pan-start(self.absolute-position.x+self.mouse-x,self.absolute-position.y+self.mouse-y);
+                }
                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
                     root.dragging-id = bar.id;
                     root.preview-value = max(1, min(127, round((1 - self.mouse-y / self.height) * 127)));
                 }
-                if event.kind == PointerEventKind.up && root.dragging-id == bar.id {
+                if event.kind == PointerEventKind.up && event.button == PointerEventButton.middle {root.middle-pan-end();}
+                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left && root.dragging-id == bar.id {
                     root.select-note(bar.id);
                     root.change-value(bar.id, root.preview-value);
                     root.dragging-id = "";
                 }
-                if event.kind == PointerEventKind.cancel { root.dragging-id = ""; }
+                if event.kind == PointerEventKind.cancel { root.dragging-id = ""; root.middle-pan-end(); }
             }
             moved => {
-                if self.pressed && root.dragging-id == bar.id {
+                if root.middle-pan-active {root.middle-pan-move(self.absolute-position.x+self.mouse-x,self.absolute-position.y+self.mouse-y);}
+                else if self.pressed && root.dragging-id == bar.id {
                     root.preview-value = max(1, min(127, round((1 - self.mouse-y / self.height) * 127)));
                 }
+            }
+            scroll-event(event) => {
+                root.wheel(event.delta-x/1px,event.delta-y/1px,event.modifiers.control,event.modifiers.shift,
+                    (self.absolute-position.x+self.mouse-x - root.absolute-position.x)/1px);
+                accept
             }
         }
     }
