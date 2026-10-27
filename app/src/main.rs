@@ -5,7 +5,7 @@ slint::include_modules!();
 mod ui_support;
 mod project_ui;
 fn send(mailbox: &RefCell<Mailbox>, weak: &slint::Weak<AppWindow>, request: Request) {
-    let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::Move{..} | Request::ScrollPiano(..));
+    let background = matches!(request, Request::Viewport(..) | Request::ArrangementViewport(..) | Request::ArrangementScroll(..) | Request::ViewportForSession(..) | Request::ArrangementViewportForSession(..) | Request::ArrangementScrollForSession(..) | Request::ScrollPianoForSession(..) | Request::Move{..} | Request::ScrollPiano(..));
     let result = mailbox.borrow_mut().enqueue(request);
     if let Some(ui) = weak.upgrade() {
         if let Err(error) = result { ui.set_action_error(error.into()); }
@@ -18,7 +18,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match arg.as_str() { "--silent" => silent = true, _ => return Err(format!("Unknown option: {arg}. Use --silent for an explicit no-audio clock.").into()) }
     }
     let ui = AppWindow::new()?;
+    ui.set_silent_mode(silent);
     ui.set_home_visible(true);
+    let preferences_path = opendaw_app::ui_preferences::UiPreferences::path();
+    let mut preferences_write_allowed = true;
+    match preferences_path.as_ref().map_err(|e| e.clone()).and_then(|p| opendaw_app::ui_preferences::UiPreferences::load(p)) {
+        Ok(prefs) => {
+            ui.set_inspector_visible(prefs.inspector_visible);
+            ui.set_inspector_pinned(prefs.inspector_pinned);
+            ui.set_inspector_custom_width(prefs.inspector_width);
+            ui.set_workspace_split(prefs.workspace_split);
+            ui.set_workspace_focus(prefs.workspace_focus);
+            ui.set_velocity_visible(prefs.velocity_visible);
+            ui.set_arrangement_zoom(prefs.arrangement_zoom);
+            ui.set_ui_density(prefs.density);
+        }
+        Err(error) => { preferences_write_allowed = false; ui.set_action_error(format!("Workspace preferences were preserved: {error}").into()); }
+    }
     let library = opendaw_app::project_library::settings_path().and_then(opendaw_app::project_library::ProjectLibrary::load)
         .unwrap_or_else(|error| {ui.set_action_error(error.into());opendaw_app::project_library::ProjectLibrary::default()});
     let connection = controller::spawn_with_library(silent, library);
@@ -82,23 +98,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timer = slint::Timer::default();
     let weak = ui.as_weak(); let receiver = connection.receiver;
     let mut presenter = ui_support::Presenter::new(&ui);
-    let mut last_size = (0, 0); let mut last_arrangement = (0.0, 0.0, 0.0); let mut latest_revision = 0;
+    let mut last_size = (0, 0); let mut last_arrangement = (0.0, 0.0, 0.0); let mut last_arrangement_scroll=0.0; let mut last_velocity_visible=None; let mut last_piano_visible=None; let mut latest_revision = 0;let mut presented_session=0;
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(16), move || {
         let Some(ui) = weak.upgrade() else { return; };
         ui.invoke_tick_drag(); ui.invoke_clamp_scroll();
         let size = (ui.get_canvas_width() as i32, ui.get_canvas_height() as i32);
         if size != last_size && size.0 > 0 && size.1 > 0 {
-            send(&mailbox, &weak, Request::Viewport(size.0 as f32, size.1 as f32)); last_size = size;
+            send(&mailbox, &weak, Request::ViewportForSession(presented_session,size.0 as f32, size.1 as f32)); last_size = size;
         }
         let arrangement = (-ui.get_arrangement_x() / ui.get_arrangement_zoom(), ui.get_arrangement_zoom(), ui.get_lane_width());
         if arrangement != last_arrangement && arrangement.2 > 0.0 {
-            send(&mailbox, &weak, Request::ArrangementViewport(arrangement.0, arrangement.1, arrangement.2)); last_arrangement = arrangement;
+            send(&mailbox, &weak, Request::ArrangementViewportForSession(presented_session,arrangement.0, arrangement.1, arrangement.2)); last_arrangement = arrangement;
+        }
+        let scroll=ui.get_arrangement_y();if scroll!=last_arrangement_scroll {send(&mailbox,&weak,Request::ArrangementScrollForSession(presented_session,scroll));last_arrangement_scroll=scroll;}
+        let velocity_visible=ui.get_velocity_visible() && ui.get_workspace_focus()!=1;
+        let piano_visible=ui.get_workspace_focus()!=1;
+        if last_piano_visible!=Some(piano_visible) {
+            send(&mailbox,&weak,Request::SetPianoVisible(piano_visible));last_piano_visible=Some(piano_visible);
+        }
+        if last_velocity_visible!=Some(velocity_visible) {
+            send(&mailbox,&weak,Request::SetVelocityVisible(velocity_visible));last_velocity_visible=Some(velocity_visible);
         }
         if let Err(error) = mailbox.borrow_mut().flush() { ui.set_action_error(error.into()); }
         for _ in 0..64 {
             let Ok(response) = receiver.try_recv() else { break; };
             match response {
-                Response::View(view) => { if view.revision >= latest_revision { presenter.apply(&ui, *view); } }
+                Response::View(view) => { if view.revision >= latest_revision {
+                    if presented_session!=view.project_session {
+                        presented_session=view.project_session;
+                        last_size=(0,0);last_arrangement=(f32::NAN,f32::NAN,f32::NAN);last_arrangement_scroll=f32::NAN;
+                    }
+                    presenter.apply(&ui, *view);
+                } }
                 Response::Ack { request_id, revision, error, canceled: _ } => {
                     mailbox.borrow_mut().acknowledge(request_id); latest_revision = latest_revision.max(revision);
                     if let Some(error) = error { ui.set_action_error(error.into()); }
@@ -120,5 +151,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let result = ui.run();
     timer.stop(); connection.flags.fetch_or(QUIT, Ordering::Release);
-    let _ = connection.worker.join(); result?; Ok(())
+    let _ = connection.worker.join();
+    let preferences = opendaw_app::ui_preferences::UiPreferences {
+        version: 1,
+        inspector_visible: ui.get_inspector_visible(), inspector_pinned: ui.get_inspector_pinned(),
+        inspector_width: ui.get_inspector_custom_width(), workspace_split: ui.get_workspace_split(),
+        workspace_focus: ui.get_workspace_focus(), velocity_visible: ui.get_velocity_visible(),
+        arrangement_zoom: ui.get_arrangement_zoom(), density: ui.get_ui_density(),
+    };
+    if preferences_write_allowed {
+        if let Err(error) = preferences_path.and_then(|path| preferences.save(&path)) {
+            eprintln!("Could not save workspace preferences: {error}");
+        }
+    }
+    result?; Ok(())
 }

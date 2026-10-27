@@ -1,5 +1,5 @@
 //! Presentation only; shared with the software interaction probe.
-use crate::{AppWindow, ClipVisual, MiniVisual, NoteVisual, TrackVisual, KeyVisual,PadVisual,RecentProjectVisual};
+use crate::{AppWindow, ClipVisual, MiniVisual, NoteVisual, TrackVisual, KeyVisual,PadVisual,RecentProjectVisual,VelocityVisual,ReferenceVisual,GhostVisual};
 use opendaw_app::{arrangement::TrackRow, controller::ViewState};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::{rc::Rc,cell::{Cell,RefCell},time::{Duration,Instant},collections::HashMap};
@@ -24,16 +24,24 @@ pub struct Presenter {
     project_session: Option<u64>, project_path: Option<std::path::PathBuf>, recent: Vec<RecentProjectVisual>,
     pads:Rc<VecModel<PadVisual>>,pad_rows:Vec<(u64,String,u8,bool)>,pad_mutes:Rc<VecModel<bool>>,pulse_model:Rc<VecModel<bool>>,
     pad_cache:Option<DrumPad>,drum_target:Option<(u64,u64)>,last_triggers:[u64;16],meter_generation:u64,pulses:[Option<Instant>;16],
-    model: Rc<VecModel<TrackVisual>>, rows: Vec<TrackRow>, inspector: Option<Inspector>, clip_info: Option<(u64,String)>, keys:Vec<KeyRow>, key_model:Rc<VecModel<KeyVisual>> }
+    model: Rc<VecModel<TrackVisual>>, rows: Vec<TrackRow>, inspector: Option<Inspector>, clip_info: Option<(u64,String)>, keys:Vec<KeyRow>, key_model:Rc<VecModel<KeyVisual>>, velocity_bars:Vec<opendaw_app::velocity_lane::VelocityBar>, velocity_model:Rc<VecModel<VelocityVisual>>,
+    notes:Vec<opendaw_app::editor::NoteRect>, rendered_notes:Vec<opendaw_app::editor::NoteRect>, note_model:Rc<VecModel<NoteVisual>>,
+    references:Vec<opendaw_app::midi_references::ReferenceRow>, reference_model:Rc<VecModel<ReferenceVisual>>,
+    ghosts:Vec<opendaw_app::midi_references::GhostRect>, ghost_model:Rc<VecModel<GhostVisual>>,
+    arrangement_inspector:Option<opendaw_app::controller::TrackInspectorView> }
 impl Presenter {
     pub fn new(ui: &AppWindow) -> Self {
         ui.set_track_limit(opendaw_app::project::MAX_TRACKS as i32);
         let model = Rc::new(VecModel::default()); ui.set_track_items(model.clone().into());
         let key_model=Rc::new(VecModel::default());ui.set_key_items(key_model.clone().into());
+        let velocity_model=Rc::new(VecModel::default());ui.set_velocity_items(velocity_model.clone().into());
+        let note_model=Rc::new(VecModel::default());ui.set_note_items(note_model.clone().into());
+        let reference_model=Rc::new(VecModel::default());ui.set_reference_items(reference_model.clone().into());
+        let ghost_model=Rc::new(VecModel::default());ui.set_ghost_items(ghost_model.clone().into());
         let pads=Rc::new(VecModel::default());ui.set_drum_pads(pads.clone().into());
         let pulse_model=Rc::new(VecModel::from(vec![false;16]));ui.set_pad_pulses(pulse_model.clone().into());
         let pad_mutes=Rc::new(VecModel::from(vec![false;16]));ui.set_pad_mutes(pad_mutes.clone().into());
-        Self { project_session:None,project_path:None,recent:Vec::new(),pads,pad_rows:Vec::new(),pad_mutes,pulse_model,pad_cache:None,drum_target:None,last_triggers:[0;16],meter_generation:0,pulses:[None;16],model, rows: Vec::new(), inspector: None, clip_info:None,keys:Vec::new(),key_model }
+        Self { project_session:None,project_path:None,recent:Vec::new(),pads,pad_rows:Vec::new(),pad_mutes,pulse_model,pad_cache:None,drum_target:None,last_triggers:[0;16],meter_generation:0,pulses:[None;16],model, rows: Vec::new(), inspector: None, clip_info:None,keys:Vec::new(),key_model,velocity_bars:Vec::new(),velocity_model,notes:Vec::new(),rendered_notes:Vec::new(),note_model,references:Vec::new(),reference_model,ghosts:Vec::new(),ghost_model,arrangement_inspector:None }
     }
     pub fn drum_meter(&mut self,ui:&AppWindow,track:u64,instance:u64,status:DrumStatus){
         if self.drum_target!=Some((track,instance)){return;}
@@ -59,11 +67,13 @@ impl Presenter {
         if switched {
             ui.invoke_cancel_interactions();
             self.inspector = None;
+            self.arrangement_inspector = None;
             self.clip_info = None;
             self.pad_cache = None;
             self.drum_target = None;
-            ui.set_arrangement_x(0.0);
-            ui.set_arrangement_y(0.0);
+            if view.project_view_loaded {ui.set_arrangement_zoom(view.linked_scale);}
+            ui.set_arrangement_x(-view.linked_start*ui.get_arrangement_zoom());
+            ui.set_arrangement_y(view.arrangement_scroll_y);
             ui.set_project_position(0.0);
             ui.set_playing(false);
             ui.set_looping(false);
@@ -95,6 +105,7 @@ impl Presenter {
             self.project_path = view.project_path;
         }
         self.project_session = Some(view.project_session);
+        ui.set_ui_project_session(view.project_session.to_string().into());
         ui.set_has_project(view.project_session > 0);
         let recent: Vec<_> = view
             .recent_projects
@@ -111,6 +122,20 @@ impl Presenter {
         }
         ui.set_project_name(view.name.into()); ui.set_status(view.status.into()); ui.set_selected_label(view.selected_label.into());
         self.tracks(view.tracks); ui.set_track_index(view.track_index as i32);
+        let info=&view.inspector_track;let prior_info=self.arrangement_inspector.as_ref();
+        let changed_info=prior_info.is_none_or(|p|p.id!=info.id);
+        ui.set_inspector_track_id(info.id.to_string().into());ui.set_arrangement_track_id(info.id.to_string().into());ui.set_inspector_track_index(info.index as i32);
+        ui.set_inspector_track_name(info.name.clone().into());
+        if changed_info || prior_info.is_some_and(|p|p.name!=info.name) {ui.set_inspector_track_name_draft(info.name.clone().into());}
+        if changed_info || prior_info.is_some_and(|p|p.color!=info.color) {ui.set_inspector_color_index(opendaw_app::project::TRACK_COLORS.iter().position(|c|*c==info.color).map_or(-1,|i|i as i32));}
+        if changed_info || prior_info.is_some_and(|p|p.gain!=info.gain) {ui.set_inspector_gain(info.gain);}
+        if changed_info || prior_info.is_some_and(|p|p.pan!=info.pan) {ui.set_inspector_pan(info.pan);}
+        if changed_info || prior_info.is_some_and(|p|p.sample_path!=info.sample_path || p.sample_root!=info.sample_root || p.sample_one_shot!=info.sample_one_shot) {
+            ui.set_inspector_sample_path(info.sample_path.clone().into());ui.set_inspector_sample_root(info.sample_root as i32);ui.set_inspector_sample_one_shot(info.sample_one_shot);
+        }
+        ui.set_inspector_muted(info.mute);ui.set_inspector_soloed(info.solo);ui.set_inspector_audible(info.audible);
+        ui.set_inspector_instrument(info.instrument.clone().into());ui.set_inspector_is_synth(info.is_synth);ui.set_inspector_is_drums(info.is_drums);
+        self.arrangement_inspector=Some(info.clone());
         ui.set_track_id(view.track_id.to_string().into()); ui.set_track_name(view.track_name.clone().into());
         let prior = self.inspector.as_ref(); let changed = prior.map_or(true, |p| p.id != view.track_id);
         // Keep unfinished text edits while unrelated telemetry / viewport views arrive.
@@ -186,20 +211,50 @@ impl Presenter {
         ui.set_piano_bar_y(-view.viewport.scroll_y);ui.set_piano_bar_x(-(view.viewport.start_tick as f32)/960.0*view.viewport.pixels_per_beat);
         if self.keys!=view.keys {
             ui.invoke_release_keyboard();
-            self.key_model.set_vec(view.keys.iter().map(|k|KeyVisual{pitch:k.pitch as i32,y:k.y,h:k.height,black:k.black,c:k.c,label:k.label.clone().into()}).collect::<Vec<_>>());
+            self.key_model.set_vec(view.keys.iter().map(|k|KeyVisual{pitch:k.pitch as i32,y:k.y,h:k.height,black:k.black,c:k.c,in_scale:k.in_scale,label:k.label.clone().into()}).collect::<Vec<_>>());
             self.keys=view.keys;
         }
-        ui.set_note_items(ModelRc::new(VecModel::from(view.notes.into_iter().map(|n| NoteVisual {
-            x: n.x, y: n.y, w: n.width, h: n.height, selected: n.selected, label: n.label.into(),
-        }).collect::<Vec<_>>())));
-        ui.invoke_clamp_scroll();if selection_changed {ui.invoke_reveal_clip();}self.tick_drums(ui);
+        if self.velocity_bars != view.velocity_bars {
+            self.velocity_model.set_vec(view.velocity_bars.iter().map(|b| VelocityVisual {
+                id: b.id.to_string().into(), x: b.x, value: b.value as i32, selected: b.selected,
+            }).collect::<Vec<_>>());
+            self.velocity_bars = view.velocity_bars;
+        }
+        if self.notes!=view.notes {
+            let rendered:Vec<_>=opendaw_app::note_presentation::unique_notes(&view.notes).into_iter().cloned().collect();
+            let visual=|n:&opendaw_app::editor::NoteRect|NoteVisual{x:n.x,y:n.y,w:n.width,h:n.height,selected:n.selected,label:n.label.clone().into()};
+            let changed:Vec<_>=if self.rendered_notes.len()==rendered.len() {self.rendered_notes.iter().zip(&rendered).enumerate().filter_map(|(i,(a,b))|(a!=b).then_some(i)).collect()} else {Vec::new()};
+            if !changed.is_empty() && changed.len()<=rendered.len()/4+1 {for i in changed {self.note_model.set_row_data(i,visual(&rendered[i]));}}
+            else if self.rendered_notes!=rendered {self.note_model.set_vec(rendered.iter().map(visual).collect::<Vec<_>>());}
+            self.rendered_notes=rendered;
+            self.notes=view.notes;
+        }
+        ui.set_follow_selection(view.follow_selection);
+        ui.set_reference_count(view.reference_rows.iter().filter(|r|r.visible && !r.active).count() as i32);
+        if self.references!=view.reference_rows {
+            self.reference_model.set_vec(view.reference_rows.iter().map(|r|ReferenceVisual{track_id:r.track.to_string().into(),clip_id:r.clip.to_string().into(),label:r.label.clone().into(),visible:r.visible,pinned:r.pinned,active:r.active}).collect::<Vec<_>>());
+            self.references=view.reference_rows;
+        }
+        if self.ghosts!=view.ghosts {
+            self.ghost_model.set_vec(view.ghosts.iter().map(|g|GhostVisual{x:g.x,y:g.y,w:g.width,h:g.height,tint:slint::Color::from_argb_encoded(0xff000000 | u32::from_str_radix(g.color.trim_start_matches('#'),16).unwrap_or(0x62bfa6))}).collect::<Vec<_>>());
+            self.ghosts=view.ghosts;
+        }
+        ui.set_midi_view_mode(view.midi_view_mode);ui.set_scale_mode(view.scale_mode);ui.set_scale_root(view.scale_root);
+        ui.set_piano_row_count(view.piano_row_count as i32);ui.set_snap_index(view.snap_index);
+        ui.set_navigation_linked(view.navigation_linked);
+        if view.navigation_linked {
+            if (ui.get_arrangement_zoom()-view.linked_scale).abs()>0.001 {ui.set_arrangement_zoom(view.linked_scale);}
+            let x=-view.linked_start*view.linked_scale;
+            if (ui.get_arrangement_x()-x).abs()>0.001 {ui.set_arrangement_x(x);}
+        }
+        ui.invoke_clamp_scroll();if selection_changed && !switched {ui.invoke_reveal_clip();}self.tick_drums(ui);
     }
 }
 
 /// The native app and software probe share exactly the same clip/piano input adapter.
 pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
     fn queue(m:&RefCell<Mailbox>,weak:&slint::Weak<AppWindow>,request:Request) {
-        let background=matches!(request,Request::Move{..}|Request::ScrollPiano(..)|Request::CancelGesture(_)|Request::AuditionOff(_));
+        let background=matches!(request,Request::Move{..}|Request::ScrollPiano(..)|Request::ScrollPianoForSession(..)|Request::CancelGesture(_)|Request::AuditionOff(_));
         let result=m.borrow_mut().enqueue(request);
         if let Some(ui)=weak.upgrade(){if let Err(error)=result {ui.set_action_error(error.into());} else if !background {ui.set_action_error("".into());}}
     }
@@ -235,8 +290,35 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
     bind!(on_rename_clip,(track,clip,name)=>Request::RenameClip{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0),name:name.into()});
     bind!(on_move_clip,(track,clip,destination,beat)=>Request::MoveClip{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0),destination:destination.parse().unwrap_or(0),beat:beat as f64});
     bind!(on_resize_clip,(track,clip,beats)=>Request::ResizeClip{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0),beats:beats as f64});
-    bind!(on_zoom_y,(factor)=>Request::ZoomY(factor));bind!(on_fit_notes,()=>Request::FitNotes);bind!(on_notation,(offset)=>Request::Notation(offset));
-    bind!(on_scroll_piano,(beat,y)=>Request::ScrollPiano(beat as f64,y));
+    bind!(on_zoom_y,(factor)=>Request::ZoomY(factor));bind!(on_fit_notes,()=>Request::FitNotes);bind!(on_restore_view,()=>Request::RestoreView);bind!(on_notation,(offset)=>Request::Notation(offset));
+    bind!(on_zoom_at,(factor,x)=>Request::ZoomAt(factor,x));
+    bind!(on_set_midi_view_mode,(index)=>Request::SetMidiViewMode(index));
+    bind!(on_set_scale,(mode,root)=>Request::SetScale(mode,root));bind!(on_set_snap,(index)=>Request::SetSnap(index));
+    bind!(on_set_navigation_linked,(linked)=>Request::SetNavigationLinked(linked));
+    bind!(on_toggle_reference,(track,clip)=>Request::ToggleReference{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0)});
+    bind!(on_toggle_reference_pin,(track,clip)=>Request::ToggleReferencePin{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0)});
+    bind!(on_hide_references,()=>Request::HideReferences);bind!(on_follow_selection_changed,(follow)=>Request::FollowSelection(follow));
+    bind!(on_activate_editor_clip,(track,clip)=>Request::ActivateEditorClip{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0)});
+    bind!(on_delete_note_at,(track,clip,_x,_y)=>Request::DeleteContext{track:track.parse().unwrap_or(0),clip:clip.parse().unwrap_or(0)});
+    {
+        let m=mailbox.clone();let weak=ui.as_weak();ui.on_scroll_piano(move|beat,y|{
+            if let Some(ui)=weak.upgrade() {
+                let session=ui.get_ui_project_session().parse().unwrap_or(0);
+                queue(&m,&weak,Request::ScrollPianoForSession(session,beat as f64,y));
+            }
+        });
+    }
+    {
+        let m=mailbox.clone();let weak=ui.as_weak();ui.on_select_velocity_note(move|note|{
+            if let Some(ui)=weak.upgrade(){queue(&m,&weak,Request::SelectVelocityNote{track:ui.get_track_id().parse().unwrap_or(0),clip:ui.get_clip_id().parse().unwrap_or(0),note:note.parse().unwrap_or(0)});}
+        });
+    }
+    {
+        let m=mailbox.clone();let weak=ui.as_weak();ui.on_set_velocity_note(move|note,value|{
+            if let Some(ui)=weak.upgrade(){queue(&m,&weak,Request::Velocity{track:ui.get_track_id().parse().unwrap_or(0),clip:ui.get_clip_id().parse().unwrap_or(0),note:note.parse().unwrap_or(0),value});}
+        });
+    }
+
     {
         let m=mailbox.clone();let weak=ui.as_weak();ui.on_velocity(move|value|{
             if let Some(ui)=weak.upgrade(){queue(&m,&weak,Request::Velocity{track:ui.get_track_id().parse().unwrap_or(0),clip:ui.get_clip_id().parse().unwrap_or(0),note:ui.get_selected_note_id().parse().unwrap_or(0),value});}
@@ -250,12 +332,12 @@ pub fn bind_editor(ui:&AppWindow, mailbox:Rc<RefCell<Mailbox>>) {
     let gesture=Rc::new(Cell::new(None));
     {
         let m=mailbox.clone();let weak=ui.as_weak();let gesture=gesture.clone();
-        ui.on_down(move|x,y,right|{
+        ui.on_down(move|x,y,right,extend|{
             let Some(ui)=weak.upgrade() else {return;}; if ui.get_clip_id()=="0" {ui.set_action_error("Create a MIDI clip first.".into());return;}
             let token=match m.borrow_mut().token(){Ok(t)=>t,Err(e)=>{ui.set_action_error(e.into());return;}};
             let viewport=Viewport{start_tick:(ui.get_scroll_beat() as f64*960.0).round() as u64,pixels_per_beat:ui.get_pixels_per_beat(),
                 scroll_y:ui.get_piano_scroll_y(),row_height:ui.get_piano_row_height(),width:ui.get_canvas_width(),height:ui.get_canvas_height(),octave_offset:(ui.get_notation_index()-1) as i8};
-            queue(&m,&weak,Request::Down{track:ui.get_track_id().parse().unwrap_or(0),clip:ui.get_clip_id().parse().unwrap_or(0),token,viewport,x,y,right});gesture.set(Some(token));
+            queue(&m,&weak,Request::Down{track:ui.get_track_id().parse().unwrap_or(0),clip:ui.get_clip_id().parse().unwrap_or(0),token,viewport,x,y,right,extend});gesture.set(Some(token));
         });
     }
     {

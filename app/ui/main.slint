@@ -1,3 +1,5 @@
+import { VelocityLane, VelocityVisual } from "velocity_lane.slint";
+export { VelocityVisual } from "velocity_lane.slint";
 import { Button, ComboBox, SpinBox, Slider, CheckBox, LineEdit, ScrollView, AboutSlint, Palette } from "std-widgets.slint";
 
 export struct MiniVisual { x: float, y: float, w: float, h: float }
@@ -7,8 +9,10 @@ export struct TrackVisual {
     mute: bool, solo: bool, audible: bool, clips: [ClipVisual],
 }
 export struct PadVisual {id:string,name:string,midi:int,filled:bool,muted:bool}
-export struct KeyVisual { pitch: int, y: float, h: float, black: bool, c: bool, label: string }
+export struct KeyVisual { pitch: int, y: float, h: float, black: bool, c: bool, label: string, in-scale: bool }
 export struct NoteVisual { x: float, y: float, w: float, h: float, selected: bool, label: string }
+export struct ReferenceVisual { track-id: string, clip-id: string, label: string, visible: bool, pinned: bool, active: bool }
+export struct GhostVisual { x: float, y: float, w: float, h: float, tint: color }
 export struct RecentProjectVisual { name: string, path: string, available: bool }
 export component AppWindow inherits Window {
     in property <int> track-limit;
@@ -17,6 +21,8 @@ export component AppWindow inherits Window {
     preferred-width: 1280px; preferred-height: 820px; min-width: 1000px; min-height: 760px;
     background: #0d1117; default-font-family: "sans-serif"; default-font-size: 13px;
     in property <string> project-name: "First session";
+    // Last controller session presented by the UI, used to reject stale scrolls.
+    in property <string> ui-project-session: "0";
     in property <string> status: "Starting application controller…";
     in property <string> action-error;
     in property <int> pending-actions;
@@ -25,6 +31,23 @@ export component AppWindow inherits Window {
     in property <string> transport-text: "001 : 01";
     in property <[TrackVisual]> track-items;
     in property <string> track-id: "1";
+    in property <string> arrangement-track-id: "1";
+    in property <string> inspector-track-id: "1";
+    in property <int> inspector-track-index: 0;
+    in property <string> inspector-track-name: "Sine lead";
+    in-out property <string> inspector-track-name-draft: "Sine lead";
+    in-out property <int> inspector-color-index: 0;
+    in-out property <float> inspector-gain: 0.7;
+    in-out property <float> inspector-pan: 0;
+    in property <bool> inspector-muted;
+    in property <bool> inspector-soloed;
+    in property <bool> inspector-audible: true;
+    in property <string> inspector-instrument: "Sine oscillator";
+    in property <bool> inspector-is-synth: true;
+    in property <bool> inspector-is-drums;
+    in-out property <string> inspector-sample-path;
+    in-out property <int> inspector-sample-root: 60;
+    in-out property <bool> inspector-sample-one-shot: false;
     in property <string> track-name: "Sine lead";
     in-out property <string> track-name-draft: "Sine lead";
     in property <string> instrument: "Sine oscillator";
@@ -78,6 +101,7 @@ export component AppWindow inherits Window {
     in property <bool> dirty;
     in property <bool> can-undo;
     in property <bool> can-redo;
+    in property <bool> silent-mode;
     in property <bool> playing;
     in property <bool> looping;
     in property <bool> export-busy;
@@ -99,14 +123,30 @@ export component AppWindow inherits Window {
     in property <string> clip-id: "0";
     in property <float> clip-length-beats;
     in-out property <string> clip-name-draft;
-    private property <length> keyboard-width: root.is-drums ? 140px : 76px;
+    private property <length> keyboard-width: root.is-drums ? 140px : 58px;
     private property <int> piano-first-beat: floor(root.scroll-beat);
     private property <int> piano-beat-count: ceil(root.canvas-width/root.pixels-per-beat)+2;
     private property <int> piano-first-line: floor(root.scroll-beat*4);
     in property <[NoteVisual]> note-items;
+    in property <[ReferenceVisual]> reference-items;
+    in property <int> reference-count;
+    in property <[GhostVisual]> ghost-items;
+    in property <bool> follow-selection: true;
+    in property <int> midi-view-mode: 0;
+    in property <int> piano-row-count: 128;
+    in property <int> scale-mode: 0;
+    in property <int> scale-root: 0;
+    in property <int> snap-index: 2;
+    in property <bool> navigation-linked: false;
+    in-out property <int> ui-density: 0;
+    in property <[VelocityVisual]> velocity-items;
+    in-out property <bool> velocity-visible: false;
+    in-out property <int> inspector-detail: 0;
     in property <float> project-beats: 16;
     in property <bool> arrangement-limited;
-    in-out property <bool> inspector-visible: true;
+    in-out property <bool> inspector-visible: false;
+    in-out property <bool> inspector-pinned: true;
+    in-out property <float> inspector-custom-width: 240;
     in-out property <bool> project-tab: false;
     in-out property <bool> confirm-close: false;
     in-out property <bool> about-visible: false;
@@ -128,20 +168,44 @@ export component AppWindow inherits Window {
     in-out property <float> arrangement-zoom: 48;
     in-out property <length> arrangement-x: 0px;
     in-out property <length> arrangement-y: 0px;
-    private property <length> header-width: 208px;
-    private property <length> row-height: 76px;
+    // Compact workspace sizing and UI-only layout state.
+    private property <length> header-width: 190px;
+    private property <length> row-height: root.ui-density == 2 ? 64px : root.ui-density == 1 ? 58px : 48px;
+    private property <length> toolbar-height: root.ui-density == 2 ? 44px : 30px;
+    private property <length> editor-toolbar-height: root.ui-density == 2 ? 44px : 30px;
+    private property <length> velocity-control-width: 128px;
+    private property <length> velocity-control-height: 32px;
+    private property <length> splitter-height: 12px;
+    in-out property <int> workspace-focus: 0;
+    in-out property <float> workspace-split: -1;
+    private property <length> max-arrangement-height: max(100px, main.height - (root.velocity-visible ? 325px : 265px) - root.toolbar-height - root.editor-toolbar-height + 60px);
+    private property <length> adaptive-arrangement-height: min(root.max-arrangement-height, max(100px, (root.track-items.length * root.row-height) + 4px));
     private property <int> arrangement-first-beat: max(0, floor(-root.arrangement-x / 1px / root.arrangement-zoom));
     private property <int> arrangement-beat-count: ceil(root.lane-width / root.arrangement-zoom) + 2;
-    private property <length> inspector-width: root.inspector-visible ? 280px : 0px;
-    private property <length> arrangement-height: max(144px, min(208px, root.height - 596px));
+    private property <length> inspector-width: root.inspector-visible ? max(220,min(400,root.inspector-custom-width))*1px : 0px;
+    // Keep the user's requested width and pin state, but let a wide inspector
+    // overlay the workspace when reserving it would clip the editor toolbar.
+    private property <bool> inspector-overlaid: root.inspector-visible && (!root.inspector-pinned || root.width < 1000px || root.width - root.inspector-width < 774px);
+    private property <length> reserved-inspector-width: root.inspector-visible && !root.inspector-overlaid ? root.inspector-width : 0px;
+    private property <length> arrangement-height: root.workspace-focus == 1 ? max(100px, main.height - root.toolbar-height - root.editor-toolbar-height - 60px) : root.workspace-focus == 2 ? 100px : root.workspace-split < 0 ? root.adaptive-arrangement-height : max(100px, min(root.max-arrangement-height, root.workspace-split * root.max-arrangement-height));
     private property <string> drag-id;
+    private property <string> renaming-track-id;
+    private property <string> inline-track-name;
+    in-out property <string> focused-track-id;
     private property <bool> dragging;
     private property <int> drag-index: -1;
     private property <float> drag-start;
     private property <float> drag-pointer;
     private property <int> drop-index: -1;
-    out property <float> canvas-width: grid.width / 1px;
-    out property <float> canvas-height: grid.height / 1px;
+    out property <float> splitter-x: split-touch.absolute-position.x / 1px + split-touch.width / 2px;
+    out property <float> splitter-y: split-touch.absolute-position.y / 1px + split-touch.height / 2px;
+    out property <float> arrangement-height-value: root.arrangement-height / 1px;
+    out property <float> focus-timeline-x: focus-timeline.absolute-position.x / 1px + focus-timeline.width / 2px;
+    out property <float> focus-timeline-y: focus-timeline.absolute-position.y / 1px + focus-timeline.height / 2px;
+    out property <float> focus-piano-x: focus-piano.absolute-position.x / 1px + focus-piano.width / 2px;
+    out property <float> focus-piano-y: focus-piano.absolute-position.y / 1px + focus-piano.height / 2px;
+    out property <float> canvas-width: root.workspace-focus == 1 ? 0 : grid.width / 1px;
+    out property <float> canvas-height: root.workspace-focus == 1 ? 0 : grid.height / 1px;
     out property <float> lane-width: rows.visible-width / 1px - root.header-width / 1px;
     out property <float> rows-x: rows.absolute-position.x / 1px;
     out property <float> rows-y: rows.absolute-position.y / 1px;
@@ -214,8 +278,20 @@ export component AppWindow inherits Window {
     out property <float> inspector-gain-value: gain-slider.value;
     out property <float> inspector-mute-x: inspector-mute.absolute-position.x / 1px + inspector-mute.width / 2px;
     out property <float> inspector-mute-y: inspector-mute.absolute-position.y / 1px + inspector-mute.height / 2px;
+    out property <float> inspector-track-x: inspector-track.absolute-position.x / 1px + inspector-track.width / 2px;
+    out property <float> inspector-track-y: inspector-track.absolute-position.y / 1px + inspector-track.height / 2px;
     out property <float> inspector-toggle-x: inspector-toggle.absolute-position.x / 1px + inspector-toggle.width / 2px;
     out property <float> inspector-toggle-y: inspector-toggle.absolute-position.y / 1px + inspector-toggle.height / 2px;
+    out property <float> inspector-close-x: inspector-close.absolute-position.x / 1px + inspector-close.width / 2px;
+    out property <float> inspector-close-y: inspector-close.absolute-position.y / 1px + inspector-close.height / 2px;
+    out property <float> midi-view-x: midi-view-control.absolute-position.x / 1px + midi-view-control.width / 2px;
+    out property <float> midi-view-y: midi-view-control.absolute-position.y / 1px + midi-view-control.height / 2px;
+    out property <float> midi-snap-x: midi-snap-control.absolute-position.x / 1px + midi-snap-control.width / 2px;
+    out property <float> midi-snap-y: midi-snap-control.absolute-position.y / 1px + midi-snap-control.height / 2px;
+    out property <string> sound-context-label: root.is-drums ? drum-sound-label.text : synth-sound-label.text;
+    out property <string> clip-context-label: editor-clip-label.text;
+    out property <float> editor-toolbar-end-x: zoom-control.absolute-position.x / 1px + zoom-control.width / 1px;
+    out property <float> workspace-right-x: main.absolute-position.x / 1px + main.width / 1px;
     callback play(); callback pause(); callback stop(); callback toggle-loop();
     callback select-track(string); callback select-clip(string, string);
     callback add-track(string); callback duplicate-track(string); callback remove-track(string);
@@ -224,12 +300,17 @@ export component AppWindow inherits Window {
     callback toggle-mute(string); callback toggle-solo(string);
     callback tempo(int); callback set-gain(string, float); callback set-pan(string, float); callback finish-mix();
     callback undo(); callback redo(); callback remove-note();
-    callback zoom-y(float); callback fit-notes(); callback notation(int); callback scroll-piano(float,float);
+    callback zoom-y(float); callback fit-notes(); callback restore-view(); callback notation(int); callback scroll-piano(float,float);
+    callback toggle-reference(string,string); callback toggle-reference-pin(string,string); callback hide-references(); callback follow-selection-changed(bool); callback activate-editor-clip(string,string);
+    callback set-midi-view-mode(int);
+    callback set-scale(int,int);
+    callback set-snap(int); callback zoom-at(float,float); callback set-navigation-linked(bool);
+    callback select-velocity-note(string); callback set-velocity-note(string,int);
     callback key-gate(int,bool); callback release-audition(); callback cancel-note(); callback velocity(int);
     callback new-clip(string,float); callback duplicate-clip(string,string); callback remove-clip(string,string);
     callback rename-clip(string,string,string); callback move-clip(string,string,string,float); callback resize-clip(string,string,float);
     callback zoom(float); callback pan-view(int); callback pitch-view(int); callback seek(float); callback seek-project(float);
-    callback down(float, float, bool); callback moved(float, float); callback up(float, float);
+    callback down(float, float, bool, bool); callback moved(float, float); callback up(float, float); callback delete-note-at(string,string,float,float);
     callback save-project(string); callback open-project(string);
     callback switch-project(int, string, string, int);
     callback browse-folder(int); callback choose-open-project(); callback reveal-project();
@@ -244,6 +325,14 @@ export component AppWindow inherits Window {
     callback load-synth-preset(string, string, string);
     callback export-audio(string); callback import-sample(string, string, int, bool); callback use-sine(string);
     callback exit-confirmed();
+    public function select-track-context(id: string) {
+        root.select-track(id);
+        if root.inspector-visible && !root.sound-tab && !root.project-tab { root.inspector-detail = 0; root.inspector-scroll = 0px; }
+    }
+    public function select-clip-context(track: string, clip: string) {
+        root.select-clip(track, clip);
+        if root.inspector-visible && !root.sound-tab && !root.project-tab { root.inspector-detail = 1; root.inspector-scroll = 0px; }
+    }
     public function show-projects() {
         if !root.export-busy { root.cancel-interactions(); root.stop(); root.home-visible = true; }
     }
@@ -277,9 +366,16 @@ export component AppWindow inherits Window {
     private property <bool> clip-resizing;
     private property <bool> clip-dragging;
     public function piano-wheel(dx:float,dy:float) {
-        root.piano-bar-y=min(0px,max(min(0px,root.canvas-height*1px - 128*root.piano-row-height*1px),root.piano-bar-y+dy*1px));
+        root.piano-bar-y=min(0px,max(min(0px,root.canvas-height*1px - root.piano-row-count*root.piano-row-height*1px),root.piano-bar-y+dy*1px));
         root.piano-bar-x=min(0px,max(min(0px,root.canvas-width*1px - root.clip-length-beats*root.pixels-per-beat*1px),root.piano-bar-x+dx*1px));
         root.scroll-piano(-root.piano-bar-x/1px/root.pixels-per-beat,-root.piano-bar-y/1px);
+    }
+    // The anchor is expressed in timeline-canvas pixels, not header pixels.
+    public function arrangement-zoom-at(factor:float, anchor:float) {
+        let beat=(anchor - root.arrangement-x/1px)/root.arrangement-zoom;
+        root.arrangement-zoom=max(12,min(192,root.arrangement-zoom*factor));
+        root.arrangement-x=(anchor - beat*root.arrangement-zoom)*1px;
+        root.clamp-scroll();
     }
     public function cancel-interactions() {
         root.clip-drag-id="";root.clip-dragging=false;root.drag-id="";root.dragging=false;root.drop-index=-1;
@@ -306,7 +402,7 @@ export component AppWindow inherits Window {
     }
     public function reveal-selected() {
         root.arrangement-y = min(0px, max(min(0px, rows.visible-height - rows.content-height),
-            max(-root.track-index * root.row-height, min(root.arrangement-y, rows.visible-height - (root.track-index + 1) * root.row-height))));
+            max(-root.inspector-track-index * root.row-height, min(root.arrangement-y, rows.visible-height - (root.inspector-track-index + 1) * root.row-height))));
     }
     public function tick-drag() {
         if root.clip-drag-id!="" && root.clip-dragging {
@@ -336,40 +432,71 @@ export component AppWindow inherits Window {
             MenuItem { title: "Save as…"; enabled: root.has-project; activated => { root.show-save-as(); } }
             MenuItem { title: "Open project folder"; enabled: root.project-path != ""; activated => { root.reveal-project(); } }
         }
+        Menu { title: "Piano view";
+            MenuItem { title: "Scroll down one octave"; activated => { root.pitch-view(-12); } }
+            MenuItem { title: "Scroll up one octave"; activated => { root.pitch-view(12); } }
+            MenuItem { title: root.notation-index == 0 ? "✓ Middle C: C3" : "Middle C: C3"; enabled: !root.is-drums; activated => { root.notation( -1); } }
+            MenuItem { title: root.notation-index == 1 ? "✓ Middle C: C4" : "Middle C: C4"; enabled: !root.is-drums; activated => { root.notation(0); } }
+            MenuItem { title: root.notation-index == 2 ? "✓ Middle C: C5" : "Middle C: C5"; enabled: !root.is-drums; activated => { root.notation(1); } }
+            MenuItem { title: root.scale-mode == 0 ? "✓ Scale highlighting off" : "Scale highlighting off"; activated => { root.set-scale(0,root.scale-root); } }
+            MenuItem { title: root.scale-mode == 1 ? "✓ Major scale" : "Major scale"; activated => { root.set-scale(1,root.scale-root); } }
+            MenuItem { title: root.scale-mode == 2 ? "✓ Minor scale" : "Minor scale"; activated => { root.set-scale(2,root.scale-root); } }
+        }
+        Menu { title: "Scale root";
+            MenuItem { title: "C"; activated => { root.set-scale(root.scale-mode,0); } }
+            MenuItem { title: "C♯"; activated => { root.set-scale(root.scale-mode,1); } }
+            MenuItem { title: "D"; activated => { root.set-scale(root.scale-mode,2); } }
+            MenuItem { title: "D♯"; activated => { root.set-scale(root.scale-mode,3); } }
+            MenuItem { title: "E"; activated => { root.set-scale(root.scale-mode,4); } }
+            MenuItem { title: "F"; activated => { root.set-scale(root.scale-mode,5); } }
+            MenuItem { title: "F♯"; activated => { root.set-scale(root.scale-mode,6); } }
+            MenuItem { title: "G"; activated => { root.set-scale(root.scale-mode,7); } }
+            MenuItem { title: "G♯"; activated => { root.set-scale(root.scale-mode,8); } }
+            MenuItem { title: "A"; activated => { root.set-scale(root.scale-mode,9); } }
+            MenuItem { title: "A♯"; activated => { root.set-scale(root.scale-mode,10); } }
+            MenuItem { title: "B"; activated => { root.set-scale(root.scale-mode,11); } }
+        }
+        Menu { title: "Density";
+            MenuItem { title: root.ui-density == 0 ? "✓ Compact" : "Compact"; activated => { root.ui-density = 0; } }
+            MenuItem { title: root.ui-density == 1 ? "✓ Normal" : "Normal"; activated => { root.ui-density = 1; } }
+            MenuItem { title: root.ui-density == 2 ? "✓ Touch" : "Touch"; activated => { root.ui-density = 2; } }
+        }
         Menu { title: "Help"; MenuItem { title: "About OpenDAW"; activated => { root.about-visible = true; } } }
     }
     Rectangle {
-        x: 0; y: 0; height: 64px; width: parent.width; background: #151d28;
-        Text { x: 16px; y: 10px; text: "OPENDAW"; color: #79e3bf; font-size: 23px; font-weight: 700; }
-        Text { x: 18px; y: 39px; text: "ARRANGEMENT / TRACK MIXER"; color: #8394aa; font-size: 9px; }
+        x: 0; y: 0; height: 40px; width: parent.width; background: #151d28;
         HorizontalLayout {
-            x: 232px; y: 15px; width: parent.width - 500px; height: 34px; spacing: 6px;
-            play-button := Button { text: root.playing ? "Playing" : "Play"; clicked => { root.play(); } }
-            Button { text: "Pause"; clicked => { root.pause(); } }
+            x: 8px; y: 4px; width: parent.width - 16px; height: 32px; spacing: 4px;
+            Text { text: "OPENDAW"; color: #79e3bf; font-size: 15px; font-weight: 700; vertical-alignment: center; }
+            play-button := Button { text: root.playing ? "Pause" : "Play"; clicked => { if root.playing { root.pause(); } else { root.play(); } } }
             Button { text: "Stop"; clicked => { root.stop(); } }
-            Button { text: root.looping ? "Loop on" : "Loop off"; clicked => { root.toggle-loop(); } }
-            Button { text: "Projects"; enabled: !root.export-busy; clicked => { root.show-projects(); } }
+            Button { text: "Loop"; checked: root.looping; accessible-checkable: true; accessible-checked: root.looping; clicked => { root.toggle-loop(); } }
+            Text { text: root.transport-text; font-size: 16px; color: #e8f2ff; vertical-alignment: center; }
+            Text { text: "BPM"; color: #a6bdd4; vertical-alignment: center; }
+            SpinBox { width: 86px; value <=> root.bpm; minimum: 30; maximum: 300; edited(value) => { root.tempo(value); } }
+            Text { text: root.silent-mode ? "SILENT CLOCK · no audio" : root.mix-label; color: root.silent-mode ? #e0bd7b : #91a7bf; font-size: 10px; vertical-alignment: center; overflow: elide; }
             Rectangle { horizontal-stretch: 1; }
+            Button { text: "Projects"; enabled: !root.export-busy; clicked => { root.show-projects(); } }
         }
-        Text { x: parent.width - 230px; y: 11px; width: 210px; height: 36px; text: root.transport-text;
-            font-size: 25px; color: #e8f2ff; horizontal-alignment: right; }
     }
     main := Rectangle {
-        x: 12px; y: 74px; width: root.width - root.inspector-width - 32px; height: root.height - 124px;
+        x: 6px; y: 44px; width: root.width - root.reserved-inspector-width - (root.reserved-inspector-width > 0px ? 18px : 12px); height: root.height - 70px;
         HorizontalLayout {
-            x: 0; y: 0; width: parent.width; height: 30px; spacing: 5px;
+            x: 0; y: 0; width: parent.width; height: root.toolbar-height; spacing: 4px;
             Text { text: "TRACKS  " + root.track-items.length + " / " + root.track-limit; color: #a6bdd4; vertical-alignment: center; }
-            add-track-button := Button { text: "+ Track"; enabled: root.track-items.length < root.track-limit; clicked => { root.add-track(root.track-id); } }
-            add-drums-button := Button {text:"+ Drums";enabled:root.track-items.length<root.track-limit;clicked=>{root.add-drums(root.track-id);root.sound-tab=true;root.project-tab=false;root.inspector-scroll=0px;}}
-            duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < root.track-limit; clicked => { root.duplicate-track(root.track-id); } }
+            add-track-button := Button { text: "+ Track"; enabled: root.track-items.length < root.track-limit; clicked => { root.add-track(root.arrangement-track-id); } }
+            add-drums-button := Button {text:"+ Drums";enabled:root.track-items.length<root.track-limit;clicked=>{root.add-drums(root.arrangement-track-id);if root.follow-selection {root.sound-tab=true;root.project-tab=false;root.inspector-scroll=0px;}}}
+            duplicate-button := Button { text: "Duplicate"; enabled: root.track-items.length < root.track-limit; clicked => { root.duplicate-track(root.arrangement-track-id); } }
             Button { text: root.width < 1100px ? "Show" : "Show selected";accessible-label:"Show selected track"; clicked => { root.reveal-selected(); } }
             Rectangle { horizontal-stretch: 1; }
-            Button { text: "−"; clicked => { root.arrangement-zoom = max(12, root.arrangement-zoom * 0.8); root.clamp-scroll(); } }
-            Button { text: "+"; clicked => { root.arrangement-zoom = min(192, root.arrangement-zoom * 1.25); } }
+            focus-timeline := Button { text: root.workspace-focus == 1 ? "Combined" : "Timeline"; checked: root.workspace-focus == 1; clicked => { root.workspace-focus = root.workspace-focus == 1 ? 0 : 1; } }
+            focus-piano := Button { text: root.workspace-focus == 2 ? "Combined" : "Piano"; checked: root.workspace-focus == 2; clicked => { root.workspace-focus = root.workspace-focus == 2 ? 0 : 2; } }
+            Button { text: "−"; accessible-label: "Zoom timeline out"; clicked => { root.arrangement-zoom-at(0.8,root.lane-width/2); } Tooltip { text: @markdown("Zoom timeline out"); } }
+            Button { text: "+"; accessible-label: "Zoom timeline in"; clicked => { root.arrangement-zoom-at(1.25,root.lane-width/2); } Tooltip { text: @markdown("Zoom timeline in"); } }
             inspector-toggle := Button { text: root.inspector-visible ? "Inspector ›" : "‹ Inspector"; clicked => { root.inspector-visible = !root.inspector-visible; } }
         }
         Rectangle {
-            x: 0; y: 38px; width: parent.width; height: 26px; background: #1a2633;
+            x: 0; y: root.toolbar-height + 2px; width: parent.width; height: 24px; background: #1a2633;
             Text { x: 12px; y: 5px; text: "TRACK / INSTRUMENT"; color: #91a7bf; font-size: 10px; }
             Rectangle {
                 x: root.header-width; y: 0; width: parent.width - self.x; height: parent.height; clip: true;
@@ -382,8 +509,16 @@ export component AppWindow inherits Window {
             }
         }
         clip-focus := FocusScope {
-            x:0;y:64px;width:parent.width;height:root.arrangement-height;
+            x:0;y:root.toolbar-height+26px;width:parent.width;height:root.arrangement-height;
             focus-lost(reason) => {root.cancel-interactions();}
+            key-pressed(event) => {
+                if event.modifiers.control && (event.text == "z" || event.text == "Z") {
+                    if event.modifiers.shift { root.redo(); } else { root.undo(); } return accept;
+                }
+                if event.modifiers.control && (event.text == "y" || event.text == "Y") { root.redo(); return accept; }
+                if event.text == Key.Escape { root.cancel-interactions(); return accept; }
+                reject
+            }
         rows := ScrollView {
             x: 0; y: 0; width: parent.width; height: parent.height;
             content-width: self.visible-width; content-height: max(self.visible-height, root.track-items.length * root.row-height);
@@ -399,13 +534,14 @@ export component AppWindow inherits Window {
                     handle := TouchArea {
                         x: 4px; y: 0; width: 24px; height: parent.height;
                         pointer-event(event) => {
+                            if event.kind == PointerEventKind.down && event.button == PointerEventButton.right { track-menu.show(); }
                             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
                                 clip-focus.focus();root.drag-id = track.id; root.drag-index = index; root.drag-start = self.absolute-position.y / 1px + self.mouse-y / 1px;
                                 root.drag-pointer = root.drag-start; root.dragging = false;
                             }
                             if event.kind == PointerEventKind.up && root.drag-id == track.id {
                                 if root.dragging && root.drop-index >= 0 { root.reorder-track(track.id, root.drop-index); }
-                                else { root.select-track(track.id); }
+                                else { root.select-track-context(track.id); }
                                 root.drag-id = ""; root.dragging = false; root.drop-index = -1;
                             }
                             if event.kind == PointerEventKind.cancel { root.drag-id = ""; root.dragging = false; root.drop-index = -1; }
@@ -418,19 +554,53 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    Button {
-                        x: 30px; y: 5px; width: root.header-width - 38px; height: 28px;
-                        text: (track.selected ? "› " : "") + track.name;
-                        clicked => { root.select-track(track.id); }
+                    Rectangle {
+                        x: 28px; y: 2px; width: root.header-width - (root.ui-density == 2 ? 124px : 104px); height: 27px;
+                        background: name-touch.has-hover ? #30465b : #253647; border-radius: 3px;
+                        border-width: name-focus.has-focus ? 2px : 0px; border-color: #9df3d6;
+                        accessible-role: button; accessible-label: "Select track " + track.name;
+                        accessible-action-default => { root.select-track-context(track.id); }
+                        Text { x: 4px; width: parent.width - 8px; height: parent.height; text: (track.selected ? "› " : "") + track.name; color: #e3eef6; vertical-alignment: center; overflow: elide; }
+                        name-focus := FocusScope {
+                            width:0px;
+                            changed has-focus => { if self.has-focus {root.focused-track-id=track.id;} else if root.focused-track-id==track.id {root.focused-track-id="";} }
+                            key-pressed(event) => {
+                                if event.text==Key.Space || event.text==Key.Return {root.select-track-context(track.id);return accept;}
+                                if event.text==Key.F2 {root.inline-track-name=track.name;root.renaming-track-id=track.id;inline-name.focus();return accept;}
+                                reject
+                            }
+                        }
+                        name-touch := TouchArea {
+                            double-clicked => { root.inline-track-name=track.name; root.renaming-track-id=track.id; inline-name.focus(); }
+                            pointer-event(event) => {
+                                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { name-focus.focus(); }
+                                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left { root.select-track-context(track.id); }
+                                if event.kind == PointerEventKind.down && event.button == PointerEventButton.right { track-menu.show(); }
+                            }
+                            Tooltip { text:@markdown("Select track · double-click or press F2 to rename"); }
+                        }
+                        inline-name := LineEdit { visible:root.renaming-track-id==track.id; width:parent.width; height:parent.height;
+                            text<=>root.inline-track-name; accepted=>{root.rename-track(track.id,self.text);root.renaming-track-id="";}
+                            changed has-focus=>{if !self.has-focus && root.renaming-track-id==track.id {root.renaming-track-id="";}} }
                     }
-                    Text { x: 32px; y: 36px; width: 100px; height: 15px; text: track.instrument;
+                    track-menu := PopupWindow {
+                        x: 28px; y: 28px; width: 170px; height: 150px; close-policy: close-on-click-outside;
+                        Rectangle { background: #1a2938; border-width: 1px; border-color: #536b7f;
+                            VerticalLayout { padding: 4px; spacing: 2px;
+                                Button { text: "Select track"; clicked => { root.select-track-context(track.id); track-menu.close(); } }
+                                Button { text: "Duplicate track"; enabled: root.track-items.length < root.track-limit; clicked => { root.duplicate-track(track.id); track-menu.close(); } }
+                                Button { text: track.mute ? "Unmute" : "Mute"; clicked => { root.toggle-mute(track.id); track-menu.close(); } }
+                                Button { text: track.solo ? "Unsolo" : "Solo"; clicked => { root.toggle-solo(track.id); track-menu.close(); } }
+                                Button { text: "Remove track"; enabled: root.track-items.length > 1; clicked => { root.remove-track(track.id); track-menu.close(); } }
+                            }
+                        }
+                    }
+                    Text { x: 30px; y: 30px; width: 92px; height: 15px; text: track.instrument;
                         color: #a0b4cb; font-size: 10px; overflow: elide; }
-                    Rectangle { x: 32px; y: 59px; width: 6px; height: 6px; border-radius: 3px; background: track.audible ? #78d9b7 : #697587; }
-                    Text { x: 44px; y: 54px; text: track.audible ? "To Master" : track.mute ? "Muted" : "Solo excluded"; color: #839bb4; font-size: 9px; }
-                    Button { x: 133px; y: 38px; width: 32px; height: 28px; text: "M"; accessible-checkable: true; accessible-checked: track.mute; checked: track.mute;
-                        accessible-label: "Mute " + track.name; clicked => { root.toggle-mute(track.id); } }
-                    Button { x: 169px; y: 38px; width: 32px; height: 28px; text: "S"; accessible-checkable: true; accessible-checked: track.solo; checked: track.solo;
-                        accessible-label: "Solo " + track.name; clicked => { root.toggle-solo(track.id); } }
+                    Button { x: root.ui-density == 2 ? 98px : 124px; y: root.ui-density == 2 ? 10px : 9px; width: root.ui-density == 2 ? 44px : 30px; height: root.ui-density == 2 ? 44px : 28px; text: "M"; accessible-checkable: true; accessible-checked: track.mute; checked: track.mute;
+                        accessible-label: "Mute " + track.name; clicked => { root.toggle-mute(track.id); } Tooltip { text: @markdown("Mute track"); } }
+                    Button { x: root.ui-density == 2 ? 144px : 156px; y: root.ui-density == 2 ? 10px : 9px; width: root.ui-density == 2 ? 44px : 30px; height: root.ui-density == 2 ? 44px : 28px; text: "S"; accessible-checkable: true; accessible-checked: track.solo; checked: track.solo;
+                        accessible-label: "Solo " + track.name; clicked => { root.toggle-solo(track.id); } Tooltip { text: @markdown("Solo track"); } }
                 }
                 lane := Rectangle {
                     x: root.header-width; y: 0; width: parent.width - self.x; height: parent.height; clip: true;
@@ -439,10 +609,24 @@ export component AppWindow inherits Window {
                         x: (beat + root.arrangement-first-beat) * root.arrangement-zoom * 1px + root.arrangement-x; y: 0; width: 1px; height: parent.height;
                         background: Math.mod(beat + root.arrangement-first-beat, 4) == 0 ? #314357 : #1d2b3b;
                     }
+                    private property <float> context-beat;
+                    private property <length> context-x;
+                    private property <length> context-y;
+                    empty-menu := PopupWindow {
+                        x: lane.context-x; y: lane.context-y; width: 160px; height: 68px; close-policy: close-on-click-outside;
+                        Rectangle { background: #1a2938; border-width: 1px; border-color: #536b7f;
+                            VerticalLayout { padding: 4px; spacing: 2px;
+                                Button { text: "New clip here"; clicked => { root.new-clip(track.id, lane.context-beat); empty-menu.close(); } }
+                                Button { text: "Select track"; clicked => { root.select-track-context(track.id); empty-menu.close(); } }
+                            }
+                        }
+                    }
                     TouchArea {
-                        clicked => { root.select-track(track.id); }
+                        pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.right { lane.context-beat = max(0,round((self.mouse-x - root.arrangement-x)/1px/root.arrangement-zoom*4)/4); lane.context-x = self.mouse-x; lane.context-y = self.mouse-y; empty-menu.show(); } }
+                        clicked => { root.select-track-context(track.id); }
                         double-clicked => {root.new-clip(track.id,max(0,round((self.mouse-x - root.arrangement-x)/1px/root.arrangement-zoom*4)/4));}
                         scroll-event(event) => {
+                            if event.modifiers.control && event.delta-y != 0px { root.arrangement-zoom-at(event.delta-y > 0px ? 1.12 : 1/1.12,self.mouse-x/1px); return accept; }
                             if event.delta-x != 0px { root.arrangement-x += event.delta-x; root.clamp-scroll(); return accept; }
                             reject
                         }
@@ -462,9 +646,22 @@ export component AppWindow inherits Window {
                                 background: track.audible ? track.tint : #6a7c88;
                             }
                         }
+                        private property <length> menu-x;
+                        private property <length> menu-y;
+                        clip-menu := PopupWindow {
+                            x: parent.menu-x; y: parent.menu-y; width: 160px; height: 96px; close-policy: close-on-click-outside;
+                            Rectangle { background: #1a2938; border-width: 1px; border-color: #536b7f;
+                                VerticalLayout { padding: 4px; spacing: 2px;
+                                    Button { text: "Edit clip"; clicked => { root.activate-editor-clip(track.id,clip.id); clip-menu.close(); } }
+                                    Button { text: "Duplicate clip"; clicked => { root.duplicate-clip(track.id,clip.id); clip-menu.close(); } }
+                                    Button { text: "Remove clip"; clicked => { root.remove-clip(track.id,clip.id); clip-menu.close(); } }
+                                }
+                            }
+                        }
                         clip-touch := TouchArea {
                             mouse-cursor: self.mouse-x>self.width - 9px ? ew-resize : grab;
                             pointer-event(event) => {
+                                if event.kind==PointerEventKind.down && event.button==PointerEventButton.right { parent.menu-x=self.mouse-x; parent.menu-y=self.mouse-y; clip-menu.show(); }
                                 if event.kind==PointerEventKind.down && event.button==PointerEventButton.left {
                                     clip-focus.focus();root.clip-drag-id=clip.id;root.clip-drag-track=track.id;
                                     root.clip-pointer-x=self.absolute-position.x/1px+self.mouse-x/1px;
@@ -478,7 +675,7 @@ export component AppWindow inherits Window {
                                     if root.clip-dragging {
                                         if root.clip-resizing {root.resize-clip(track.id,clip.id,root.clip-preview-length);}
                                         else {root.move-clip(track.id,clip.id,root.track-items[root.clip-target-index].id,root.clip-preview-start);}
-                                    } else {root.select-clip(track.id,clip.id);}
+                                    } else {root.select-clip-context(track.id,clip.id);}
                                     root.clip-drag-id="";root.clip-dragging=false;
                                 }
                                 if event.kind==PointerEventKind.cancel {root.clip-drag-id="";root.clip-dragging=false;}
@@ -491,6 +688,7 @@ export component AppWindow inherits Window {
                             }
                             Tooltip {text:@markdown("Drag to move · right edge to resize · snap 1/16");}
                             scroll-event(event) => {
+                                if event.modifiers.control && event.delta-y != 0px { root.arrangement-zoom-at(event.delta-y > 0px ? 1.12 : 1/1.12,(self.absolute-position.x+ self.mouse-x)/1px - root.rows-x - root.header-size); return accept; }
                                 if event.delta-x != 0px { root.arrangement-x += event.delta-x; root.clamp-scroll(); return accept; }
                                 reject
                             }
@@ -518,49 +716,92 @@ export component AppWindow inherits Window {
         }
         }
         horizontal := ScrollView {
-            x: root.header-width; y: 64px + root.arrangement-height; width: parent.width - self.x - 12px; height: 18px;
-            min-height: 18px; content-width: max(self.visible-width, root.project-beats * root.arrangement-zoom * 1px);
+            x: root.header-width; y: root.toolbar-height + 26px + root.arrangement-height; width: parent.width - self.x - 12px; height: 18px;
+            min-height: 18px; content-width: max(self.visible-width, root.project-beats * root.arrangement-zoom * 1px + (root.navigation-linked ? self.visible-width : 0px));
             content-height: self.visible-height; content-x <=> root.arrangement-x;
             horizontal-scrollbar-policy: always-on; vertical-scrollbar-policy: always-off;
         }
+        Rectangle {
+            x: 0; y: root.toolbar-height + 44px + root.arrangement-height; width: parent.width; height: root.splitter-height;
+            Rectangle { x: 0; y: 4px; width: parent.width; height: 4px; background: split-touch.has-hover || split-touch.pressed ? #6ed6b0 : #314354; }
+            split-touch := TouchArea {
+                mouse-cursor: ns-resize;
+                moved => {
+                    if self.pressed {
+                        root.workspace-focus = 0;
+                        root.workspace-split = max(100px, min(root.max-arrangement-height, self.absolute-position.y + self.mouse-y - main.absolute-position.y - root.toolbar-height - 44px)) / root.max-arrangement-height;
+                    }
+                }
+                double-clicked => { root.workspace-focus = 0; root.workspace-split = -1; }
+                Tooltip { text: @markdown("Drag to resize editors · double-click for adaptive layout"); }
+            }
+        }
+        // One compact editor toolbar: clip identity, edit commands and view controls.
         HorizontalLayout {
-            x:0;y:86px+root.arrangement-height;width:parent.width;height:28px;spacing:5px;
-            Text {text:"CLIPS";color:#95abc2;vertical-alignment:center;font-size:10px;}
-            new-clip-button := Button {text:"+ Clip";clicked=>{root.new-clip(root.track-id,root.clip-id!="0" ? root.clip-start-beat+root.clip-length-beats : root.project-position);}}
-            dup-clip-button := Button {text:"Duplicate";enabled:root.clip-id!="0";clicked=>{root.duplicate-clip(root.track-id,root.clip-id);}}
-            remove-clip-button := Button {text:"Remove";enabled:root.clip-id!="0";clicked=>{root.remove-clip(root.track-id,root.clip-id);}}
-            LineEdit {text<=>root.clip-name-draft;enabled:root.clip-id!="0";placeholder-text:"Clip name · Enter to apply";accepted=>{root.rename-clip(root.track-id,root.clip-id,self.text);}}
+            x:0; y:root.toolbar-height+56px+root.arrangement-height; width:parent.width; height:root.editor-toolbar-height; spacing:3px;
+            new-clip-button := Button { width:28px; text:"+"; accessible-label:"New clip"; clicked=>{root.new-clip(root.track-id,root.clip-id!="0" ? root.clip-start-beat+root.clip-length-beats : root.project-position);} Tooltip {text:@markdown("New clip");} }
+            dup-clip-button := Button { width:38px; text:"Dup"; accessible-label:"Duplicate clip"; enabled:root.clip-id!="0"; clicked=>{root.duplicate-clip(root.track-id,root.clip-id);} Tooltip {text:@markdown("Duplicate clip");} }
+            remove-clip-button := Button { width:28px; text:"−"; accessible-label:"Remove clip"; enabled:root.clip-id!="0"; clicked=>{root.remove-clip(root.track-id,root.clip-id);} Tooltip {text:@markdown("Remove clip");} }
+            ComboBox { width:100px; model:root.clip-names; current-index<=>root.clip-index; enabled:root.clip-id!="0";
+                selected(value)=>{if self.current-index>=0 && self.current-index<root.clip-ids.length {root.activate-editor-clip(root.track-id,root.clip-ids[self.current-index]);}} }
+            undo-button := Button { width:40px; text:"Undo"; accessible-label:"Undo"; enabled:root.can-undo; clicked=>{root.undo();} Tooltip {text:@markdown("Undo");} }
+            Button { width:40px; text:"Redo"; accessible-label:"Redo"; enabled:root.can-redo; clicked=>{root.redo();} Tooltip {text:@markdown("Redo");} }
+            Button { width:36px; text:"Del"; accessible-label:"Delete selected notes"; enabled:root.selected-note-id!="0"; clicked=>{root.remove-note();} Tooltip {text:@markdown("Delete selected notes · Delete");} }
+            Button { width:34px; text:"Fit"; clicked=>{root.fit-notes();} Tooltip {text:@markdown("Fit notes");} }
+            Button { width:64px; text:"Restore"; clicked=>{root.restore-view();} Tooltip {text:@markdown("Restore view before Fit");} }
+            Button { width:38px; text:"Vel"; accessible-label:"Toggle velocity lane"; checked:root.velocity-visible; clicked=>{root.velocity-visible=!root.velocity-visible;} Tooltip {text:@markdown("Toggle velocity lane");} }
+            midi-snap-control := ComboBox { width:80px; model:["Off", "1/4", "1/16", "1/32"]; current-index:root.snap-index; selected(value)=>{root.set-snap(self.current-index);} }
+            midi-view-control := ComboBox { width:80px; model: root.is-drums ? ["Piano", "Used", "Drum"] : ["Piano", "Used"]; current-index:root.midi-view-mode;
+                selected(value)=>{root.set-midi-view-mode(self.current-index);} }
+            ref-control := Rectangle {
+                width:60px; height:root.editor-toolbar-height;
+                Button { text:"Refs " + root.reference-count; clicked=>{ref-menu.show();} Tooltip {text:@markdown("MIDI references");} }
+                ref-menu := PopupWindow {
+                    x:-260px; y:root.editor-toolbar-height; width:400px; height:260px; close-policy:close-on-click-outside;
+                    Rectangle { background:#1a2938; border-width:1px; border-color:#536b7f;
+                        HorizontalLayout { x:5px;y:5px;width:parent.width - 10px;height:28px;spacing:4px;
+                            Button { text:root.follow-selection ? "Follow selection" : "Editor locked"; checked:root.follow-selection; clicked=>{root.follow-selection-changed(!root.follow-selection);} }
+                            Button { text:"Hide references"; clicked=>{root.hide-references();} }
+                        }
+                        ScrollView { x:5px;y:37px;width:parent.width - 10px;height:parent.height - 42px;
+                            content-width:self.visible-width; content-height:max(self.visible-height, root.reference-items.length * 32px);
+                            for item[index] in root.reference-items : Rectangle {
+                                x:0;y:index*32px;width:parent.width;height:30px;
+                                HorizontalLayout { spacing:3px;
+                                    CheckBox { width:170px; text:item.label; checked:item.visible; enabled:!item.active; toggled=>{root.toggle-reference(item.track-id,item.clip-id);} }
+                                    Button { width:58px; text:item.pinned ? "Unpin" : "Pin"; checked:item.pinned; enabled:!item.active; clicked=>{root.toggle-reference-pin(item.track-id,item.clip-id);} }
+                                    Button { width:50px; text:item.active ? "Active" : "Edit"; enabled:!item.active; clicked=>{root.activate-editor-clip(item.track-id,item.clip-id); ref-menu.close();} }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            zoom-control := Rectangle {
+                width:44px; height:root.editor-toolbar-height;
+                Button { text:"Zoom"; clicked=>{zoom-menu.show();} }
+                zoom-menu := PopupWindow {
+                    x:-108px; y:root.editor-toolbar-height; width:160px; height:160px; close-policy:close-on-click-outside;
+                    Rectangle { background:#1a2938; border-width:1px; border-color:#536b7f;
+                        VerticalLayout { padding:4px; spacing:2px;
+                            Button { text:"Horizontal −"; clicked=>{root.zoom(0.8);} }
+                            Button { text:"Horizontal +"; clicked=>{root.zoom(1.25);} }
+                            Button { text:"Vertical −"; clicked=>{root.zoom-y(0.8);} }
+                            Button { text:"Vertical +"; clicked=>{root.zoom-y(1.25);} }
+                            Button { text:root.navigation-linked ? "Unlink timeline" : "Link timeline"; checked:root.navigation-linked; clicked=>{root.set-navigation-linked(!root.navigation-linked);} }
+                        }
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch:1; }
         }
         editor := Rectangle {
-            x:0;y:122px+root.arrangement-height;width:parent.width;height:parent.height - self.y;
-            HorizontalLayout {
-                x:0;y:0;width:parent.width;height:28px;spacing:3px;
-                undo-button := Button {text:"Undo";enabled:root.can-undo;clicked=>{root.undo();}}
-                Button {text:"Redo";enabled:root.can-redo;clicked=>{root.redo();}}
-                Button {text:"Delete note";enabled:root.selected-note-id!="0";clicked=>{root.remove-note();}}
-                Rectangle {horizontal-stretch:1;}
-                Button {text:"X−";clicked=>{root.zoom(0.8);}}
-                Button {text:"X+";clicked=>{root.zoom(1.25);}}
-                Button {text:"Y−";clicked=>{root.zoom-y(0.8);}}
-                Button {text:"Y+";clicked=>{root.zoom-y(1.25);}}
-                Button {text:"Fit notes";clicked=>{root.fit-notes();}}
-                Button {text:"Oct−";clicked=>{root.pitch-view(-12);}}
-                Button {text:"Oct+";clicked=>{root.pitch-view(12);}}
-            }
-            HorizontalLayout {
-                x:0;y:33px;width:parent.width;height:26px;spacing:5px;
-                Text {text:"CLIP";color:#a6bbd2;vertical-alignment:center;font-size:10px;}
-                ComboBox {model:root.clip-names;current-index<=>root.clip-index;enabled:root.clip-id!="0";
-                    selected(value)=>{if self.current-index>=0 && self.current-index<root.clip-ids.length {root.select-clip(root.track-id,root.clip-ids[self.current-index]);}}}
-                Text {text:"Start "+(root.clip-start-beat+1)+" · "+root.clip-length-beats+" beats · 1/16";color:#8199b2;vertical-alignment:center;font-size:10px;}
-                Rectangle {horizontal-stretch:1;}
-                Text {text:root.is-drums ? "Drums / MIDI" : "Middle C";color:#a5bbcc;vertical-alignment:center;font-size:10px;}
-                ComboBox {visible:!root.is-drums;width:76px;model:["C3","C4","C5"];current-index<=>root.notation-index;selected(value)=>{root.notation(self.current-index - 1);}}
-            }
-            Rectangle {x:0;y:64px;width:root.keyboard-width;height:20px;background:#243445;
+            visible: root.workspace-focus != 1;
+            x:0;y:root.toolbar-height+58px+root.editor-toolbar-height+root.arrangement-height;width:parent.width;height:max(0px, parent.height - self.y);
+            Rectangle {x:0;y:0px;width:root.keyboard-width;height:20px;background:#243445;
                 Text {text:root.is-drums ? "DRUMS / MIDI" : "KEY / MIDI";color:#a6bfca;font-size:9px;horizontal-alignment:center;vertical-alignment:center;}}
             Rectangle {
-                x:root.keyboard-width;y:64px;width:parent.width - self.x - 12px;height:20px;background:#1a2532;clip:true;
+                x:root.keyboard-width;y:0px;width:parent.width - self.x - 12px;height:20px;background:#1a2532;clip:true;
                 for beat in root.piano-beat-count : Text {
                     x:(beat+root.piano-first-beat - root.scroll-beat)*root.pixels-per-beat*1px+3px;y:3px;
                     text:beat+root.piano-first-beat+1;color:#a2b5cc;font-size:10px;
@@ -568,8 +809,18 @@ export component AppWindow inherits Window {
                 TouchArea {clicked=>{root.seek(root.scroll-beat+self.mouse-x/1px/root.pixels-per-beat);}}
             }
             piano-focus := FocusScope {
-                x:0;y:85px;width:parent.width - 12px;height:max(160px,parent.height - 130px);
+                x:0;y:21px;width:parent.width - 12px;height:max(80px,parent.height - 74px - (root.velocity-visible ? 60px : 0px));
                 focus-lost(reason)=>{root.release-audition();root.cancel-note();}
+                key-pressed(event) => {
+                    if event.modifiers.control && (event.text == "z" || event.text == "Z") {
+                        if event.modifiers.shift { root.redo(); } else { root.undo(); }
+                        return accept;
+                    }
+                    if event.modifiers.control && (event.text == "y" || event.text == "Y") { root.redo(); return accept; }
+                    if event.text == Key.Delete || event.text == Key.Backspace { if root.selected-note-id != "0" { root.remove-note(); } return accept; }
+                    if event.text == Key.Escape { root.cancel-interactions(); return accept; }
+                    reject
+                }
                 keyboard := Rectangle {
                     x:0;y:0;width:root.keyboard-width;height:parent.height;clip:true;background:#d2dfe5;
                     for key in root.key-items : Rectangle {
@@ -586,7 +837,7 @@ export component AppWindow inherits Window {
                                 if event.kind==PointerEventKind.up || event.kind==PointerEventKind.cancel {root.key-gate(key.pitch,false);}
                             }
                             moved=>{if self.pressed && (self.mouse-x<0px || self.mouse-x>=self.width || self.mouse-y<0px || self.mouse-y>=self.height) {root.release-audition();}}
-                            scroll-event(event)=>{root.piano-wheel(event.delta-x/1px,event.delta-y/1px);accept}
+                            scroll-event(event)=>{if event.modifiers.control && event.delta-y != 0px { if event.modifiers.shift {root.zoom-y(event.delta-y > 0px ? 1.12 : 1/1.12);} else {root.zoom-at(event.delta-y > 0px ? 1.12 : 1/1.12,root.canvas-width/2);} } else {root.piano-wheel(event.delta-x/1px,event.delta-y/1px);} accept}
                             Tooltip {text:@markdown("\{key.label} · MIDI \{key.pitch}");}
                         }
                     }
@@ -594,7 +845,7 @@ export component AppWindow inherits Window {
                 grid := Rectangle {
                     x:root.keyboard-width;y:0;width:parent.width - self.x;height:parent.height;background:#101923;clip:true;
                     for key in root.key-items : Rectangle {
-                        x:0;y:key.y*1px;width:parent.width;height:key.h*1px;background:key.black ? #131e2a : #172332;
+                        x:0;y:key.y*1px;width:parent.width;height:key.h*1px;background:root.scale-mode != 0 && key.in-scale ? #213a3d : key.black ? #131e2a : #172332;
                         Rectangle {x:0;y:parent.height - 1px;height:1px;width:parent.width;background:key.c ? #41705c : #233246;}
                     }
                     for line in root.piano-beat-count*4+4 : Rectangle {
@@ -602,108 +853,177 @@ export component AppWindow inherits Window {
                         background:Math.mod(line+root.piano-first-line,4)==0 ? #35475e : #202e40;
                     }
                     Rectangle {x:root.clip-length-beats*root.pixels-per-beat*1px - root.scroll-beat*root.pixels-per-beat*1px;y:0;width:max(0px,parent.width - self.x);height:parent.height;background:#070c13b0;}
+                    for ghost in root.ghost-items : Rectangle {
+                        x:ghost.x*1px; y:ghost.y*1px; width:ghost.w*1px; height:ghost.h*1px;
+                        background:ghost.tint.with-alpha(0.22); border-width:1px; border-color:ghost.tint.with-alpha(0.60); border-radius:2px;
+                    }
                     for note in root.note-items : Rectangle {
                         x:note.x*1px;y:note.y*1px;width:note.w*1px;height:note.h*1px;
                         background:note.selected ? #e7c77b : #62bfa6;border-radius:2px;
-                        Text {x:3px;y:0;width:parent.width - 5px;height:parent.height;text:note.label;color:#102b29;font-size:9px;vertical-alignment:center;overflow:elide;}
+                        border-width: note.selected ? 2px : 0px; border-color: #fff4c8;
+                        if note.w >= 28 : Text {x:3px;y:0;width:parent.width - 5px;height:parent.height;text:note.label;color:#102b29;font-size:9px;vertical-alignment:center;overflow:elide;}
                     }
                     if root.playhead-x>=0 && root.playhead-x<root.canvas-width : Rectangle {x:root.playhead-x*1px;y:0;width:2px;height:parent.height;background:#edf8ff;}
+                    private property <length> menu-x;
+                    private property <length> menu-y;
+                    private property <string> menu-track-id;
+                    private property <string> menu-clip-id;
+                    piano-menu := PopupWindow {
+                        x: grid.menu-x; y: grid.menu-y; width: 180px; height: 156px; close-policy: close-on-click-outside;
+                        Rectangle { background: #1a2938; border-width: 1px; border-color: #536b7f;
+                            VerticalLayout { padding: 4px; spacing: 2px;
+                                Button { text: "Note inspector"; clicked => { root.inspector-visible=true; root.project-tab=false; root.sound-tab=false; root.inspector-detail=2; root.inspector-scroll=0px; piano-menu.close(); } }
+                                Button { text: "Delete note here"; enabled:root.selected-note-id!="0"; clicked => {root.delete-note-at(grid.menu-track-id,grid.menu-clip-id,grid.menu-x/1px,grid.menu-y/1px);piano-menu.close();} }
+                                Button { text: "Fit notes"; clicked => { root.fit-notes(); piano-menu.close(); } }
+                                Button { text: "Restore view"; clicked => { root.restore-view(); piano-menu.close(); } }
+                                Button { text: root.velocity-visible ? "Hide velocity" : "Show velocity"; clicked => { root.velocity-visible=!root.velocity-visible; piano-menu.close(); } }
+                            }
+                        }
+                    }
                     TouchArea {
                         pointer-event(event)=>{
-                            if event.kind==PointerEventKind.down {piano-focus.focus();root.down(self.mouse-x/1px,self.mouse-y/1px,event.button==PointerEventButton.right);}
+                            if event.kind==PointerEventKind.down {piano-focus.focus();if root.inspector-visible && !root.sound-tab && !root.project-tab { root.inspector-detail = 2; root.inspector-scroll = 0px; } if event.button==PointerEventButton.right {grid.menu-track-id=root.track-id;grid.menu-clip-id=root.clip-id;grid.menu-x=self.mouse-x;grid.menu-y=self.mouse-y;} root.down(self.mouse-x/1px,self.mouse-y/1px,event.button==PointerEventButton.right,event.modifiers.shift || event.modifiers.control); if event.button==PointerEventButton.right {piano-menu.show();}}
                             if event.kind==PointerEventKind.up {root.up(self.mouse-x/1px,self.mouse-y/1px);}
                             if event.kind==PointerEventKind.cancel {root.cancel-note();}
                         }
                         moved=>{root.moved(self.mouse-x/1px,self.mouse-y/1px);}
-                        scroll-event(event)=>{root.piano-wheel(event.delta-x/1px,event.delta-y/1px);accept}
+                        scroll-event(event)=>{if event.modifiers.control && event.delta-y != 0px { if event.modifiers.shift {root.zoom-y(event.delta-y > 0px ? 1.12 : 1/1.12);} else {root.zoom-at(event.delta-y > 0px ? 1.12 : 1/1.12,self.mouse-x/1px);} } else {root.piano-wheel(event.delta-x/1px,event.delta-y/1px);} accept}
                     }
                 }
             }
+            if root.velocity-visible : VelocityLane {
+                x: root.keyboard-width; y: piano-focus.y + piano-focus.height;
+                width: parent.width - self.x - 12px; height: 60px;
+                items: root.velocity-items;
+                select-note(id) => { if root.inspector-visible && !root.sound-tab && !root.project-tab { root.inspector-detail = 2; root.inspector-scroll = 0px; } root.select-velocity-note(id); }
+                change-value(id,value) => { root.set-velocity-note(id,value); }
+            }
             ScrollView {
                 x:parent.width - 12px;y:piano-focus.y;width:12px;min-width:12px;height:piano-focus.height;
-                content-width:self.visible-width;content-height:128*root.piano-row-height*1px;content-y<=>root.piano-bar-y;
+                content-width:self.visible-width;content-height:root.piano-row-count*root.piano-row-height*1px;content-y<=>root.piano-bar-y;
                 horizontal-scrollbar-policy:always-off;vertical-scrollbar-policy:always-on;
                 scrolled=>{root.scroll-piano(-root.piano-bar-x/1px/root.pixels-per-beat,-self.content-y/1px);}
             }
             ScrollView {
-                x:root.keyboard-width;y:piano-focus.y+piano-focus.height;width:parent.width - self.x - 12px;height:16px;min-height:16px;
+                x:root.keyboard-width;y:piano-focus.y+piano-focus.height+(root.velocity-visible ? 60px : 0px);width:parent.width - self.x - 12px;height:16px;min-height:16px;
                 content-width:max(self.visible-width,root.clip-length-beats*root.pixels-per-beat*1px);content-height:self.visible-height;content-x<=>root.piano-bar-x;
                 horizontal-scrollbar-policy:always-on;vertical-scrollbar-policy:always-off;
                 scrolled=>{root.scroll-piano(-self.content-x/1px/root.pixels-per-beat,-root.piano-bar-y/1px);}
             }
             HorizontalLayout {
-                x:0;y:parent.height - 25px;width:parent.width;height:24px;spacing:5px;
+                x:0;y:parent.height - root.velocity-control-height - 1px;width:parent.width;height:root.velocity-control-height;spacing:5px;
                 Text {text:root.selected-label;color:#93a7bd;font-size:10px;overflow:elide;horizontal-stretch:1;vertical-alignment:center;}
                 Text {text:"Velocity";color:#a0b6c9;vertical-alignment:center;font-size:10px;}
-                SpinBox {width:82px;value<=>root.note-velocity;minimum:1;maximum:127;enabled:root.selected-note-id!="0";edited(value)=>{root.velocity(value);}}
+                SpinBox {width:root.velocity-control-width;value<=>root.note-velocity;minimum:1;maximum:127;enabled:root.selected-note-id!="0";edited(value)=>{root.velocity(value);}}
             }
         }
     }
     inspector := Rectangle {
-        x: root.width - root.inspector-width - 8px; y: 74px; width: root.inspector-width; height: root.height - 124px;
+        x: root.width - root.inspector-width - 6px; y: 44px; width: root.inspector-width; height: root.height - 70px;
         visible: root.inspector-visible; background: #141e2b; border-radius: 5px;
+        // Consume input over empty and disabled inspector regions so it never
+        // reaches the timeline or piano roll underneath an overlaid panel.
+        TouchArea {
+            scroll-event(event) => {
+                root.inspector-scroll = min(0px,max(min(0px,inspector-scroll-view.visible-height - inspector-scroll-view.content-height),root.inspector-scroll + event.delta-y));
+                accept
+            }
+        }
         HorizontalLayout {
             x: 10px; y: 6px; width: parent.width - 20px; height: 30px; spacing: 5px;
-            Button { text: "Track"; checked: !root.project-tab && !root.sound-tab; clicked => { root.project-tab = false; root.sound-tab = false; root.inspector-scroll = 0px; } }
+            inspector-track := Button { text: "Track"; checked: !root.project-tab && !root.sound-tab && root.inspector-detail == 0; clicked => { root.project-tab = false; root.sound-tab = false; root.inspector-detail = 0; root.inspector-scroll = 0px; } }
             sound-tab-button := Button { text: "Sound"; checked: root.sound-tab && !root.project-tab; clicked => { root.project-tab = false; root.sound-tab = true; root.inspector-scroll = 0px; } }
             Button { text: "Project"; checked: root.project-tab; clicked => { root.project-tab = true; root.sound-tab = false; root.inspector-scroll = 0px; } }
         }
-        ScrollView {
-            x: 12px; y: 48px; width: parent.width - 24px; height: parent.height - 60px;
+        Button { x: parent.width - 75px; y:39px; width:36px; height:28px; text:"Pin"; checked:root.inspector-pinned;
+            accessible-label: root.inspector-pinned ? "Unpin inspector" : "Pin inspector";
+            clicked=>{root.inspector-pinned=!root.inspector-pinned;}
+            Tooltip {text:root.inspector-overlaid && root.inspector-pinned ? @markdown("Pinned inspector is overlaid until the workspace is wider") : @markdown("Pin inspector as a side panel");} }
+        inspector-close := Button { x: parent.width - 38px; y:39px; width:30px; height:28px; text:"×"; accessible-label:"Close inspector";
+            clicked=>{root.inspector-visible=false;} Tooltip {text:@markdown("Close inspector");} }
+        TouchArea { x:0; y:68px; width:10px; height:parent.height - 68px; mouse-cursor:ew-resize;
+            moved=>{if self.pressed {root.inspector-custom-width=max(220,min(400,(root.width - self.absolute-position.x - self.mouse-x)/1px));}}
+            Tooltip {text:@markdown("Drag to resize inspector");} }
+        HorizontalLayout {
+            x: 10px; y: 39px; width: parent.width - 90px; height: 28px; spacing: 5px;
+            Button { text: "Clip"; checked: !root.project-tab && !root.sound-tab && root.inspector-detail == 1; clicked => { root.project-tab = false; root.sound-tab = false; root.inspector-detail = 1; root.inspector-scroll = 0px; } }
+            Button { text: "Note"; checked: !root.project-tab && !root.sound-tab && root.inspector-detail == 2; clicked => { root.project-tab = false; root.sound-tab = false; root.inspector-detail = 2; root.inspector-scroll = 0px; } }
+        }
+        inspector-scroll-view := ScrollView {
+            x: 12px; y: 74px; width: parent.width - 24px; height: parent.height - 86px;
             horizontal-scrollbar-policy: always-off; content-width: self.visible-width;
-            content-height: root.project-tab ? 360px : root.sound-tab ? (root.is-drums ? 1080px : 710px) : 810px;
+            content-height: root.project-tab ? 460px : root.sound-tab ? (root.is-drums ? 1100px : 710px) : root.inspector-detail == 0 ? 810px : 240px;
             content-y <=> root.inspector-scroll;
             VerticalLayout {
-                visible: !root.project-tab && !root.sound-tab;
+                visible: !root.project-tab && !root.sound-tab && root.inspector-detail == 0;
                 x: 0; y: 0; width: parent.width - 8px; height: 810px; spacing: 7px;
-                Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.track-index + 1); color: #7edcba; font-size: 11px; }
-                name-edit := LineEdit { height: 30px; text <=> root.track-name-draft; accepted => { root.rename-track(root.track-id, self.text); } }
-                Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.track-id, name-edit.text); } }
-                ComboBox { height: 30px; model: ["Mint", "Blue", "Amber", "Violet", "Rose", "Cyan"]; current-index <=> root.color-index;
-                    selected(value) => { root.color-track(root.track-id, self.current-index); } }
-                Text { height: 18px; text: root.instrument + "  ·  independent instance"; color: #a0b4ca; font-size: 10px; }
+                Text { height: 18px; text: "SELECTED TRACK  ·  " + (root.inspector-track-index + 1); color: #7edcba; font-size: 11px; }
+                name-edit := LineEdit { height: 30px; text <=> root.inspector-track-name-draft; accepted => { root.rename-track(root.inspector-track-id, self.text); } }
+                Button { height: 28px; text: "Rename"; clicked => { root.rename-track(root.inspector-track-id, name-edit.text); } }
+                ComboBox { height: 30px; model: ["Mint", "Blue", "Amber", "Violet", "Rose", "Cyan"]; current-index <=> root.inspector-color-index;
+                    selected(value) => { root.color-track(root.inspector-track-id, self.current-index); } }
+                Text { height: 18px; text: root.inspector-instrument + "  ·  independent instance"; color: #a0b4ca; font-size: 10px; }
                 Text { height: 18px; text: "Output → Master"; color: #c1d2e3; }
                 HorizontalLayout {
                     height: 30px; spacing: 5px;
-                    inspector-mute := Button { text: "Mute"; accessible-checkable: true; accessible-checked: root.muted; checked: root.muted;
-                        clicked => { root.toggle-mute(root.track-id); } }
-                    Button { text: "Solo"; accessible-checkable: true; accessible-checked: root.soloed; checked: root.soloed;
-                        clicked => { root.toggle-solo(root.track-id); } }
+                    inspector-mute := Button { text: "Mute"; accessible-checkable: true; accessible-checked: root.inspector-muted; checked: root.inspector-muted;
+                        clicked => { root.toggle-mute(root.inspector-track-id); } }
+                    Button { text: "Solo"; accessible-checkable: true; accessible-checked: root.inspector-soloed; checked: root.inspector-soloed;
+                        clicked => { root.toggle-solo(root.inspector-track-id); } }
                 }
-                Text { height: 18px; text: root.audible ? "Audible · solo is cumulative" : root.muted ? "Muted · fader value retained" : "Excluded by another solo";
-                    color: root.audible ? #79d8b5 : #e0bd7b; font-size: 10px; }
-                Text { height: 18px; text: "Volume  " + round(root.gain * 100) + "%"; color: #c7d4e5; }
-                gain-slider := Slider { height: 26px; value <=> root.gain; minimum: 0; maximum: 2;
-                    changed(value) => { root.set-gain(root.track-id, value); } released(value) => { root.finish-mix(); } }
-                Text { height: 18px; text: "Pan  " + round(root.pan * 100); color: #c7d4e5; }
-                Slider { height: 26px; value <=> root.pan; minimum: -1; maximum: 1;
-                    changed(value) => { root.set-pan(root.track-id, value); } released(value) => { root.finish-mix(); } }
+                Text { height: 18px; text: root.inspector-audible ? "Audible · solo is cumulative" : root.inspector-muted ? "Muted · fader value retained" : "Excluded by another solo";
+                    color: root.inspector-audible ? #79d8b5 : #e0bd7b; font-size: 10px; }
+                Text { height: 18px; text: "Volume  " + round(root.inspector-gain * 100) + "%"; color: #c7d4e5; }
+                gain-slider := Slider { height: 26px; value <=> root.inspector-gain; minimum: 0; maximum: 2;
+                    changed(value) => { root.set-gain(root.inspector-track-id, value); } released(value) => { root.finish-mix(); } }
+                Text { height: 18px; text: "Pan  " + round(root.inspector-pan * 100); color: #c7d4e5; }
+                Slider { height: 26px; value <=> root.inspector-pan; minimum: -1; maximum: 1;
+                    changed(value) => { root.set-pan(root.inspector-track-id, value); } released(value) => { root.finish-mix(); } }
                 Text { height: 18px; text: root.mix-label; color: #7e96b0; font-size: 10px; }
                 HorizontalLayout {
                     height: 30px; spacing: 4px;
-                    Button { text: "↑"; enabled: root.track-index > 0; clicked => { root.move-track(root.track-id, -1); } }
-                    Button { text: "↓"; enabled: root.track-index < root.track-items.length - 1; clicked => { root.move-track(root.track-id, 1); } }
-                    Button { text: "Remove"; enabled: root.track-items.length > 1; clicked => { root.remove-track(root.track-id); } }
+                    Button { text: "↑"; accessible-label: "Move track up"; enabled: root.inspector-track-index > 0; clicked => { root.move-track(root.inspector-track-id, -1); } Tooltip { text: @markdown("Move track up"); } }
+                    Button { text: "↓"; accessible-label: "Move track down"; enabled: root.inspector-track-index < root.track-items.length - 1; clicked => { root.move-track(root.inspector-track-id, 1); } Tooltip { text: @markdown("Move track down"); } }
+                    Button { text: "Remove"; enabled: root.track-items.length > 1; clicked => { root.remove-track(root.inspector-track-id); } }
                 }
                 Text { height: 30px; text: "Drag ≡ to reorder tracks.\nTrack / note edits stop playback."; color: #8b9eb3; font-size: 10px; }
                 Rectangle { height: 1px; background: #293747; }
-                Button { height: 30px; text: "Use oscillator instrument"; enabled: !root.is-synth; clicked => { root.use-sine(root.track-id); } }
-                Button {height:30px;text:"Use CC0 drum kit";enabled:!root.is-drums;clicked=>{root.use-drums(root.track-id);root.sound-tab=true;root.inspector-scroll=0px;}}
-                sample-file := LineEdit { height: 30px; text <=> root.sample-path; placeholder-text: "Path to short WAV sample"; }
+                Button { height: 30px; text: "Use oscillator instrument"; enabled: !root.inspector-is-synth; clicked => { root.use-sine(root.inspector-track-id); } }
+                Button {height:30px;text:"Use CC0 drum kit";enabled:!root.inspector-is-drums;clicked=>{root.use-drums(root.inspector-track-id);if root.inspector-track-id==root.track-id {root.sound-tab=true;}root.inspector-scroll=0px;}}
+                sample-file := LineEdit { height: 30px; text <=> root.inspector-sample-path; placeholder-text: "Path to short WAV sample"; }
                 HorizontalLayout {
                     height: 30px;
                     Text { text: "Root MIDI"; color: #c7d4e5; vertical-alignment: center; }
-                    root-note := SpinBox { minimum: 0; maximum: 127; value <=> root.sample-root; }
+                    root-note := SpinBox { minimum: 0; maximum: 127; value <=> root.inspector-sample-root; }
                 }
-                one-shot := CheckBox { height: 26px; text: "One-shot"; checked <=> root.sample-one-shot; }
+                one-shot := CheckBox { height: 26px; text: "One-shot"; checked <=> root.inspector-sample-one-shot; }
                 Button { height: 30px; text: "Load WAV into this track";
-                    clicked => { root.import-sample(root.track-id, sample-file.text, root-note.value, one-shot.checked); } }
+                    clicked => { root.import-sample(root.inspector-track-id, sample-file.text, root-note.value, one-shot.checked); } }
+                Rectangle { vertical-stretch: 1; }
+            }
+            VerticalLayout {
+                visible: !root.project-tab && !root.sound-tab && root.inspector-detail == 1;
+                x: 0; y: 0; width: parent.width - 8px; height: 240px; spacing: 6px;
+                editor-clip-label := Text { height: 22px; text: "EDITOR CLIP · " + root.track-name + (root.clip-id != "0" && root.clip-index >= 0 && root.clip-index < root.clip-names.length ? " › " + root.clip-names[root.clip-index] : ""); color: #7edcba; overflow: elide; }
+                LineEdit { height: 30px; text <=> root.clip-name-draft; enabled: root.clip-id != "0"; placeholder-text: "Clip name"; accepted => { root.rename-clip(root.track-id, root.clip-id, self.text); } }
+                Text { height: 22px; text: root.clip-id == "0" ? "No clip selected" : "Start " + (root.clip-start-beat + 1) + " · " + root.clip-length-beats + " beats"; color: #c7d4e5; }
+                Button { height: 30px; text: "Duplicate clip"; enabled: root.clip-id != "0"; clicked => { root.duplicate-clip(root.track-id,root.clip-id); } }
+                Button { height: 30px; text: "Remove clip"; enabled: root.clip-id != "0"; clicked => { root.remove-clip(root.track-id,root.clip-id); } }
+                Rectangle { vertical-stretch: 1; }
+            }
+            VerticalLayout {
+                visible: !root.project-tab && !root.sound-tab && root.inspector-detail == 2;
+                x: 0; y: 0; width: parent.width - 8px; height: 240px; spacing: 6px;
+                Text { height: 22px; text: "SELECTED NOTE"; color: #7edcba; }
+                Text { height: 30px; text: root.selected-note-id == "0" ? "No note selected" : root.selected-label; color: #c7d4e5; overflow: elide; }
+                HorizontalLayout { height: root.velocity-control-height; Text { text: "Velocity"; color: #c7d4e5; vertical-alignment: center; } SpinBox { width: root.velocity-control-width; value <=> root.note-velocity; minimum: 1; maximum: 127; enabled: root.selected-note-id != "0"; edited(value) => { root.velocity(value); } } }
+                Button { height: 30px; text: "Delete note"; enabled: root.selected-note-id != "0"; clicked => { root.remove-note(); } }
                 Rectangle { vertical-stretch: 1; }
             }
             VerticalLayout {
                 visible: root.sound-tab && !root.project-tab && !root.is-drums;
                 x: 0; y: 0; width: parent.width - 8px; height: 710px; spacing: 7px;
-                Text { height: 18px; text: "SOUND  ·  " + root.track-name; color: #7edcba; overflow: elide; }
+                synth-sound-label := Text { height: 18px; text: "EDITOR SOUND  ·  " + root.track-name; color: #7edcba; overflow: elide; }
                 Text { height: 18px; text: root.is-synth ? root.preset-label : "Sampler · controls in Track"; color: #c7d4e5; overflow: elide; }
                 HorizontalLayout {
                     height: 30px; spacing: 5px;
@@ -754,12 +1074,13 @@ export component AppWindow inherits Window {
             }
             VerticalLayout {
                 visible: root.sound-tab && !root.project-tab && root.is-drums;
-                x:0;y:0;width:parent.width - 8px;height:1080px;spacing:7px;
-                Text {height:18px;text:root.drum-kit-name;color:#7edcba;overflow:elide;font-size:12px;}
+                x:0;y:0;width:parent.width - 8px;height:1100px;spacing:7px;
+                drum-sound-label := Text {height:18px;text:"EDITOR SOUND  ·  " + root.track-name;color:#7edcba;overflow:elide;font-size:11px;}
+                Text {height:18px;text:root.drum-kit-name;color:#a0b4ca;overflow:elide;font-size:12px;}
                 Text {height:18px;text:"GM subset · 16 pads · independent kit";color:#96abc0;font-size:10px;}
-                HorizontalLayout {height:30px;spacing:4px;
-                    Text {text:"Preview velocity";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
-                    SpinBox {width:88px;minimum:1;maximum:127;value<=>root.pad-preview-velocity;}
+                HorizontalLayout {height:root.velocity-control-height;spacing:4px;
+                    Text {text:"Preview vel.";color:#c7d4e5;vertical-alignment:center;font-size:11px;}
+                    SpinBox {width:root.velocity-control-width;accessible-label:"Drum preview velocity";minimum:1;maximum:127;value<=>root.pad-preview-velocity;}
                 }
                 drum-focus := FocusScope {
                     height:216px;focus-lost(reason)=>{root.release-audition();}
@@ -844,15 +1165,13 @@ export component AppWindow inherits Window {
         }
     }
     Rectangle {
-        x: 0; y: root.height - 42px; width: root.width; height: 42px; background: #151e29;
+        x: 0; y: root.height - 22px; width: root.width; height: 22px; background: #151e29;
         Text { x: 12px; y: 4px; height: 19px; width: parent.width - 218px;
             text: root.action-error != "" ? root.action-error : root.arrangement-limited ? "Preview limited to 256 clips; zoom in." : root.status;
             color: root.action-error != "" ? #f2b6a1 : #a8b9cd; vertical-alignment: center; overflow: elide; font-size: 11px; }
-        Text { x: 12px; y: 24px; height: 14px; text: root.pending-actions > 0 ? root.pending-actions + " actions pending" : root.mix-label;
-            color: #7891ac; font-size: 9px; }
-        Rectangle { x: parent.width - 190px; y: 10px; width: 170px; height: 6px; background: #29384a;
+        Rectangle { x: parent.width - 190px; y: 4px; width: 170px; height: 5px; background: #29384a;
             Rectangle { x: 0; y: 0; width: parent.width * root.peak-left; height: parent.height; background: #70dcb5; } }
-        Rectangle { x: parent.width - 190px; y: 23px; width: 170px; height: 6px; background: #29384a;
+        Rectangle { x: parent.width - 190px; y: 12px; width: 170px; height: 5px; background: #29384a;
             Rectangle { x: 0; y: 0; width: parent.width * root.peak-right; height: parent.height; background: #70dcb5; } }
     }
     Rectangle {

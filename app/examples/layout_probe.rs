@@ -48,6 +48,8 @@ fn wheel(window: &MinimalSoftwareWindow, x: f32, y: f32, dx: f32, dy: f32) {
     window.dispatch_event(WindowEvent::PointerScrolled { position: slint::LogicalPosition::new(x,y), delta_x:dx, delta_y:dy });
 }
 fn settle(ui: &AppWindow, mailbox: &RefCell<Mailbox>, connection: &controller::Connection, presenter: &mut ui_support::Presenter, last: &mut Option<ViewState>) {
+    mailbox.borrow_mut().enqueue(Request::SetPianoVisible(ui.get_workspace_focus()!=1)).unwrap();
+    mailbox.borrow_mut().enqueue(Request::SetVelocityVisible(ui.get_velocity_visible() && ui.get_workspace_focus()!=1)).unwrap();
     mailbox.borrow_mut().enqueue(Request::Viewport(ui.get_canvas_width(), ui.get_canvas_height())).unwrap();
     mailbox.borrow_mut().enqueue(Request::ArrangementViewport(-ui.get_arrangement_x()/ui.get_arrangement_zoom(), ui.get_arrangement_zoom(), ui.get_lane_width())).unwrap();
     let deadline = Instant::now() + Duration::from_secs(4); let mut quiet = 0;
@@ -119,6 +121,38 @@ fn clip_piano_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&Ref
     click(window,ui.get_grid_x()+ui.get_pixels_per_beat()*0.5+2.0,ui.get_grid_y()+key.y+key.height/2.0);pump!();
     assert_eq!(last.as_ref().unwrap().notes.len(),1);assert_eq!(last.as_ref().unwrap().notes[0].label,"C4");
     assert_ne!(last.as_ref().unwrap().selected_note,0);ui.invoke_velocity(37);pump!();assert_eq!(last.as_ref().unwrap().velocity,37);
+    // Use actual modifier and pointer events through the rendered grid, not direct requests.
+    let key=last.as_ref().unwrap().keys.iter().find(|k|k.pitch==60).unwrap().clone();
+    click(window,ui.get_grid_x()+ui.get_pixels_per_beat()*2.0+2.0,ui.get_grid_y()+key.y+key.height/2.0);pump!();
+    let notes=last.as_ref().unwrap().notes.clone();assert_eq!(notes.len(),2);
+    let point=|n:&opendaw_app::editor::NoteRect| (ui.get_grid_x()+n.x+n.width*0.25,ui.get_grid_y()+n.y+n.height/2.0);
+    let (x1,y1)=point(&notes[0]);let (x2,y2)=point(&notes[1]);
+    click(window,x1,y1);pump!();
+    window.dispatch_event(WindowEvent::KeyPressed {text:slint::platform::Key::Shift.into()});
+    click(window,x2,y2);
+    window.dispatch_event(WindowEvent::KeyReleased {text:slint::platform::Key::Shift.into()});pump!();
+    assert_eq!(last.as_ref().unwrap().notes.iter().filter(|n|n.selected).count(),2,"Shift-click selects both notes");
+    let dx=ui.get_pixels_per_beat();pointer(window,x1,y1,0);pointer(window,x1+dx,y1,1);pointer(window,x1+dx,y1,2);pump!();
+    let moved=last.as_ref().unwrap().notes.clone();
+    for original in &notes {let moved=moved.iter().find(|n|n.id==original.id).unwrap();assert!((moved.x-original.x-dx).abs()<1.0,"Both notes move together");}
+    ui.invoke_undo();pump!();
+    let restored=last.as_ref().unwrap().notes.clone();for original in &notes {assert!((restored.iter().find(|n|n.id==original.id).unwrap().x-original.x).abs()<1.0);}
+    // Remove the first note from the selection, then delete the temporary note.
+    window.dispatch_event(WindowEvent::KeyPressed {text:slint::platform::Key::Control.into()});click(window,x1,y1);
+    window.dispatch_event(WindowEvent::KeyReleased {text:slint::platform::Key::Control.into()});pump!();
+    assert_eq!(last.as_ref().unwrap().notes.iter().filter(|n|n.selected).count(),1,"Control-click removes a note from the selection");
+    ui.invoke_remove_note();pump!();assert_eq!(last.as_ref().unwrap().notes.len(),1);
+    // Velocity lane follows the same horizontal transform and commits one undoable drag.
+    ui.set_velocity_visible(true);pump!();
+    let bar=&last.as_ref().unwrap().velocity_bars[0];
+    let vx=ui.get_grid_x()+bar.x;
+    let vy=ui.get_grid_y()+ui.get_canvas_height();
+    pointer(window,vx,vy+45.0,0);pointer(window,vx,vy+15.0,1);pointer(window,vx,vy+15.0,2);pump!();
+    assert!(last.as_ref().unwrap().velocity>90, "Dragging a velocity bar changes the corresponding note");
+    ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().velocity,37);
+    ui.invoke_redo();pump!();assert!(last.as_ref().unwrap().velocity>90);
+    ui.invoke_undo();pump!();assert_eq!(last.as_ref().unwrap().velocity,37);
+    ui.set_velocity_visible(false);pump!();
     ui.invoke_rename_clip("1".into(),clip.to_string().into(),"Verse".into());pump!();assert_eq!(last.as_ref().unwrap().clip_name,"Verse");
     let revision=last.as_ref().unwrap().revision;
     for (offset,label) in [(-1,"C3"),(1,"C5"),(0,"C4")] {
@@ -283,7 +317,7 @@ fn large_scenarios(window:&MinimalSoftwareWindow,ui:&AppWindow,mailbox:&RefCell<
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(ProbePlatform(window.clone())))?;
-    let ui = AppWindow::new()?; let connection = controller::spawn(true);
+    let ui = AppWindow::new()?; ui.set_silent_mode(true); let connection = controller::spawn(true);
     let mailbox = Rc::new(RefCell::new(Mailbox::new(connection.sender.clone(), connection.flags.clone(), connection.epoch.clone(),connection.audition_epoch.clone())));
     macro_rules! bind { ($method:ident, ($($arg:ident),*) => $request:expr) => {{
         let m = mailbox.clone(); ui.$method(move |$($arg),*| m.borrow_mut().enqueue($request).unwrap());
@@ -315,19 +349,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         click(&window,ui.get_play_x(),ui.get_play_y()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         ui.invoke_stop(); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         let x=ui.get_rows_x(); let y=ui.get_rows_y(); let row=ui.get_row_size();
+        ui.set_inspector_visible(true); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         click(&window,ui.get_inspector_gain_x(),ui.get_inspector_gain_y());
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!((last.as_ref().unwrap().gain-0.7).abs()>0.05, "Slider pointer edit reaches controller");
         mailbox.borrow_mut().enqueue(Request::SetGain{track:1,value:0.7}).unwrap(); mailbox.borrow_mut().enqueue(Request::FinishMix).unwrap();
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
-        click(&window,x+149.0,y+52.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+        click(&window,x+139.0,y+23.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(last.as_ref().unwrap().tracks[0].mute, "Header M must mute the original ID");
         click(&window,ui.get_undo_x(),ui.get_undo_y()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(!last.as_ref().unwrap().tracks[0].mute);
-        click(&window,x+149.0,y+52.0); click(&window,x+149.0,y+52.0);
+        click(&window,x+139.0,y+23.0); click(&window,x+139.0,y+23.0);
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(!last.as_ref().unwrap().tracks[0].mute, "Two fast toggles must both be retained");
-        click(&window,x+185.0,y+52.0); click(&window,x+185.0,y+row+52.0);
+        click(&window,x+171.0,y+23.0); click(&window,x+171.0,y+row+23.0);
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(last.as_ref().unwrap().tracks.iter().all(|r| r.solo && r.audible), "Header solo is cumulative");
         ui.set_track_name_draft("Unconfirmed typing".into()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
@@ -336,16 +371,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(ui.get_track_name_draft().as_str(),"Bass", "Selection resets the name field");
         assert_eq!(last.as_ref().unwrap().track_id,2); assert_eq!(last.as_ref().unwrap().clip_index,Some(0));
         assert!((ui.get_inspector_gain_value()-0.55).abs()<0.0001, "Inspector slider must follow selection after interaction");
+        click(&window,ui.get_inspector_track_x(),ui.get_inspector_track_y());settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         click(&window,ui.get_inspector_mute_x(),ui.get_inspector_mute_y()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
         assert!(last.as_ref().unwrap().tracks[1].mute && !last.as_ref().unwrap().tracks[1].audible, "Inspector edits selected ID and mute wins");
         for request in [Request::SetMute{track:2,value:false},Request::SetSolo{track:1,value:false},Request::SetSolo{track:2,value:false},Request::SelectTrack(1)] { mailbox.borrow_mut().enqueue(request).unwrap(); }
         settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
-        let before=ui.get_lane_width(); click(&window,ui.get_inspector_toggle_x(),ui.get_inspector_toggle_y());
-        settle(&ui,&mailbox,&connection,&mut presenter,&mut last); assert!(ui.get_lane_width() > before+200.0);
+        let before=ui.get_lane_width(); click(&window,ui.get_inspector_close_x(),ui.get_inspector_close_y());
+        settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+        assert!(!ui.get_inspector_visible(), "Inspector close must hide the panel");
+        if width as f32 - ui.get_inspector_custom_width() < 774.0 {
+            assert!((ui.get_lane_width()-before).abs()<2.0, "Overlay inspector must not reserve workspace width");
+        } else {
+            assert!(ui.get_lane_width() > before+200.0, "Pinned inspector must release its column");
+        }
         click(&window,ui.get_inspector_toggle_x(),ui.get_inspector_toggle_y()); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+        assert!(ui.get_inspector_visible(), "Inspector toggle must reopen the panel");
         println!("PASS: real-controller header mute/solo, clip selection, inspector, undo, hide/show at {width}×{height}, scale {scale}");
     }
-    window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor:1.0 }); window.set_size(slint::PhysicalSize::new(1280,820));
+    // Workspace split and focus modes are view-only and restore the manual proportion.
+    window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor:1.0 });
+    window.set_size(slint::PhysicalSize::new(1280,820));
+    ui.set_inspector_visible(false); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    std::fs::create_dir_all(Path::new(env!("CARGO_MANIFEST_DIR")).join("../evidence/redesign"))?;
+    snapshot(&window,"../evidence/redesign/default-1280.ppm",1280,820);
+    let old_height=ui.get_arrangement_height_value();
+    let sx=ui.get_splitter_x(); let sy=ui.get_splitter_y();
+    pointer(&window,sx,sy,0);pointer(&window,sx,sy+55.0,1);pointer(&window,sx,sy+55.0,2);
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    let manual_height=ui.get_arrangement_height_value();
+    assert!((manual_height-old_height).abs()>20.0,"Splitter must resize the workspace");
+    snapshot(&window,"../evidence/redesign/combined-1280.ppm",1280,820);
+    click(&window,ui.get_focus_timeline_x(),ui.get_focus_timeline_y());
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    assert!(ui.get_arrangement_height_value()>manual_height,"Timeline focus expands arrangement");
+    snapshot(&window,"../evidence/redesign/focus-timeline-1280.ppm",1280,820);
+    click(&window,ui.get_focus_timeline_x(),ui.get_focus_timeline_y());
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    assert!((ui.get_arrangement_height_value()-manual_height).abs()<2.0,"Combined restores splitter proportion");
+    click(&window,ui.get_focus_piano_x(),ui.get_focus_piano_y());
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    assert!(ui.get_arrangement_height_value()<manual_height,"Piano focus reduces arrangement");
+    snapshot(&window,"../evidence/redesign/focus-piano-1280.ppm",1280,820);
+    click(&window,ui.get_focus_piano_x(),ui.get_focus_piano_y());
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    assert!((ui.get_arrangement_height_value()-manual_height).abs()<2.0,"Piano focus restores splitter proportion");
+    ui.set_inspector_visible(true);settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    snapshot(&window,"../evidence/redesign/inspector-1280.ppm",1280,820);
+    ui.set_inspector_visible(false);window.set_size(slint::PhysicalSize::new(1920,1080));
+    settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    snapshot(&window,"../evidence/redesign/combined-1920.ppm",1920,1080);
+    window.set_size(slint::PhysicalSize::new(1280,820));
+    ui.set_inspector_visible(true);settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
+    println!("PASS: splitter drag, focus modes, restored proportion, inspector and snapshots");
     clip_piano_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
     synth_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
     drum_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
@@ -356,6 +433,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(ui.get_arrangement_y() < -50.0, "Headers and lanes must share vertical scrolling");
     let scroll=ui.get_arrangement_y(); mailbox.borrow_mut().enqueue(Request::SetMute{track:1,value:true}).unwrap();
     settle(&ui,&mailbox,&connection,&mut presenter,&mut last); assert_eq!(ui.get_arrangement_y(),scroll, "Model update must preserve scroll");
+    ui.set_arrangement_zoom(96.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     wheel(&window,x+ui.get_header_size()+80.0,y+45.0,-120.0,0.0); settle(&ui,&mailbox,&connection,&mut presenter,&mut last);
     assert!(ui.get_arrangement_x() < 0.0, "Timeline must scroll independently of fixed headers");
     let pixels=snapshot(&window,"../evidence/m36-scrolled-12-tracks.ppm",1280,820); check_alignment(&pixels,&ui,1.0);
@@ -377,7 +455,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     snapshot(&window,"../evidence/m36-selected-track-revealed.ppm",1280,820);
     println!("PASS: common vertical scroll survives model edits; independent horizontal scroll; drag reorder with edge auto-scroll and one-step undo; Add / Duplicate / Show selected");
     large_scenarios(&window,&ui,&mailbox,&connection,&mut presenter,&mut last);
-    click(&window,67.0,20.0); click(&window,80.0,60.0);
+    // The compact workspace adds Piano view, Scale root and Density menus
+    // before Help; click the Help menu and its About entry.
+    click(&window,299.0,20.0); click(&window,310.0,60.0);
     assert!(ui.get_about_visible(), "Help opens About OpenDAW");
     snapshot(&window,"../evidence/m36-about.ppm",1280,820);
     let count=mailbox.borrow().pending_count(); click(&window,ui.get_play_x(),ui.get_play_y()); assert_eq!(mailbox.borrow().pending_count(),count,"About blocks transport");

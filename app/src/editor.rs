@@ -11,8 +11,8 @@ impl Default for Viewport {
     fn default() -> Self { Self { start_tick: 0, pixels_per_beat: 64.0, scroll_y: 54.0*16.0, row_height: 16.0, width: 900.0, height: 480.0, octave_offset: 0 } }
 }
 #[derive(Clone, Debug, PartialEq)]
-pub struct KeyRow { pub pitch: u8, pub y: f32, pub height: f32, pub black: bool, pub c: bool, pub label: String }
-#[derive(Clone, Debug)]
+pub struct KeyRow { pub pitch: u8, pub y: f32, pub height: f32, pub black: bool, pub c: bool, pub in_scale: bool, pub label: String }
+#[derive(Clone, Debug, PartialEq)]
 pub struct NoteRect { pub id: u64, pub x: f32, pub y: f32, pub width: f32, pub height: f32, pub selected: bool, pub label: String }
 #[derive(Clone, Debug)]
 pub struct Gesture { pub original: Note, pub x: f32, pub y: f32, pub resize: bool, pub preview: Note }
@@ -45,7 +45,7 @@ impl Viewport {
     pub fn keys(&self) -> Vec<KeyRow> {
         (0..=127u8).rev().filter_map(|pitch| {
             let y=self.y(pitch); if y+self.row_height<=0.0 || y>=self.height { return None; }
-            Some(KeyRow {pitch,y,height:self.row_height,black:matches!(pitch%12,1|3|6|8|10),c:pitch%12==0,label:label_with_offset(pitch,self.octave_offset)})
+            Some(KeyRow {pitch,y,height:self.row_height,black:matches!(pitch%12,1|3|6|8|10),c:pitch%12==0,in_scale:false,label:label_with_offset(pitch,self.octave_offset)})
         }).collect()
     }
     pub fn fit(&mut self, clip: Option<&MidiClip>) {
@@ -67,16 +67,34 @@ impl Viewport {
         let center=(self.scroll_y+self.height/2.0)/self.row_height;
         self.row_height=(self.row_height*factor).clamp(12.0,32.0); self.scroll_y=center*self.row_height-self.height/2.0;
     }
+    /// Keep the musical position underneath the viewport center fixed while zooming.
+    /// The caller clamps the result to the clip boundaries afterwards.
+    pub fn zoom_x(&mut self, factor:f32) {
+        self.zoom_x_at(factor,self.width/2.0);
+    }
+    /// Preserve the musical position under a pointer while changing scale.
+    pub fn zoom_x_at(&mut self, factor:f32, x:f32) {
+        if !factor.is_finite() || factor<=0.0 || !x.is_finite() {return;}
+        let x=x.clamp(0.0,self.width) as f64;
+        let center=self.start_tick as f64+x/self.pixels_per_beat as f64*PPQ as f64;
+        self.pixels_per_beat=(self.pixels_per_beat*factor).clamp(24.0,256.0);
+        self.start_tick=(center-x/self.pixels_per_beat as f64*PPQ as f64).max(0.0).round() as u64;
+    }
     pub fn scene(&self, project: &Project, track: u64, clip: u64, selected: Option<u64>, preview: Option<&Note>) -> (Vec<NoteRect>, bool) {
+        let selected=selected.into_iter().collect();
+        self.scene_group(project,track,clip,&selected,preview.into_iter().cloned().collect::<Vec<_>>().as_slice())
+    }
+    pub fn scene_group(&self, project: &Project, track: u64, clip: u64, selected: &std::collections::HashSet<u64>, preview: &[Note]) -> (Vec<NoteRect>, bool) {
         let kit=project.track(track).and_then(|t|t.instrument.config.drums());
         let mut scene=Vec::new(); let Some(clip)=project.clip(track,clip) else {return(scene,false)};
+        let preview:std::collections::HashMap<_,_>=preview.iter().map(|n|(n.id,n)).collect();
         for source in &clip.notes {
-            let note=preview.filter(|n|n.id==source.id).unwrap_or(source);
+            let note=preview.get(&source.id).copied().unwrap_or(source);
             let x=self.x(note.start); let width=note.duration as f32/PPQ as f32*self.pixels_per_beat; let y=self.y(note.pitch);
             if x+width<=0.0 || x>=self.width || y+self.row_height<=0.0 || y>=self.height {continue;}
             if scene.len()==MAX_VISIBLE {return(scene,true);}
             scene.push(NoteRect{id:note.id,x,y:y+1.0,width:(width-1.0).max(2.0),height:self.row_height-2.0,
-                selected:selected==Some(note.id),label:kit.map_or_else(||label_with_offset(note.pitch,self.octave_offset),|k|k.note_label(note.pitch))});
+                selected:selected.contains(&note.id),label:kit.map_or_else(||label_with_offset(note.pitch,self.octave_offset),|k|k.note_label(note.pitch))});
         }
         (scene,false)
     }
@@ -84,7 +102,11 @@ impl Viewport {
         if !x.is_finite() || !y.is_finite() || x<0.0 || x>=self.width || y<0.0 || y>=self.height {return None;}
         let (scene,_)=self.scene(p,track,clip,None,None);
         let r=scene.iter().rev().find(|r|x>=r.x && x<r.x+r.width && y>=r.y && y<r.y+r.height)?;
-        Some((p.clip(track,clip)?.notes.iter().find(|n|n.id==r.id)?.clone(),x>=r.x+r.width-7.0))
+        // A fixed 7 px handle covers the whole body of short notes, making
+        // them impossible to move. Reserve at least half of every note for
+        // moving while keeping the existing handle size for longer notes.
+        let resize_width=7.0f32.min(r.width/2.0);
+        Some((p.clip(track,clip)?.notes.iter().find(|n|n.id==r.id)?.clone(),x>=r.x+r.width-resize_width))
     }
     pub fn insertion(&self,length:u64,x:f32,y:f32)->Option<(u64,u8)> {
         if !x.is_finite() || x<0.0 || x>=self.width {return None;}
@@ -129,5 +151,28 @@ impl Viewport {
         let n=v.drag(&g,68.0,-12.0,p.length_ticks); assert_eq!(n.start,PPQ); assert_eq!(n.pitch,61);
         let center=(v.scroll_y+v.height/2.0)/v.row_height;v.zoom_y(1.5);assert!(((v.scroll_y+v.height/2.0)/v.row_height-center).abs()<0.001);
         v.start_tick=12*PPQ;assert!(v.scene(&p,1,4,None,None).0.is_empty());
+    }
+    #[test] fn horizontal_zoom_preserves_center_until_clip_boundary() {
+        let mut v=Viewport{start_tick:4*PPQ,width:400.0,pixels_per_beat:64.0,..Default::default()};
+        let center=v.start_tick as f64+v.width as f64/(2.0*v.pixels_per_beat as f64)*PPQ as f64;
+        v.zoom_x(1.25);
+        let after=v.start_tick as f64+v.width as f64/(2.0*v.pixels_per_beat as f64)*PPQ as f64;
+        assert!((center-after).abs()<=1.0);
+        v.zoom_x(0.8);
+        assert!((v.start_tick as i64-4*PPQ as i64).abs()<=1);
+    }
+    #[test] fn zoom_at_pointer_preserves_tick_under_pointer() {
+        let mut v=Viewport{start_tick:4*PPQ,width:400.0,pixels_per_beat:64.0,..Default::default()};
+        let x=73.0;let before=v.start_tick as f64+x as f64/v.pixels_per_beat as f64*PPQ as f64;
+        v.zoom_x_at(1.5,x);let after=v.start_tick as f64+x as f64/v.pixels_per_beat as f64*PPQ as f64;
+        assert!((before-after).abs()<=1.0);
+    }
+    #[test] fn short_notes_can_be_moved_as_well_as_resized() {
+        let mut p=Project::demo();p.tracks[0].clips[0].notes[0].duration=SNAP;
+        let v=Viewport{pixels_per_beat:24.0,scroll_y:54.0*16.0,..Default::default()};
+        let rect=v.scene(&p,1,4,None,None).0.into_iter().find(|n|n.id==10).unwrap();
+        assert!(rect.width<7.0);
+        assert!(!v.hit(&p,1,4,rect.x+rect.width*0.25,rect.y+rect.height/2.0).unwrap().1);
+        assert!(v.hit(&p,1,4,rect.x+rect.width*0.75,rect.y+rect.height/2.0).unwrap().1);
     }
 }

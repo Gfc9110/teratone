@@ -285,8 +285,12 @@ Master output. Mute/solo work in both headers and inspector; solo is cumulative
 and mute takes precedence. Drag `≡` to reorder, or use the inspector arrows.
 Show selected reveals the selected header; Inspector toggles the panel. Click
 empty piano-roll space to insert, drag to move, drag the right edge to resize,
-right-click or use Delete note to remove. Undo/Redo restores document edits.
-Zoom/pan/octave buttons change the viewport; click the ruler to seek. Audition pads
+and right-click to select a note for contextual actions. Shift- or Ctrl/Command-click
+toggles notes in a selection; drag a selected note's body to move the group, or use
+Delete note to remove it. The velocity control applies to the focused note. Undo/Redo
+restores document edits. Fit notes saves the previous
+viewport for Restore, separately for each clip; repeated Fit actions keep the
+original view. Zoom/pan/octave buttons change the viewport; click the ruler to seek. Audition pads
 send live note IDs. Mixer controls update the active engine without structural
 rebuild. Note/tempo/instrument/structural history edits deliberately stop playback;
 mixer and metadata history can continue live.
@@ -297,9 +301,12 @@ into assets/. Opening is refused while unsaved edits exist. Export writes an
 independent PCM16 WAV. Close asks for explicit save/discard; save does not silently
 close the window. Export completes before application teardown.
 
-A software-rendered interaction test is available as `layout_probe`; full native
-GUI automation has not been run. File dialogs, shortcuts, multi-selection, native packaging,
-code signing and release installers are not included.
+Software-rendered interaction probes include `layout_probe`, `workspace_probe`,
+`context_menu_probe`, `midi_view_probe`, and `view_state_probe`. They cover
+keyboard track selection and rename, multi-selection, MIDI references and project
+view restoration as well as the existing editing workflows. Full native GUI
+automation, native file dialogs, packaging, code signing and release installers
+are not covered. See `docs/ui-redesign.md` for the latest results and limits.
 
 ## CI configuration
 

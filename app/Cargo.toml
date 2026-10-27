@@ -35,8 +35,28 @@ path = "examples/layout_probe.rs"
 required-features = ["ui"]
 
 [[example]]
+name = "context_menu_probe"
+path = "examples/context_menu_probe.rs"
+required-features = ["ui"]
+
+[[example]]
+name = "workspace_probe"
+path = "examples/workspace_probe.rs"
+required-features = ["ui"]
+
+[[example]]
+name = "midi_view_probe"
+path = "examples/midi_view_probe.rs"
+required-features = ["ui"]
+
+[[example]]
 name = "project_workflow_probe"
 path = "examples/project_workflow_probe.rs"
+required-features = ["ui"]
+
+[[example]]
+name = "view_state_probe"
+path = "examples/view_state_probe.rs"
 required-features = ["ui"]
 
 [profile.release]

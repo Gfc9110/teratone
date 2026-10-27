@@ -47,6 +47,11 @@ pub fn settings_path() -> Result<PathBuf, String> {
 }
 
 impl ProjectLibrary {
+    /// Per-project UI preferences share the settings root, not the project folder.
+    /// An in-memory library intentionally has no persistent side effects.
+    pub fn view_state_dir(&self) -> Option<PathBuf> {
+        self.file.as_ref().and_then(|file|file.parent()).map(|base|base.join("project-views"))
+    }
     pub fn load(file: PathBuf) -> Result<Self, String> {
         let settings = match fs::File::open(&file) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),

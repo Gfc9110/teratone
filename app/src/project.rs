@@ -250,6 +250,9 @@ pub enum Edit {
     AddNote { track: u64, clip: u64, start: u64, duration: u64, pitch: u8, velocity: u8 },
     Insert { track: u64, clip: u64, index: usize, note: Note }, Delete { track: u64, clip: u64, id: u64 },
     Replace { track: u64, clip: u64, note: Note }, Tempo(f64), Mix { track: u64, gain: f32, pan: f32 },
+    ReplaceMany { track: u64, clip: u64, notes: Vec<Note> },
+    RemoveMany { track: u64, clip: u64, ids: Vec<u64> },
+    InsertMany { track: u64, clip: u64, notes: Vec<(usize, Note)> },
     Instrument { track: u64, instrument: Instrument },
     Synth { track:u64, instance:u64, instrument:Instrument, field:Option<SynthField> },
     Audibility { track: u64, mute: bool, solo: bool },
@@ -294,6 +297,43 @@ impl Edit {
                 validate_note(&note, p.clip(track, clip).ok_or("Clip no longer exists")?.length_ticks)?;
                 let old = p.clip_mut(track, clip)?.notes.iter_mut().find(|n| n.id == note.id).ok_or("Note not found")?;
                 Ok(Self::Replace { track, clip, note: std::mem::replace(old, note) })
+            }
+            Self::ReplaceMany { track, clip, notes } => {
+                let c=p.clip(track,clip).ok_or("Clip no longer exists")?;
+                let mut ids=std::collections::HashSet::new();
+                let indices:std::collections::HashMap<_,_>=c.notes.iter().enumerate().map(|(i,n)|(n.id,i)).collect();
+                for note in &notes {
+                    validate_note(note,c.length_ticks)?;
+                    if !ids.insert(note.id) || !indices.contains_key(&note.id) {return Err("Invalid note selection".into());}
+                }
+                let c=p.clip_mut(track,clip)?;
+                let old=notes.into_iter().map(|note| {
+                    let target=&mut c.notes[indices[&note.id]];
+                    std::mem::replace(target,note)
+                }).collect();
+                Ok(Self::ReplaceMany {track,clip,notes:old})
+            }
+            Self::RemoveMany {track,clip,ids} => {
+                let c=p.clip(track,clip).ok_or("Clip no longer exists")?;
+                let set:std::collections::HashSet<_>=ids.iter().copied().collect();
+                if set.len()!=ids.len() || c.notes.iter().filter(|n|set.contains(&n.id)).count()!=set.len() {return Err("Invalid note selection".into());}
+                let c=p.clip_mut(track,clip)?;
+                let removed=c.notes.iter().enumerate().filter(|(_,n)|set.contains(&n.id)).map(|(i,n)|(i,n.clone())).collect();
+                c.notes.retain(|n|!set.contains(&n.id));
+                Ok(Self::InsertMany {track,clip,notes:removed})
+            }
+            Self::InsertMany {track,clip,notes} => {
+                let c=p.clip(track,clip).ok_or("Clip no longer exists")?;
+                let existing=p.ids();let mut ids=std::collections::HashSet::new();let mut last=None;
+                for (offset,(index,note)) in notes.iter().enumerate() {
+                    validate_note(note,c.length_ticks)?;
+                    if *index>c.notes.len()+offset || last.is_some_and(|i|*index<=i) || note.id>=p.next_id || existing.contains(&note.id) || !ids.insert(note.id) {return Err("Invalid note selection".into());}
+                    last=Some(*index);
+                }
+                if p.note_count()+notes.len()>MAX_NOTES {return Err("Project note limit reached".into());}
+                let c=p.clip_mut(track,clip)?;
+                for (index,note) in notes {c.notes.insert(index,note);}
+                Ok(Self::RemoveMany {track,clip,ids:ids.into_iter().collect()})
             }
             Self::AddClip { track, start, length } => {
                 let index = p.track(track).ok_or("Track no longer exists")?.clips.len();
@@ -473,6 +513,15 @@ impl History {
 #[cfg(test)] mod tests {
     use super::*;
     const LEGACY: &[u8] = include_bytes!("../../examples/First-session.opendaw/project.json");
+    #[test] fn group_edits_reject_stale_or_duplicate_ids_without_partial_changes() {
+        let mut p=Project::demo();let before=p.clone();let mut h=History::default();
+        let mut note=p.clip(1,4).unwrap().notes[0].clone();note.start+=PPQ;
+        let mut missing=note.clone();missing.id=u64::MAX;
+        assert!(h.execute(&mut p,Edit::ReplaceMany{track:1,clip:4,notes:vec![note.clone(),missing]}).is_err());assert_eq!(p,before);
+        assert!(h.execute(&mut p,Edit::ReplaceMany{track:1,clip:4,notes:vec![note.clone(),note.clone()]}).is_err());assert_eq!(p,before);
+        assert!(h.execute(&mut p,Edit::RemoveMany{track:1,clip:4,ids:vec![note.id,u64::MAX]}).is_err());assert_eq!(p,before);
+        assert!(!h.can_undo());
+    }
     #[test] fn sample_rate_independent_score() { let p = Project::demo(); p.validate().unwrap(); assert_eq!(p.frame_at(PPQ, 48000), 24000); assert_eq!(p.frame_at(PPQ, 44100), 22050); }
     #[test] fn legacy_migration_preserves_score_and_rejects_bad_ids() {
         let p = Project::decode(LEGACY).unwrap(); assert_eq!(p.version, 2); assert_eq!(p.note_count(), 10); assert_eq!(p.clip_count(), 2);

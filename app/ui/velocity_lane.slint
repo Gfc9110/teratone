@@ -1,0 +1,44 @@
+// The lane works in clip-local time, using the same x coordinates as the piano grid.
+export struct VelocityVisual { id: string, x: float, value: int, selected: bool }
+export component VelocityLane inherits Rectangle {
+    in property <[VelocityVisual]> items;
+    callback select-note(string);
+    callback change-value(string, int);
+    private property <string> dragging-id;
+    private property <int> preview-value: 100;
+    background: #101923;
+    clip: true;
+    Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: #40566a; }
+    Rectangle { x: 0; y: parent.height / 2; width: parent.width; height: 1px; background: #29394a; }
+    for bar in root.items : Rectangle {
+        x: bar.x * 1px - 4px; y: 0; width: 9px; height: parent.height;
+        background: transparent;
+        Rectangle {
+            x: 3px; width: 3px;
+            height: max(2px, parent.height * (root.dragging-id == bar.id ? root.preview-value : bar.value) / 127);
+            y: parent.height - self.height;
+            background: bar.selected || root.dragging-id == bar.id ? #e7c77b : #62bfa6;
+        }
+        TouchArea {
+            accessible-role: slider;
+            accessible-label: "Velocity " + bar.value;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    root.dragging-id = bar.id;
+                    root.preview-value = max(1, min(127, round((1 - self.mouse-y / self.height) * 127)));
+                }
+                if event.kind == PointerEventKind.up && root.dragging-id == bar.id {
+                    root.select-note(bar.id);
+                    root.change-value(bar.id, root.preview-value);
+                    root.dragging-id = "";
+                }
+                if event.kind == PointerEventKind.cancel { root.dragging-id = ""; }
+            }
+            moved => {
+                if self.pressed && root.dragging-id == bar.id {
+                    root.preview-value = max(1, min(127, round((1 - self.mouse-y / self.height) * 127)));
+                }
+            }
+        }
+    }
+}

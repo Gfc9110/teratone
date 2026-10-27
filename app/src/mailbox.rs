@@ -9,7 +9,12 @@ pub struct Mailbox {
 fn coalesces(a: &Request, b: &Request) -> bool {
     match (a, b) {
         (Request::Viewport(..), Request::Viewport(..)) |
+        (Request::ArrangementScroll(..), Request::ArrangementScroll(..)) |
         (Request::ArrangementViewport(..), Request::ArrangementViewport(..)) => true,
+        (Request::ViewportForSession(a,..),Request::ViewportForSession(b,..)) |
+        (Request::ArrangementViewportForSession(a,..),Request::ArrangementViewportForSession(b,..)) |
+        (Request::ArrangementScrollForSession(a,..),Request::ArrangementScrollForSession(b,..)) |
+        (Request::ScrollPianoForSession(a,..),Request::ScrollPianoForSession(b,..)) => a==b,
         (Request::Move { token:a, .. },Request::Move { token:b, .. }) => a==b,
         (Request::ScrollPiano(..),Request::ScrollPiano(..)) => true,
         (Request::SetGain { track: a, .. }, Request::SetGain { track: b, .. }) |
@@ -74,6 +79,15 @@ impl Mailbox {
 #[cfg(test)] mod tests {
     use super::*;
     use std::sync::mpsc;
+    #[test] fn transient_view_updates_coalesce_only_within_the_same_project_session() {
+        for (a,b,same) in [
+            (Request::ViewportForSession(0,100.0,100.0),Request::ViewportForSession(0,200.0,200.0),true),
+            (Request::ViewportForSession(0,100.0,100.0),Request::ViewportForSession(1,200.0,200.0),false),
+            (Request::ArrangementViewportForSession(1,0.0,48.0,100.0),Request::ArrangementViewportForSession(2,1.0,48.0,100.0),false),
+            (Request::ArrangementScrollForSession(1,-1.0),Request::ArrangementScrollForSession(2,-2.0),false),
+            (Request::ScrollPianoForSession(1,1.0,2.0),Request::ScrollPianoForSession(2,3.0,4.0),false),
+        ] {assert_eq!(coalesces(&a,&b),same);}
+    }
     #[test] fn slider_burst_coalesces_but_gesture_boundaries_and_edits_survive_stop() {
         let (tx, rx) = mpsc::sync_channel(64); let flags = Arc::new(AtomicU32::new(0)); let epoch = Arc::new(AtomicU64::new(0));
         let mut m = Mailbox::new(tx, flags.clone(), epoch.clone(),Arc::new(AtomicU64::new(0)));
